@@ -47,7 +47,8 @@ CREATE TABLE conversations (
                               'openclaw-gateway',
                               'nanobot',
                               'remote',
-                              'nomi'
+                              'nomi',
+                              'geekclaw'
                           )),
     extra                 TEXT NOT NULL DEFAULT '{}'
                           CHECK (json_valid(extra) AND json_type(extra) = 'object'),
@@ -504,7 +505,8 @@ CREATE TABLE channel_sessions (
                            'openclaw-gateway',
                            'nanobot',
                            'remote',
-                           'nomi'
+                           'nomi',
+                           'geekclaw'
                        )),
     conversation_id    TEXT,
     workspace          TEXT,
@@ -1743,14 +1745,14 @@ CREATE INDEX idx_terminal_sessions_idmm_fault_provider_id
 CREATE INDEX idx_terminal_sessions_idmm_decision_provider_id
     ON terminal_sessions(json_extract(idmm, '$.decision_watch.bypass_model.provider_id'))
     WHERE idmm IS NOT NULL;
-CREATE INDEX idx_cron_jobs_nomi_provider_id
+CREATE INDEX idx_cron_jobs_geekclaw_provider_id
     ON cron_jobs(
         CASE
             WHEN json_valid(agent_config) THEN json_extract(agent_config, '$.provider_id')
             ELSE NULL
         END
     )
-    WHERE agent_type = 'nomi' AND agent_config IS NOT NULL;
+    WHERE agent_type = 'geekclaw' AND agent_config IS NOT NULL;
 CREATE INDEX idx_workshop_assets_origin_provider_id
     ON workshop_assets(json_extract(origin, '$.provider_id'))
     WHERE origin IS NOT NULL;
@@ -2011,10 +2013,10 @@ VALUES
      unixepoch('now','subsec')*1000, unixepoch('now','subsec')*1000),
 
     -- Internal
-    ('0190f5fe-7c00-7a00-8000-000000000114', '/api/assets/logos/brand/nomi.svg', 'Nomi',
-     NULL, 'nomi', 'internal', '{}', 'agent_builtin_nomi',
+    ('0190f5fe-7c00-7a00-8000-000000000114', '/api/assets/logos/brand/geekclaw.png', 'GeekClaw',
+     NULL, 'geekclaw', 'internal', '{}', 'agent_builtin_geekclaw',
      1, NULL, '[]', '[]',
-     '[".nomi/skills"]',
+     '["/geekclaw/skills"]',
      '{}',
      'yolo',
      NULL, NULL,

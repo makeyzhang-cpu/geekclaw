@@ -31,8 +31,10 @@ linker = "rust-lld.exe"
 # start of every dev/build/test entry point. NOTE: first build after pulling
 # this rebuilds intermediates into the new location — run `cargo clean` once
 # to reclaim the orphaned old target/ contents.
+# 2026-08-07 本地覆盖：源码在 E:(exFAT) 不能放构建产物（无硬链接、不稳），
+# 统一路由到 D:(NTFS 数据盘，重置不丢)。CARGO_BUILD_DIR 环境变量同样指向它。
 [build]
-build-dir = "{workspace-root}/build.noindex"
+build-dir = "D:/gc-build1"
 
 # Enlarge rustc's compilation-thread stack. The release `tauri build` embeds the
 # entire frontend `ui/dist` (~34 MB, hundreds of files) into the `geekclaw-desktop`
