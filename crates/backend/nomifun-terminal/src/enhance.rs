@@ -1,0 +1,1069 @@
+//! Terminal launch enhancement: the single PTY-spawn seam that renders
+//! platform capabilities (today: MCP servers) into each agent CLI's NATIVE
+//! launch config. Per-CLI capability rendering is isolated into `AgentCli`;
+//! unknown CLIs get nothing (honest — no pretense, no pollution).
+
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+
+use nomifun_common::TerminalId;
+
+/// One MCP server to inject into a terminal-launched CLI. Backend-agnostic; a
+/// per-CLI renderer turns this into that CLI's native MCP config.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerSpec {
+    /// Wire-level server name (e.g. "geekclaw-knowledge"). Must be a bare-key-safe
+    /// identifier (ASCII alphanumeric, `-`, `_`) for codex dotted-key rendering.
+    pub name: String,
+    /// Program that launches the stdio bridge (the backend's own executable).
+    pub command: String,
+    /// Bridge subcommand args (e.g. ["mcp-knowledge-stdio"]).
+    pub args: Vec<String>,
+    /// Environment inherited by the bridge process (port/scoped token/claims).
+    /// Renderers keep these values out of config files and command-line args.
+    pub env: HashMap<String, String>,
+}
+
+/// Lifecycle hook wiring baked into a terminal spawn so the CLI's native hooks
+/// can call back to the in-process `TerminalLifecycleServer`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifecycleHookWiring {
+    pub port: u16,
+    pub token: String,
+    pub terminal_id: TerminalId,
+    /// Exact `PtyHandle` spawn generation. Delayed hook events from an older
+    /// process are rejected by exact-generation subscribers.
+    pub pty_epoch: u64,
+    /// Absolute path to the backend binary (`geekclaw`); used as the hook command
+    /// prefix (`<bin> terminal-hook --event <kind>`).
+    pub binary_path: String,
+}
+
+/// Everything the platform injects into one terminal launch: MCP servers +
+/// lifecycle hook wiring.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TerminalLaunchEnhancement {
+    pub mcp_servers: Vec<McpServerSpec>,
+    pub lifecycle: Option<LifecycleHookWiring>,
+}
+
+impl TerminalLaunchEnhancement {
+    pub fn is_empty(&self) -> bool {
+        self.mcp_servers.is_empty() && self.lifecycle.is_none()
+    }
+}
+
+/// Which agent CLI a launch program is, for capability injection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentCli {
+    Claude,
+    Codex,
+    Gemini,
+}
+
+/// Map a stem (file name without extension, lowercased) to a known agent family.
+fn family_from_stem(s: &str) -> Option<AgentCli> {
+    let stem = Path::new(s)
+        .file_stem()
+        .and_then(|x| x.to_str())?
+        .to_ascii_lowercase();
+    match stem.as_str() {
+        "claude" => Some(AgentCli::Claude),
+        "codex" => Some(AgentCli::Codex),
+        "gemini" => Some(AgentCli::Gemini),
+        _ => None,
+    }
+}
+
+/// Map a launch to its agent family for platform-MCP injection/registration.
+/// Resolution order: explicitly DECLARED backend (preset/user) → the program's
+/// own stem → a known family token among the args (wrapper/launcher like
+/// `stepcode claude`, `npx codex`) → None (honest: unknown CLI).
+pub fn resolve_agent_family(
+    program: &str,
+    args: &[String],
+    declared_backend: Option<&str>,
+) -> Option<AgentCli> {
+    // 1. Declared backend wins (user/preset explicitly said "this is codex").
+    if let Some(b) = declared_backend.and_then(family_from_stem) {
+        return Some(b);
+    }
+    // 2. Program stem.
+    if let Some(p) = family_from_stem(program) {
+        return Some(p);
+    }
+    // 3. Wrapper: scan args for the FIRST token whose stem is a known family.
+    args.iter().find_map(|a| family_from_stem(a))
+}
+
+impl AgentCli {
+    /// Whether this CLI family has a lifecycle-hook renderer (Stop → TurnEnd)
+    /// in `apply_enhancement`. Terminal AutoWork requires this: it is the ONLY
+    /// structured turn-end signal (see `nomifun-requirement`'s AutoWork runner —
+    /// no quiescence fallback). Claude/Codex have launch-flag renderers; Gemini
+    /// has no launch-time injection mechanism, so it is NOT autowork-capable.
+    pub fn supports_lifecycle_hooks(self) -> bool {
+        match self {
+            // Claude hooks use a POSIX shell on Unix. On Windows the rendered
+            // hook explicitly selects PowerShell (see claude_hook below).
+            Self::Claude => cfg!(any(unix, windows)),
+            // Codex uses the platform shell on Unix and COMSPEC/cmd.exe on
+            // Windows. The command renderer below never interpolates paths.
+            Self::Codex => cfg!(any(unix, windows)),
+            Self::Gemini => false,
+        }
+    }
+}
+
+/// Whether a terminal launch is eligible for AutoWork: it resolves to an agent
+/// CLI family that has a lifecycle-hook renderer, so the platform can detect
+/// turn boundaries. This MIRRORS exactly what `apply_enhancement` will inject
+/// for the same `(command, args, declared_backend)` — the single source of
+/// truth for "AutoWork can drive this terminal". Covers wrappers (`stepcode
+/// claude`, `npx codex`), bare/custom commands, and explicitly declared
+/// backends, so the eligibility gate never rejects a launch the injector would
+/// have hooked.
+pub fn terminal_autowork_capable(command: &str, args: &[String], declared_backend: Option<&str>) -> bool {
+    let (program, prog_args) = crate::types::resolve_command(command, args);
+    resolve_agent_family(&program, &prog_args, declared_backend).is_some_and(AgentCli::supports_lifecycle_hooks)
+}
+
+fn utf8_cli_path(path: &Path, purpose: &str) -> std::io::Result<String> {
+    path.to_str().map(str::to_owned).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{purpose} is not valid Unicode and cannot be passed to the agent CLI: {path:?}"),
+        )
+    })
+}
+
+/// Render the enhancement as a claude `--mcp-config` JSON file in `session_dir`
+/// and return the EXTRA argv to append. Additive (no `--strict-mcp-config`) so
+/// the user's own project/user `.mcp.json` servers are preserved; ours is added
+/// alongside. Collision risk is negligible (platform servers use reserved
+/// `geekclaw-*` names). The file lives in the platform's session-private dir,
+/// NEVER the user's cwd (no git pollution). claude auth (keychain/~/.claude) is
+/// untouched.
+fn claude_mcp_argv(enh: &TerminalLaunchEnhancement, session_dir: &Path) -> std::io::Result<Vec<String>> {
+    let servers: serde_json::Map<String, serde_json::Value> = enh
+        .mcp_servers
+        .iter()
+        .map(|s| {
+            (
+                s.name.clone(),
+                serde_json::json!({ "command": s.command, "args": s.args }),
+            )
+        })
+        .collect();
+    let doc = serde_json::json!({ "mcpServers": servers });
+    std::fs::create_dir_all(session_dir)?;
+    let path = session_dir.join("mcp.json");
+    let bytes = serde_json::to_vec_pretty(&doc)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, bytes)?;
+    Ok(vec![
+        "--mcp-config".to_owned(),
+        utf8_cli_path(&path, "Claude MCP config path")?,
+    ])
+}
+
+/// Render the enhancement as a gemini system-DEFAULTS settings file in
+/// `session_dir` and return the env additions that activate it. Verified
+/// against gemini-cli 0.53.1 (2026-07-31, local probe):
+///
+/// - `GEMINI_CLI_SYSTEM_DEFAULTS_PATH` points the lowest-precedence settings
+///   layer at a session-private file — user/workspace settings still override
+///   per-key (`mcpServers` merges shallowly by server name), and the user's
+///   real system settings are untouched.
+/// - `mcpServers.<name>.env` values support `$VAR` expansion from the parent
+///   process environment, and the expanded value reaches the spawned MCP
+///   child — so the capability token rides ONLY the PTY env (via
+///   `mcp_process_env`), never this file.
+/// - gemini's own folder-trust dialog gates stdio MCP servers in untrusted
+///   folders. That is the CLI's consent UX; the platform deliberately does
+///   NOT set `GEMINI_CLI_TRUST_WORKSPACE` to bypass it.
+///
+/// If the machine has a real system-defaults file (admin-managed), its content
+/// is merged in first and only the platform's `geekclaw-*` server keys are
+/// overlaid, so overriding the path does not drop admin configuration.
+fn gemini_mcp_env(
+    enh: &TerminalLaunchEnhancement,
+    session_dir: &Path,
+) -> std::io::Result<Vec<(String, String)>> {
+    let mut doc = read_real_gemini_system_defaults().unwrap_or_else(|| serde_json::json!({}));
+    if !doc.is_object() {
+        doc = serde_json::json!({});
+    }
+    let servers = doc
+        .as_object_mut()
+        .expect("checked object above")
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+    if !servers.is_object() {
+        *servers = serde_json::json!({});
+    }
+    let servers = servers.as_object_mut().expect("normalized to object above");
+    for s in &enh.mcp_servers {
+        // `$NAME` placeholders: gemini expands these from the PTY process
+        // environment at settings load; the secret value stays out of the file.
+        let env: serde_json::Map<String, serde_json::Value> = {
+            let mut names: Vec<&String> = s.env.keys().collect();
+            names.sort();
+            names
+                .into_iter()
+                .map(|name| (name.clone(), serde_json::Value::String(format!("${name}"))))
+                .collect()
+        };
+        servers.insert(
+            s.name.clone(),
+            serde_json::json!({
+                "command": s.command,
+                "args": s.args,
+                "env": env,
+            }),
+        );
+    }
+    std::fs::create_dir_all(session_dir)?;
+    let path = session_dir.join("gemini-system-defaults.json");
+    let bytes = serde_json::to_vec_pretty(&doc)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, bytes)?;
+
+    let mut env = vec![(
+        "GEMINI_CLI_SYSTEM_DEFAULTS_PATH".to_owned(),
+        utf8_cli_path(&path, "Gemini system-defaults settings path")?,
+    )];
+    env.extend(mcp_process_env(enh));
+    Ok(env)
+}
+
+/// The OS's standard gemini system-defaults file, when an admin installed one.
+fn read_real_gemini_system_defaults() -> Option<serde_json::Value> {
+    let path = if cfg!(target_os = "macos") {
+        Path::new("/Library/Application Support/GeminiCli/system-defaults.json").to_path_buf()
+    } else if cfg!(windows) {
+        Path::new(r"C:\ProgramData\gemini-cli\system-defaults.json").to_path_buf()
+    } else {
+        Path::new("/etc/gemini-cli/system-defaults.json").to_path_buf()
+    };
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// TOML bare-key-safe server name (so `mcp_servers.<name>.x` is a valid dotted key).
+fn is_bare_key_safe(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Render the enhancement as codex `-c mcp_servers.*` config overrides appended
+/// to argv. Uses `-c` (NOT `CODEX_HOME`) so the user's `~/.codex/auth.json` and
+/// base config stay the source of truth — relocating CODEX_HOME would strand
+/// the login. Each value is TOML (strings quoted, arrays as TOML arrays); codex
+/// parses dotted-path `-c` values as TOML (`codex --help`).
+///
+/// codex spawns MCP stdio children with a WHITELIST environment (HOME/PATH/…),
+/// NOT the parent env — so each server's scoped env vars are forwarded by NAME
+/// through `env_vars` (codex's documented per-server passthrough list). Only
+/// names go into argv; the secret values ride the PTY process environment and
+/// codex copies them into the child by name at spawn.
+fn codex_mcp_argv(enh: &TerminalLaunchEnhancement) -> Vec<String> {
+    let mut argv = Vec::new();
+    for s in &enh.mcp_servers {
+        if !is_bare_key_safe(&s.name) {
+            tracing::warn!(name = %s.name, "skipping codex MCP server with non-bare-key-safe name");
+            continue;
+        }
+        let base = format!("mcp_servers.{}", s.name);
+        argv.push("-c".to_owned());
+        argv.push(format!("{base}.command={}", toml_str(&s.command)));
+        argv.push("-c".to_owned());
+        argv.push(format!("{base}.args={}", toml_str_array(&s.args)));
+        if !s.env.is_empty() {
+            let mut names: Vec<String> = s.env.keys().cloned().collect();
+            names.sort();
+            argv.push("-c".to_owned());
+            argv.push(format!("{base}.env_vars={}", toml_str_array(&names)));
+        }
+    }
+    argv
+}
+
+/// Merge scoped bridge environments deterministically. These values are placed
+/// in the PTY process environment so secrets never appear in Claude config
+/// files or Codex argv. Claude passes its full env to MCP stdio children;
+/// codex filters to a whitelist, so `codex_mcp_argv` additionally forwards
+/// each var BY NAME via `mcp_servers.<name>.env_vars`.
+fn mcp_process_env(enh: &TerminalLaunchEnhancement) -> Vec<(String, String)> {
+    let mut merged = BTreeMap::new();
+    for server in &enh.mcp_servers {
+        for (key, value) in &server.env {
+            if let Some(previous) = merged.insert(key.clone(), value.clone())
+                && previous != *value
+            {
+                tracing::warn!(key, server = %server.name, "conflicting MCP process environment; using the last scoped value");
+            }
+        }
+    }
+    merged.into_iter().collect()
+}
+
+/// TOML basic-string literal: wrap in quotes, escape `\`, `"`, and control chars.
+fn toml_str(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if c.is_control() => { let _ = write!(out, "\\u{:04X}", c as u32); }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// TOML inline array of basic strings.
+fn toml_str_array(items: &[String]) -> String {
+    let inner: Vec<String> = items.iter().map(|i| toml_str(i)).collect();
+    format!("[{}]", inner.join(","))
+}
+
+/// POSIX fallback used by Codex's `command` field. The executable path remains
+/// data in the child environment and is never interpolated into shell source.
+fn codex_posix_hook_command(event: &str) -> String {
+    format!("exec \"$NOMI_TERM_HOOK_BIN\" terminal-hook --event {event}")
+}
+
+/// Windows override used by Codex's `commandWindows` field. PowerShell receives
+/// a UTF-16LE Base64 program, so the outer shell parses only fixed ASCII and
+/// never sees either the executable path or PowerShell metacharacters.
+fn codex_windows_hook_command(event: &str) -> String {
+    use base64::Engine as _;
+    let script = format!("& $env:NOMI_TERM_HOOK_BIN terminal-hook --event {event}");
+    let utf16le: Vec<u8> = script
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let encoded = base64::engine::general_purpose::STANDARD.encode(utf16le);
+    format!(
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}"
+    )
+}
+
+/// Render lifecycle hook commands for claude: writes a `settings.json` in
+/// `session_dir` containing hook definitions for Stop/PostToolUse/Notification,
+/// and returns the `--settings <path>` argv + env additions.
+fn claude_lifecycle_argv(
+    lc: &LifecycleHookWiring,
+    session_dir: &Path,
+) -> std::io::Result<(Vec<String>, Vec<(String, String)>)> {
+    // Shell command strings — quote the binary path (may contain spaces).
+    // Claude's exec-form hook keeps executable and argv as JSON data.
+
+    let doc = serde_json::json!({
+        "hooks": {
+            "Stop": [{"hooks": [{"type": "command", "command": lc.binary_path, "args": ["terminal-hook", "--event", "turn_end"]}]}],
+            "PostToolUse": [{"hooks": [{"type": "command", "command": lc.binary_path, "args": ["terminal-hook", "--event", "tool_use"]}]}],
+            "Notification": [{"hooks": [{"type": "command", "command": lc.binary_path, "args": ["terminal-hook", "--event", "notification"]}]}],
+        }
+    });
+    std::fs::create_dir_all(session_dir)?;
+    let path = session_dir.join("settings.json");
+    let bytes = serde_json::to_vec_pretty(&doc)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, bytes)?;
+
+    let argv = vec![
+        "--settings".to_owned(),
+        utf8_cli_path(&path, "Claude lifecycle settings path")?,
+    ];
+    let env = lifecycle_env(lc);
+    Ok((argv, env))
+}
+
+/// Render lifecycle hook commands for codex: appends `-c hooks.*` TOML overrides
+/// plus the lifecycle env. Coexists with Plan 1 MCP `-c` overrides (codex
+/// handles multiple `-c` flags additively).
+///
+/// Do not inject the retired `--dangerously-bypass-hook-trust` switch. Current
+/// Codex releases reject it during argument parsing (exit code 2) before any
+/// hook or interactive UI can start.
+fn codex_lifecycle_argv(lc: &LifecycleHookWiring) -> (Vec<String>, Vec<(String, String)>) {
+    let cmd_turn_end = codex_posix_hook_command("turn_end");
+    let cmd_turn_end_windows = codex_windows_hook_command("turn_end");
+    let cmd_tool_use = codex_posix_hook_command("tool_use");
+    let cmd_tool_use_windows = codex_windows_hook_command("tool_use");
+    let cmd_session_start = codex_posix_hook_command("session_start");
+    let cmd_session_start_windows = codex_windows_hook_command("session_start");
+
+    let mut argv = Vec::new();
+    // Stop
+    argv.push("-c".to_owned());
+    argv.push(format!(
+        "hooks.Stop=[{{hooks=[{{type=\"command\",command={},commandWindows={}}}]}}]",
+        toml_str(&cmd_turn_end),
+        toml_str(&cmd_turn_end_windows)
+    ));
+    // PostToolUse
+    argv.push("-c".to_owned());
+    argv.push(format!(
+        "hooks.PostToolUse=[{{hooks=[{{type=\"command\",command={},commandWindows={}}}]}}]",
+        toml_str(&cmd_tool_use),
+        toml_str(&cmd_tool_use_windows)
+    ));
+    // SessionStart
+    argv.push("-c".to_owned());
+    argv.push(format!(
+        "hooks.SessionStart=[{{hooks=[{{type=\"command\",command={},commandWindows={}}}]}}]",
+        toml_str(&cmd_session_start),
+        toml_str(&cmd_session_start_windows)
+    ));
+
+    let env = lifecycle_env(lc);
+    (argv, env)
+}
+
+/// Env vars baked into the PTY so the `terminal-hook` shim can reach the
+/// in-process TerminalLifecycleServer.
+fn lifecycle_env(lc: &LifecycleHookWiring) -> Vec<(String, String)> {
+    vec![
+        ("NOMI_TERM_HOOK_PORT".to_owned(), lc.port.to_string()),
+        ("NOMI_TERM_HOOK_TOKEN".to_owned(), lc.token.clone()),
+        ("NOMI_TERM_HOOK_ID".to_owned(), lc.terminal_id.to_string()),
+        (
+            "NOMI_TERM_HOOK_EPOCH".to_owned(),
+            lc.pty_epoch.to_string(),
+        ),
+        (
+            "NOMI_TERM_HOOK_BIN".to_owned(),
+            lc.binary_path.clone(),
+        ),
+    ]
+}
+
+/// Apply platform enhancement to a resolved launch argv. Dispatches on the
+/// resolved agent family (declared backend > stem > wrapper arg token); unknown
+/// programs are returned UNCHANGED (honest no-op, no pretense). A failed claude
+/// config write degrades to "launch without the tool" (warn), never blocks the
+/// PTY. `session_dir` is a platform-private dir (NEVER the user's cwd).
+///
+/// Returns `(args, env_additions)` — the caller merges `env_additions` into
+/// the PTY spawn env.
+pub fn apply_enhancement(
+    program: &str,
+    mut args: Vec<String>,
+    enh: &TerminalLaunchEnhancement,
+    session_dir: &Path,
+    declared_backend: Option<&str>,
+) -> (Vec<String>, Vec<(String, String)>) {
+    if enh.is_empty() {
+        return (args, Vec::new());
+    }
+
+    let mut env_additions: Vec<(String, String)> = Vec::new();
+
+    // Resolve family BEFORE any args.extend (borrows &args).
+    let family = resolve_agent_family(program, &args, declared_backend);
+
+    match family {
+        Some(AgentCli::Claude) => {
+            // MCP injection
+            if !enh.mcp_servers.is_empty() {
+                match claude_mcp_argv(enh, session_dir) {
+                    Ok(extra) => {
+                        args.extend(extra);
+                        env_additions.extend(mcp_process_env(enh));
+                    }
+                    Err(e) => tracing::warn!(error = %e, "claude MCP config write failed; launching without knowledge tool"),
+                }
+            }
+            // Lifecycle hooks
+            if let Some(lc) = &enh.lifecycle {
+                match claude_lifecycle_argv(lc, session_dir) {
+                    Ok((extra_args, extra_env)) => {
+                        args.extend(extra_args);
+                        env_additions.extend(extra_env);
+                    }
+                    Err(e) => tracing::warn!(error = %e, "claude lifecycle settings write failed; launching without hooks"),
+                }
+            }
+        }
+        Some(AgentCli::Codex) => {
+            // MCP injection
+            if !enh.mcp_servers.is_empty() {
+                args.extend(codex_mcp_argv(enh));
+                env_additions.extend(mcp_process_env(enh));
+            }
+            // Lifecycle hooks
+            if let Some(lc) = &enh.lifecycle {
+                let (extra_args, extra_env) = codex_lifecycle_argv(lc);
+                args.extend(extra_args);
+                env_additions.extend(extra_env);
+            }
+        }
+        Some(AgentCli::Gemini) => {
+            // MCP injection via a session-private system-DEFAULTS settings
+            // file (lowest-precedence layer; user/workspace settings still
+            // win per key). Secrets ride the PTY env through `$VAR`
+            // placeholders — see `gemini_mcp_env`. gemini's own folder-trust
+            // consent still gates the servers; the platform never bypasses it.
+            // Lifecycle hooks are NOT rendered: wiring them is gated on local
+            // verification of gemini's hook semantics (>= 0.49) — tracked
+            // follow-up, not a silent capability claim.
+            if !enh.mcp_servers.is_empty() {
+                match gemini_mcp_env(enh, session_dir) {
+                    Ok(extra_env) => env_additions.extend(extra_env),
+                    Err(e) => tracing::warn!(error = %e, "gemini settings write failed; launching without knowledge tool"),
+                }
+            }
+        }
+        None => {} // unknown CLI: no injection (honest)
+    }
+    (args, env_additions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn sample_kb_server() -> McpServerSpec {
+        McpServerSpec {
+            name: "geekclaw-knowledge".into(),
+            command: "/opt/geekclaw/geekclaw".into(),
+            args: vec!["mcp-knowledge-stdio".into()],
+            env: HashMap::from([(
+                "GEEKCLAW_KB_MCP_CAPABILITY".into(),
+                "scoped-bootstrap".into(),
+            )]),
+        }
+    }
+
+    #[test]
+    fn enhancement_empty_when_no_servers_and_no_lifecycle() {
+        assert!(TerminalLaunchEnhancement::default().is_empty());
+        let e = TerminalLaunchEnhancement { mcp_servers: vec![sample_kb_server()], lifecycle: None };
+        assert!(!e.is_empty());
+        let e2 = TerminalLaunchEnhancement {
+            mcp_servers: vec![],
+            lifecycle: Some(LifecycleHookWiring { port: 1, token: "t".into(), terminal_id: TerminalId::new(), pty_epoch: 1, binary_path: "/bin".into() }),
+        };
+        assert!(!e2.is_empty());
+    }
+
+    #[test]
+    fn resolve_agent_family_by_stem_case_and_path_insensitive() {
+        assert_eq!(resolve_agent_family("claude", &[], None), Some(AgentCli::Claude));
+        assert_eq!(
+            resolve_agent_family("/usr/local/bin/claude", &[], None),
+            Some(AgentCli::Claude)
+        );
+        assert_eq!(resolve_agent_family("codex", &[], None), Some(AgentCli::Codex));
+        assert_eq!(
+            resolve_agent_family("/Users/u/.bun/bin/Codex", &[], None),
+            Some(AgentCli::Codex)
+        );
+        assert_eq!(resolve_agent_family("gemini", &[], None), Some(AgentCli::Gemini));
+        // Unknown / shells / near-misses → None (honest: no injection).
+        assert_eq!(resolve_agent_family("/bin/bash", &[], None), None);
+        assert_eq!(resolve_agent_family("claude-helper", &[], None), None);
+        assert_eq!(resolve_agent_family("", &[], None), None);
+    }
+
+    #[test]
+    fn claude_renderer_writes_mcp_json_outside_cwd_and_returns_additive_argv() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![sample_kb_server()], lifecycle: None };
+        let argv = claude_mcp_argv(&enh, dir.path()).expect("write ok");
+
+        // argv 形如 ["--mcp-config", "<dir>/mcp.json"] — additive, no --strict-mcp-config
+        assert_eq!(argv.len(), 2);
+        assert_eq!(argv[0], "--mcp-config");
+        assert!(argv[1].ends_with("mcp.json"));
+        assert!(std::path::Path::new(&argv[1]).starts_with(dir.path())); // 不在用户 cwd
+
+        let doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&argv[1]).unwrap()).unwrap();
+        let srv = &doc["mcpServers"]["geekclaw-knowledge"];
+        assert_eq!(srv["command"], "/opt/geekclaw/geekclaw");
+        assert_eq!(srv["args"][0], "mcp-knowledge-stdio");
+        assert!(
+            srv.get("env").is_none(),
+            "capability values must not be written to disk: {srv}"
+        );
+    }
+
+    #[test]
+    fn codex_renderer_emits_c_overrides_preserving_user_config() {
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![sample_kb_server()], lifecycle: None };
+        let argv = codex_mcp_argv(&enh);
+        // 形如 -c mcp_servers.geekclaw-knowledge.command="..." -c ...args=[...] -c ...env_vars=[...]
+        let joined = argv.join(" ");
+        assert!(joined.contains(r#"-c mcp_servers.geekclaw-knowledge.command="/opt/geekclaw/geekclaw""#));
+        assert!(joined.contains(r#"mcp_servers.geekclaw-knowledge.args=["mcp-knowledge-stdio"]"#));
+        assert!(!joined.contains("scoped-bootstrap"));
+        // codex spawns MCP children with a whitelist environment, so the
+        // capability env var must be forwarded BY NAME via env_vars. Only the
+        // name may appear in argv — never the value.
+        assert!(joined.contains(r#"mcp_servers.geekclaw-knowledge.env_vars=["GEEKCLAW_KB_MCP_CAPABILITY"]"#));
+        // 每个 override 前都有独立的 -c (command + args + env_vars = 3)
+        assert_eq!(argv.iter().filter(|a| *a == "-c").count(), 3);
+        assert!(!joined.contains("CODEX_HOME"));
+        // Loose KB_IDS must never appear; scope lives in signed claims.
+        assert!(!joined.contains("KB_MCP_KB_IDS"), "kb_ids must not be baked");
+    }
+
+    #[test]
+    fn codex_renderer_omits_env_vars_for_envless_server() {
+        let server = McpServerSpec {
+            name: "plain".into(),
+            command: "/bin/echo".into(),
+            args: vec![],
+            env: HashMap::new(),
+        };
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![server], lifecycle: None };
+        let joined = codex_mcp_argv(&enh).join(" ");
+        assert!(!joined.contains("env_vars"), "no env → no whitelist override: {joined}");
+    }
+
+    #[test]
+    fn toml_str_escapes_quotes_and_backslashes() {
+        assert_eq!(toml_str(r#"a"b\c"#), r#""a\"b\\c""#);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_config_path_rejects_non_utf8_instead_of_replacing_bytes() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![
+            b'/', b't', b'm', b'p', b'/', b'n', b'o', b'm', b'i', 0xff,
+        ]));
+        assert!(utf8_cli_path(&path, "test config").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cli_config_path_rejects_unpaired_utf16_instead_of_replacing_it() {
+        use std::os::windows::ffi::OsStringExt as _;
+
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_wide(&[
+            b'C' as u16,
+            b':' as u16,
+            b'\\' as u16,
+            b'n' as u16,
+            b'o' as u16,
+            b'm' as u16,
+            b'i' as u16,
+            0xd800,
+        ]));
+        assert!(utf8_cli_path(&path, "test config").is_err());
+    }
+
+    #[test]
+    fn apply_enhancement_dispatches_by_cli_and_noops_unknown() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![sample_kb_server()], lifecycle: None };
+
+        // claude → 追加 --mcp-config (additive, 不含 --strict-mcp-config)
+        let (out, env) = apply_enhancement("claude", vec!["--dangerously-skip-permissions".into()], &enh, dir.path(), None);
+        assert_eq!(out[0], "--dangerously-skip-permissions");
+        assert!(out.iter().any(|a| a == "--mcp-config"));
+        let env: HashMap<_, _> = env.into_iter().collect();
+        assert_eq!(
+            env.get("GEEKCLAW_KB_MCP_CAPABILITY").map(String::as_str),
+            Some("scoped-bootstrap")
+        );
+
+        // codex → 追加 -c mcp_servers...
+        let (out, env) = apply_enhancement("codex", vec![], &enh, dir.path(), None);
+        assert!(out.iter().any(|a| a == "-c"));
+        assert!(out.iter().any(|a| a.starts_with("mcp_servers.geekclaw-knowledge")));
+        let env: HashMap<_, _> = env.into_iter().collect();
+        assert_eq!(
+            env.get("GEEKCLAW_KB_MCP_CAPABILITY").map(String::as_str),
+            Some("scoped-bootstrap")
+        );
+
+        let (out, env) =
+            apply_enhancement("/bin/bash", vec!["-l".into()], &enh, dir.path(), None);
+        assert_eq!(out, vec!["-l".to_owned()]);
+        assert!(env.is_empty());
+
+        let (out, env) = apply_enhancement(
+            "claude",
+            vec!["-x".into()],
+            &TerminalLaunchEnhancement::default(),
+            dir.path(),
+            None,
+        );
+        assert_eq!(out, vec!["-x".to_owned()]);
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    fn toml_str_escapes_control_chars() {
+        // Named escapes for \n \t
+        assert_eq!(toml_str("a\nb\tc"), r#""a\nb\tc""#);
+        // Raw control char U+0001 → 
+        assert_eq!(toml_str("\u{1}"), "\"\\u0001\"");
+    }
+
+    #[test]
+    fn codex_empty_args_renders_empty_array() {
+        let server = McpServerSpec {
+            name: "simple".into(),
+            command: "/bin/echo".into(),
+            args: vec![],
+            env: HashMap::new(),
+        };
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![server], lifecycle: None };
+        let argv = codex_mcp_argv(&enh);
+        let joined = argv.join(" ");
+        assert!(joined.contains("mcp_servers.simple.args=[]"));
+    }
+
+    #[test]
+    fn codex_skips_non_bare_key_safe_name_and_emits_safe_ones() {
+        let bad = McpServerSpec {
+            name: "bad.name".into(),
+            command: "/bin/x".into(),
+            args: vec![],
+            env: HashMap::new(),
+        };
+        let good = McpServerSpec {
+            name: "geekclaw-knowledge".into(),
+            command: "/opt/geekclaw/geekclaw".into(),
+            args: vec!["mcp-knowledge-stdio".into()],
+            env: HashMap::new(),
+        };
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![bad, good], lifecycle: None };
+        let argv = codex_mcp_argv(&enh);
+        let joined = argv.join(" ");
+        // bad.name must NOT appear in output
+        assert!(!joined.contains("bad.name"));
+        // good name emitted normally
+        assert!(joined.contains("mcp_servers.geekclaw-knowledge.command="));
+    }
+
+    #[test]
+    fn apply_enhancement_with_lifecycle_renders_hooks_and_env() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let terminal_id = TerminalId::new();
+        let enh = TerminalLaunchEnhancement {
+            mcp_servers: vec![],
+            lifecycle: Some(LifecycleHookWiring {
+                port: 5151,
+                token: "htok".into(),
+                terminal_id: terminal_id.clone(),
+                pty_epoch: 41,
+                binary_path: "/opt/geekclaw/geekclaw".into(),
+            }),
+        };
+
+        // claude: --settings file written with Stop/PostToolUse/Notification hooks; env carries hook wiring
+        let (args, env) = apply_enhancement("claude", vec![], &enh, dir.path(), None);
+        assert!(args.iter().any(|a| a == "--settings"));
+        let env_map: HashMap<String, String> = env.into_iter().collect();
+        assert_eq!(env_map.get("NOMI_TERM_HOOK_PORT").map(String::as_str), Some("5151"));
+        assert_eq!(env_map.get("NOMI_TERM_HOOK_TOKEN").map(String::as_str), Some("htok"));
+        assert_eq!(
+            env_map.get("NOMI_TERM_HOOK_ID").map(String::as_str),
+            Some(terminal_id.as_str())
+        );
+        assert_eq!(
+            env_map.get("NOMI_TERM_HOOK_EPOCH").map(String::as_str),
+            Some("41")
+        );
+        assert_eq!(
+            env_map.get("NOMI_TERM_HOOK_BIN").map(String::as_str),
+            Some("/opt/geekclaw/geekclaw")
+        );
+        // settings file contains Stop/PostToolUse/Notification hooks calling `terminal-hook`
+        let settings_path = args.iter().position(|a| a == "--settings").map(|i| args[i + 1].clone()).unwrap();
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&settings_path).unwrap()).unwrap();
+        assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["command"], "/opt/geekclaw/geekclaw");
+        assert_eq!(
+            doc["hooks"]["Stop"][0]["hooks"][0]["args"],
+            serde_json::json!(["terminal-hook", "--event", "turn_end"])
+        );
+        assert_eq!(
+            doc["hooks"]["PostToolUse"][0]["hooks"][0]["args"],
+            serde_json::json!(["terminal-hook", "--event", "tool_use"])
+        );
+        assert_eq!(
+            doc["hooks"]["Notification"][0]["hooks"][0]["args"],
+            serde_json::json!(["terminal-hook", "--event", "notification"])
+        );
+
+        // codex: hook overrides + same env; obsolete CLI flags must never be
+        // injected because argument parsing happens before the TUI starts.
+        let (cargs, cenv) = apply_enhancement("codex", vec![], &enh, dir.path(), None);
+        assert!(!cargs.iter().any(|a| a == "--dangerously-bypass-hook-trust"));
+        let cenv_map: HashMap<String, String> = cenv.into_iter().collect();
+        assert_eq!(cenv_map.get("NOMI_TERM_HOOK_PORT").map(String::as_str), Some("5151"));
+        assert_eq!(cenv_map.get("NOMI_TERM_HOOK_TOKEN").map(String::as_str), Some("htok"));
+        assert_eq!(
+            cenv_map.get("NOMI_TERM_HOOK_ID").map(String::as_str),
+            Some(terminal_id.as_str())
+        );
+        assert_eq!(
+            cenv_map.get("NOMI_TERM_HOOK_EPOCH").map(String::as_str),
+            Some("41")
+        );
+        assert_eq!(
+            cenv_map.get("NOMI_TERM_HOOK_BIN").map(String::as_str),
+            Some("/opt/geekclaw/geekclaw")
+        );
+        // codex hooks: Stop, PostToolUse, SessionStart (no Notification)
+        let joined = cargs.join(" ");
+        assert!(joined.contains("hooks.Stop="));
+        assert!(joined.contains("hooks.PostToolUse="));
+        assert!(joined.contains("hooks.SessionStart="));
+        assert!(joined.contains("commandWindows="));
+        assert!(joined.contains("EncodedCommand"));
+        assert!(!joined.contains("Notification"));
+        // Each hook `-c` value contains `terminal-hook --event`
+        assert!(joined.contains("terminal-hook --event turn_end"));
+        assert!(joined.contains("terminal-hook --event tool_use"));
+        assert!(joined.contains("terminal-hook --event session_start"));
+
+        // unknown CLI → no hook args, no hook env (honest)
+        let (uargs, uenv) = apply_enhancement("/bin/bash", vec![], &enh, dir.path(), None);
+        assert!(uargs.is_empty() && uenv.is_empty());
+    }
+
+    #[test]
+    fn lifecycle_hook_binary_path_is_data_never_codex_shell_source() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let hostile_path =
+            "/Users/O'Reilly/$()`ticks`/%TEMP%/!TEMP!/GeekClaw & Friends/geekclaw";
+        let enh = TerminalLaunchEnhancement {
+            mcp_servers: vec![],
+            lifecycle: Some(LifecycleHookWiring {
+                port: 5151,
+                token: "htok".into(),
+                terminal_id: TerminalId::new(),
+                pty_epoch: 42,
+                binary_path: hostile_path.into(),
+            }),
+        };
+
+        // Claude uses its exec form: executable and argv remain separate JSON
+        // values, so no shell quoting is involved.
+        let (args, _env) = apply_enhancement("claude", vec![], &enh, dir.path(), None);
+        let settings_path = args.iter().position(|a| a == "--settings").map(|i| args[i + 1].clone()).unwrap();
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&settings_path).unwrap()).unwrap();
+        let stop_cmd = doc["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        assert_eq!(stop_cmd, hostile_path);
+        assert_eq!(
+            doc["hooks"]["Stop"][0]["hooks"][0]["args"],
+            serde_json::json!(["terminal-hook", "--event", "turn_end"])
+        );
+
+        // Codex shell source references only the fixed env name. The hostile
+        // path appears solely in the process environment.
+        let (cargs, cenv) = apply_enhancement("codex", vec![], &enh, dir.path(), None);
+        let joined = cargs.join(" ");
+        assert!(!joined.contains(hostile_path));
+        assert!(joined.contains("NOMI_TERM_HOOK_BIN"));
+        assert!(joined.contains("EncodedCommand"));
+        let cenv: HashMap<String, String> = cenv.into_iter().collect();
+        assert_eq!(
+            cenv.get("NOMI_TERM_HOOK_BIN").map(String::as_str),
+            Some(hostile_path)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_posix_hook_executes_hostile_env_path_without_shell_evaluation() {
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::process::Command;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let argv_path = dir.path().join("argv.txt");
+        let sentinel_substitution = dir.path().join("PWNED_SUBSTITUTION");
+        let sentinel_backtick = dir.path().join("PWNED_BACKTICK");
+        let hook_path = dir.path().join(
+            "hook $HOME $(touch PWNED_SUBSTITUTION) `touch PWNED_BACKTICK` '%TEMP%' !TEMP! ; &",
+        );
+        std::fs::write(
+            &hook_path,
+            b"#!/bin/sh\n{\n  printf '%s\\n' \"$#\"\n  for arg in \"$@\"; do printf '<%s>\\n' \"$arg\"; done\n} > \"$NOMI_TEST_ARGV\"\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&hook_path).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&hook_path, permissions).unwrap();
+
+        let output = Command::new("/bin/sh")
+            .args(["-lc", &codex_posix_hook_command("turn_end")])
+            .current_dir(dir.path())
+            .env("NOMI_TERM_HOOK_BIN", &hook_path)
+            .env("NOMI_TEST_ARGV", &argv_path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "fixed POSIX hook command failed: stdout={:?}, stderr={:?}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(argv_path).unwrap(),
+            "3\n<terminal-hook>\n<--event>\n<turn_end>\n"
+        );
+        assert!(!sentinel_substitution.exists());
+        assert!(!sentinel_backtick.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn codex_windows_hook_executes_hostile_env_path_without_outer_shell_expansion() {
+        use std::process::Command;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let argv_path = dir.path().join("argv.txt");
+        let sentinel = dir.path().join("PWNED_SUBSTITUTION");
+        let hook_path = dir
+            .path()
+            .join("hook $(ni PWNED_SUBSTITUTION) ` %TEMP% !TEMP! &.ps1");
+        std::fs::write(
+            &hook_path,
+            b"$lines = @([string]$args.Count)\r\nforeach ($arg in $args) { $lines += \"<$arg>\" }\r\n[System.IO.File]::WriteAllLines($env:NOMI_TEST_ARGV, $lines)\r\n",
+        )
+        .unwrap();
+
+        // Codex's Windows default runner enters through COMSPEC /C. Delayed
+        // expansion is deliberately enabled here so a regression that embeds
+        // the actual path exposes both `%VAR%` and `!VAR!` hazards.
+        let output = Command::new("cmd.exe")
+            .args([
+                "/D",
+                "/V:ON",
+                "/C",
+                &codex_windows_hook_command("turn_end"),
+            ])
+            .current_dir(dir.path())
+            .env("NOMI_TERM_HOOK_BIN", &hook_path)
+            .env("NOMI_TEST_ARGV", &argv_path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "fixed Windows hook command failed: stdout={:?}, stderr={:?}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(argv_path)
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "3\n<terminal-hook>\n<--event>\n<turn_end>\n"
+        );
+        assert!(!sentinel.exists());
+    }
+
+    #[test]
+    fn resolve_agent_family_prefers_declared_then_stem_then_wrapped_token() {
+        use AgentCli::*;
+        // declared backend wins
+        assert_eq!(resolve_agent_family("stepcode", &["claude".into()], Some("codex")), Some(Codex));
+        // program stem
+        assert_eq!(resolve_agent_family("/usr/bin/claude", &[], None), Some(Claude));
+        assert_eq!(resolve_agent_family("codex", &[], None), Some(Codex));
+        assert_eq!(resolve_agent_family("gemini", &[], None), Some(Gemini));
+        // wrapper: program is unknown, a known family appears as an arg token
+        assert_eq!(resolve_agent_family("stepcode", &["claude".into(), "--yolo".into()], None), Some(Claude));
+        assert_eq!(resolve_agent_family("npx", &["codex".into()], None), Some(Codex));
+        // none: unknown program, no known token, no declared backend
+        assert_eq!(resolve_agent_family("/bin/bash", &["-l".into()], None), None);
+        assert_eq!(resolve_agent_family("stepcode", &["frobnicate".into()], None), None);
+    }
+
+    #[test]
+    fn apply_enhancement_wrapper_resolves_family_via_declared_and_args() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let enh = TerminalLaunchEnhancement { mcp_servers: vec![sample_kb_server()], lifecycle: None };
+
+        // Wrapper `stepcode claude` with no declared backend → resolves to Claude via arg token
+        let (out, _env) = apply_enhancement("stepcode", vec!["claude".into()], &enh, dir.path(), None);
+        assert!(out.iter().any(|a| a == "--mcp-config"), "wrapper 'stepcode claude' must render claude --mcp-config");
+
+        // Declared backend overrides: program is stepcode, arg is claude, but declared is codex → codex
+        let (out, _env) = apply_enhancement("stepcode", vec!["claude".into()], &enh, dir.path(), Some("codex"));
+        assert!(out.iter().any(|a| a == "-c"), "declared codex must render codex -c overrides");
+        assert!(out.iter().any(|a| a.starts_with("mcp_servers.geekclaw-knowledge")));
+
+        // Unknown wrapper with no known arg token → no injection (honest)
+        let (out, _env) = apply_enhancement("stepcode", vec!["frob".into()], &enh, dir.path(), None);
+        assert_eq!(out, vec!["frob".to_owned()], "unknown wrapper must not inject");
+
+        // Gemini via declared → system-defaults settings injection (no argv changes)
+        let (out, env) = apply_enhancement("stepcode", vec!["claude".into()], &enh, dir.path(), Some("gemini"));
+        assert_eq!(out, vec!["claude".to_owned()], "gemini injection must not touch argv");
+        let env: HashMap<_, _> = env.into_iter().collect();
+        let settings_path = env
+            .get("GEMINI_CLI_SYSTEM_DEFAULTS_PATH")
+            .expect("gemini declared must point at a session settings file");
+        let doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(settings_path).unwrap()).unwrap();
+        let srv = &doc["mcpServers"]["geekclaw-knowledge"];
+        assert_eq!(srv["command"], "/opt/geekclaw/geekclaw");
+        assert_eq!(srv["args"][0], "mcp-knowledge-stdio");
+        // $VAR placeholder only — the secret value must never be on disk.
+        assert_eq!(srv["env"]["GEEKCLAW_KB_MCP_CAPABILITY"], "$GEEKCLAW_KB_MCP_CAPABILITY");
+        assert!(
+            !std::fs::read_to_string(settings_path).unwrap().contains("scoped-bootstrap"),
+            "capability value must not be written to the settings file"
+        );
+        // The real value rides the PTY env.
+        assert_eq!(
+            env.get("GEEKCLAW_KB_MCP_CAPABILITY").map(String::as_str),
+            Some("scoped-bootstrap")
+        );
+        // The platform must not silently pre-trust the workspace — gemini's
+        // own folder-trust consent stays in charge.
+        assert!(!env.contains_key("GEMINI_CLI_TRUST_WORKSPACE"));
+    }
+
+    #[test]
+    fn supports_lifecycle_hooks_only_claude_and_codex() {
+        assert!(AgentCli::Claude.supports_lifecycle_hooks());
+        assert!(AgentCli::Codex.supports_lifecycle_hooks());
+        // Gemini has no launch-time lifecycle renderer → not autowork-capable.
+        assert!(!AgentCli::Gemini.supports_lifecycle_hooks());
+    }
+
+    #[test]
+    fn terminal_autowork_capable_matches_what_apply_enhancement_hooks() {
+        let no_args: Vec<String> = vec![];
+
+        // Bare / direct agent CLIs are capable.
+        assert!(terminal_autowork_capable("claude", &no_args, None));
+        assert!(terminal_autowork_capable("codex", &no_args, None));
+
+        // Wrappers resolve via the arg token (no declared backend) — exactly the
+        // case the old backend-string gate wrongly rejected.
+        assert!(terminal_autowork_capable("stepcode", &["claude".to_owned()], None));
+        assert!(terminal_autowork_capable("npx", &["codex".to_owned()], None));
+
+        // Declared backend wins.
+        assert!(terminal_autowork_capable("stepcode", &["claude".to_owned()], Some("codex")));
+
+        // Gemini resolves to a family but has no lifecycle renderer → NOT capable.
+        assert!(!terminal_autowork_capable("gemini", &no_args, None));
+        assert!(!terminal_autowork_capable("stepcode", &["gemini".to_owned()], None));
+
+        // Plain shell / unknown CLI → not capable.
+        assert!(!terminal_autowork_capable(crate::types::SHELL_SENTINEL, &no_args, None));
+        assert!(!terminal_autowork_capable("/bin/bash", &["-l".to_owned()], None));
+        assert!(!terminal_autowork_capable("stepcode", &["frobnicate".to_owned()], None));
+    }
+}

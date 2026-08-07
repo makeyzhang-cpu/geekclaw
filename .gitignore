@@ -1,0 +1,7 @@
+/target
+/node_modules
+/build.noindex
+/dist
+/icons_backup
+/.workbuddy
+*.zip

@@ -1,0 +1,50 @@
+[Unit]
+Description=GeekClaw headless WebUI server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Authentication is ON by default, but first-run setup can be claimed by the
+# first reachable browser. Keep 127.0.0.1 until setup is complete, or pre-seed
+# GEEKCLAW_ADMIN_PASSWORD before switching to 0.0.0.0. For anything
+# internet-facing, put TLS (Caddy/nginx) in front and set GEEKCLAW_HTTPS=true.
+Environment=GEEKCLAW_WEB_HOST=127.0.0.1
+Environment=GEEKCLAW_WEB_PORT=8787
+# NOTE: keep GEEKCLAW_DATA_DIR in sync with StateDirectory below — both must
+# point at /var/lib/geekclaw. If you drop this line, the data dir silently falls
+# back to the service user's per-user app-data dir
+# ($XDG_DATA_HOME/GeekClaw, usually ~geekclaw/.local/share/GeekClaw),
+# decoupled from the systemd-managed StateDirectory.
+Environment=GEEKCLAW_DATA_DIR=/var/lib/geekclaw
+Environment=GEEKCLAW_WEB_DIST=/opt/geekclaw/web
+Environment=SHELL=/bin/bash
+# Behind a TLS proxy, uncomment:
+# Environment=GEEKCLAW_HTTPS=true
+# Pre-seed the admin before LAN/public binding (recommended):
+# Environment=GEEKCLAW_ADMIN_USERNAME=admin
+# Environment=GEEKCLAW_ADMIN_PASSWORD=change-me-to-something-strong
+
+ExecStart=/opt/geekclaw/nomifun-web
+WorkingDirectory=/opt/geekclaw
+
+# Run as a dedicated unprivileged user you created (see README). Comment these
+# two lines out to run as root (simplest, but not recommended).
+User=geekclaw
+Group=geekclaw
+
+# /var/lib/geekclaw, created + owned by the service user automatically.
+StateDirectory=geekclaw
+
+Restart=on-failure
+RestartSec=3
+
+# Moderate hardening. Do NOT add ProtectHome=yes or a strict ProtectSystem:
+# the agent engine spawns processes (bun) and reads/writes files the operator
+# directs it to, so over-sandboxing breaks core features.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

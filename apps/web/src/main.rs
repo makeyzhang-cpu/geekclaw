@@ -1,0 +1,547 @@
+//! `nomifun-web` — the standalone Web host for the browser deployment.
+//!
+//! In the unified architecture there is ONE Rust backend (`nomifun-app`, the
+//! former `geekclaw`). It runs in two host modes:
+//!   * embedded in the Tauri desktop shell (`apps/desktop`), started in-process
+//!     on a localhost port in `--local` (no-auth) mode — the shell IS the trust
+//!     boundary, so no login is required;
+//!   * here, as a standalone server that ALSO serves the built SPA (`ui/dist`)
+//!     so browsers hit the same HTTP API. This replaces the old Node `web-host`.
+//!
+//! Unlike the desktop shell, this host is reachable over the network, so it
+//! boots the backend in AUTHENTICATED mode by default (login required). On a
+//! fresh data dir it provisions the first admin out-of-band (see
+//! `ensure_admin_credentials`), because the in-band setup endpoints are
+//! local-only. `--insecure-no-auth` opts back into desktop-style no-auth for a
+//! host that is only reachable over loopback / a trusted private network.
+//!
+//! This host boots the backend **in-process** (same binary), composes its `/api`
+//! router with a static `ServeDir` fallback for the SPA, and serves both on one
+//! port. Env mutation + runtime init happen before the tokio runtime starts,
+//! mirroring the `geekclaw` bin's ordering.
+
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use anyhow::{Context, Result};
+use axum::response::IntoResponse;
+use clap::Parser;
+use tower_http::services::{ServeDir, ServeFile};
+use tower_http::trace::TraceLayer;
+
+/// Env var that, when truthy, opts into `--insecure-no-auth` without the flag.
+const ENV_INSECURE_NO_AUTH: &str = "GEEKCLAW_WEB_INSECURE_NO_AUTH";
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "nomifun-web",
+    about = "GeekClaw unified Web host (SPA + backend API)"
+)]
+struct Args {
+    /// Host/IP address to bind on. Defaults to loopback; use `0.0.0.0` to accept
+    /// connections from other machines (do so behind a trusted gateway / private
+    /// network — see `--insecure-no-auth`).
+    #[arg(long, env = "GEEKCLAW_WEB_HOST", default_value = "127.0.0.1")]
+    host: String,
+    /// Port to listen on (serves both the API and the SPA).
+    #[arg(long, env = "GEEKCLAW_WEB_PORT", default_value_t = 8787)]
+    port: u16,
+    /// Data directory for the backend (db + storage). Defaults to the same
+    /// per-user dir as hosts built for the active channel (for example,
+    /// `%LOCALAPPDATA%\GeekClaw-dev` for `NOMI_CHANNEL=dev`; see
+    /// `nomifun_app::cli::default_data_dir`). The env value is the FINAL data
+    /// root, taken literally on every host — production deployments (Docker
+    /// `/data`, systemd `/var/lib/geekclaw`) rely on that.
+    #[arg(
+        long,
+        env = "GEEKCLAW_DATA_DIR",
+        default_value_os_t = nomifun_app::cli::default_data_dir(),
+        value_parser = nomifun_app::cli::parse_non_empty_path
+    )]
+    data_dir: PathBuf,
+    /// Directory containing the built SPA (ui/dist).
+    #[arg(long, env = "GEEKCLAW_WEB_DIST", default_value = "../../ui/dist")]
+    dist: PathBuf,
+    /// Serve only the backend/API surface. Intended for the Vite-proxied WebUI
+    /// development loop, where mounting ui/dist would expose a stale bundle on
+    /// the backend port.
+    #[arg(long)]
+    api_only: bool,
+    /// DANGER: run the backend in local mode — authentication is fully DISABLED
+    /// and every client acts as a privileged user with shell/file/agent access.
+    /// Only for a host reachable solely over loopback or a trusted private
+    /// network. Without this flag the web host requires a login (safe default).
+    /// Can also be enabled via `GEEKCLAW_WEB_INSECURE_NO_AUTH=true`.
+    #[arg(long)]
+    insecure_no_auth: bool,
+    /// Initial admin username provisioned on first run (authenticated mode only).
+    /// Ignored once an admin exists.
+    #[arg(long, env = "GEEKCLAW_ADMIN_USERNAME", default_value = "admin")]
+    admin_user: String,
+    /// Initial admin password provisioned on first run (authenticated mode only).
+    /// If omitted, no admin is pre-seeded: the install is left uninitialised and
+    /// the first WebUI visitor creates the admin interactively via first-run
+    /// setup (`POST /api/auth/setup`). Ignored once an admin exists.
+    #[arg(long, env = "GEEKCLAW_ADMIN_PASSWORD")]
+    admin_password: Option<String>,
+}
+
+/// Parse a truthy env value (`1`/`true`/`yes`/`on`, case-insensitive).
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// True for request paths owned by the backend API/realtime surface.
+///
+/// An unmatched path under these prefixes must fail with a JSON 404, never
+/// fall through to the SPA's index.html: a 200 text/html response to an API
+/// client (stale tab after an image upgrade, typo'd endpoint) parses as
+/// `undefined` data and surfaces as silent empty views instead of a legible
+/// error (audit 2026-07-30, finding G).
+fn is_api_path(path: &str) -> bool {
+    path == "/api" || path.starts_with("/api/") || path == "/ws" || path.starts_with("/ws/")
+}
+
+/// True for Vite's content-hashed bundle output (`/assets/index-abc123.js`).
+/// These are immutable by construction: a content change produces a new hash,
+/// so they can be cached forever — and a MISS means the client's index.html
+/// is from an older build, which must fail fast (404) instead of receiving
+/// index.html through the SPA fallback (audit 2026-07-30, finding H).
+fn is_hashed_asset_path(path: &str) -> bool {
+    path.starts_with("/assets/")
+}
+
+/// SPA fallback service with the cache contract each class of file needs:
+///
+/// - unmatched `/api`/`/ws` paths → the backend's structured JSON 404;
+/// - `/assets/*` (content-hashed) → served with `immutable` year-long
+///   caching, and a plain 404 on miss so a stale browser reloads instead of
+///   white-screening on a failed dynamic import;
+/// - everything else (index.html, favicons, client routes) → served with
+///   `no-cache`, forcing revalidation so browsers pick up each new build
+///   promptly (tower-http emits ETag/Last-Modified, so revalidation is a
+///   cheap 304, not a re-download).
+fn spa_with_api_404(dist: &std::path::Path) -> axum::routing::MethodRouter {
+    use tower::ServiceExt as _;
+
+    const IMMUTABLE: axum::http::HeaderValue =
+        axum::http::HeaderValue::from_static("public, max-age=31536000, immutable");
+    const NO_CACHE: axum::http::HeaderValue = axum::http::HeaderValue::from_static("no-cache");
+
+    // Hashed assets: no index.html fallback — a miss is an honest 404.
+    let assets = ServeDir::new(dist);
+    let spa = ServeDir::new(dist)
+        .append_index_html_on_directories(true)
+        .fallback(ServeFile::new(dist.join("index.html")));
+
+    axum::routing::any(move |request: axum::extract::Request| {
+        let assets = assets.clone();
+        let spa = spa.clone();
+        async move {
+            let path = request.uri().path();
+            if is_api_path(path) {
+                return nomifun_common::AppError::NotFound(format!("no API route matches {path}"))
+                    .into_response();
+            }
+            if is_hashed_asset_path(path) {
+                let mut response = match assets.oneshot(request).await {
+                    Ok(response) => response.into_response(),
+                    Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                };
+                if response.status().is_success() {
+                    response
+                        .headers_mut()
+                        .insert(axum::http::header::CACHE_CONTROL, IMMUTABLE);
+                }
+                return response;
+            }
+            match spa.oneshot(request).await {
+                Ok(response) => {
+                    let mut response = response.into_response();
+                    response
+                        .headers_mut()
+                        .insert(axum::http::header::CACHE_CONTROL, NO_CACHE);
+                    response
+                }
+                // ServeDir's error type is Infallible; this arm is unreachable
+                // but keeps the signature honest if tower-http ever changes it.
+                Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+    })
+}
+
+fn validate_static_dist(args: &Args) -> Result<Option<nomifun_app::bootstrap::UiBuildManifest>> {
+    validate_static_dist_with_build_id(args, option_env!("GEEKCLAW_FRONTEND_BUILD_ID"))
+}
+
+fn validate_static_dist_with_build_id(
+    args: &Args,
+    expected_build_id: Option<&str>,
+) -> Result<Option<nomifun_app::bootstrap::UiBuildManifest>> {
+    if args.api_only {
+        return Ok(None);
+    }
+
+    let expected_build_id = expected_build_id.context(
+        "this nomifun-web binary has no exact frontend build identity and cannot serve static assets; run `bun run serve:web` (or build with `--features static-webui`) after `bun run build:ui`",
+    )?;
+
+    nomifun_app::bootstrap::validate_webui_dist(
+        &args.dist,
+        env!("CARGO_PKG_VERSION"),
+        Some(expected_build_id),
+    )
+    .map(Some)
+    .with_context(|| format!("refusing to serve incompatible WebUI assets from {}", args.dist.display()))
+}
+
+fn main() -> Result<ExitCode> {
+    // If an ACP agent CLI spawned this binary as an MCP stdio bridge
+    // (`current_exe() mcp-requirement-stdio` etc.), run that helper and exit
+    // BEFORE clap parses our own Args (which would reject the subcommand) and
+    // before any backend/server init. Every host binary must honor these or the
+    // injected declaration tools (requirement_complete / team / guide) never
+    // appear in the agent's session.
+    if let Some(code) = nomifun_app::commands::run_mcp_stdio_subcommand_if_present() {
+        return Ok(code);
+    }
+
+    let args = Args::parse();
+    // Fail before runtime, database, and auth initialization. API-only mode is
+    // the explicit Vite-development bypass and never mounts the static bundle.
+    let _static_manifest = validate_static_dist(&args)?;
+
+    // Authentication is ON by default; `--insecure-no-auth` (or the env var)
+    // opts into the desktop-style no-auth local mode. The env is read manually
+    // to avoid clap's bool+env flag ambiguity.
+    let insecure_no_auth = args.insecure_no_auth || env_flag(ENV_INSECURE_NO_AUTH);
+
+    // Build a fully-defaulted backend CLI without touching this process's argv,
+    // then override the bits this host owns. `parse_from` gives a defaulted Cli.
+    let mut cli = nomifun_app::cli::Cli::parse_from(["nomifun-web"]);
+    cli.host = args.host.clone();
+    cli.port = args.port;
+    // Map known self-export/default locations onto the channel default and
+    // run the one-shot legacy layout migration (`GeekClaw/GeekClaw<suffix>` →
+    // `GeekClaw<suffix>`); explicit deployments (Docker `/data`, systemd
+    // `/var/lib/geekclaw`) pass through verbatim.
+    cli.data_dir =
+        nomifun_app::bootstrap::resolve_startup_data_root(args.data_dir.clone());
+    cli.local = insecure_no_auth;
+
+    // Same ordering as the geekclaw bin: runtime init + PATH enhancement BEFORE
+    // any worker thread / tokio runtime exists.
+    nomifun_runtime::init(&cli.data_dir);
+    // SAFETY: called before the tokio runtime (and its threads) is built.
+    let merged_path = unsafe { nomifun_runtime::enhance_process_path() };
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(serve(cli, merged_path, args))
+}
+
+async fn serve(cli: nomifun_app::cli::Cli, merged_path: String, args: Args) -> Result<ExitCode> {
+    // Resolve the bind address up front so a bad --host fails fast with a clear
+    // message instead of a cryptic socket error.
+    let ip: IpAddr = args.host.parse().with_context(|| {
+        format!(
+            "invalid --host '{}': expected an IP like 127.0.0.1 or 0.0.0.0",
+            args.host
+        )
+    })?;
+    if !ip.is_loopback() && cli.local {
+        tracing::warn!(
+            %ip,
+            "binding a non-loopback address with --insecure-no-auth: authentication is DISABLED — \
+             anyone who can reach this port gets full host access (shell, files, agents). \
+             Put a trusted gateway in front, use a private network, or drop --insecure-no-auth."
+        );
+    }
+    if env_flag("GEEKCLAW_HTTPS") {
+        tracing::warn!(
+            "GEEKCLAW_HTTPS=true: session/CSRF cookies carry the Secure flag, so any plain-HTTP access \
+             path (e.g. http://<ip>:{}) CANNOT keep a session — browsers silently drop Secure cookies \
+             and sign-in loops forever. Serve exclusively through the TLS proxy and stop publishing \
+             the plain-HTTP port (compose: replace `ports` with `expose`).",
+            args.port
+        );
+    }
+
+    // Boot the backend in-process (env → data layer → services), then mount the
+    // real API router with the SPA as the fallback for non-/api routes.
+    let env = nomifun_app::bootstrap::init_environment(&cli, &merged_path)?;
+    let database = nomifun_app::bootstrap::init_data_layer(&env.config).await?;
+    let services = nomifun_app::AppServices::from_config(database, &env.config)
+        .await?
+        .with_boot_reconciliation_authority(
+            env.boot_reconciliation_authority(),
+            &env.config,
+        )
+        .await?;
+    if let Err(error) = nomifun_app::bootstrap::finalize_data_layer(&env.config) {
+        return Err(services.cleanup_after_startup_failure(error).await);
+    }
+
+    // First-run admin provisioning. No-op in local mode and once an admin
+    // exists; otherwise a fresh authenticated install would have no way to set
+    // the first password (the in-band setup routes are local-only). Returns
+    // whether the install still awaits interactive first-run setup.
+    let needs_first_run_setup = match nomifun_app::bootstrap::ensure_admin_credentials(
+        &services,
+        nomifun_app::bootstrap::AdminBootstrap {
+            username: Some(args.admin_user.clone()),
+            password: args.admin_password.clone(),
+        },
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return Err(services.cleanup_after_startup_failure(error).await),
+    };
+    if needs_first_run_setup && !ip.is_loopback() {
+        tracing::warn!(
+            %ip,
+            "first-run setup is OPEN on a non-loopback address: the NEXT client to reach this \
+             port will create the admin account. Complete setup over a trusted network/tunnel \
+             first, or pre-seed with GEEKCLAW_ADMIN_PASSWORD."
+        );
+    }
+
+    let mut app = nomifun_app::create_router(&services).await;
+    if !args.api_only {
+        app = app.fallback_service(spa_with_api_404(&args.dist));
+    }
+    let app = app.layer(TraceLayer::new_for_http());
+
+    let addr = SocketAddr::new(ip, args.port);
+    tracing::info!(
+        requested = %addr,
+        auth = if cli.local { "disabled (insecure-no-auth)" } else { "required" },
+        static_mode = if args.api_only { "api-only" } else { "spa" },
+        dist = ?if args.api_only { None } else { Some(&args.dist) },
+        "nomifun-web: embedded backend + SPA on one port"
+    );
+    // Port failover: if `args.port` is taken, bind a bounded-scan neighbour (or
+    // an ephemeral port) instead of hard-failing, then announce the actually
+    // bound port via `{data_dir}/port.json` + stdout so the operator/launcher
+    // can re-point clients — a browser cannot self-discover a moved port.
+    let (actual_port, listener) =
+        match nomifun_app::bootstrap::bind_with_fallback(ip, args.port).await {
+            Ok(value) => value,
+            Err(error) => return Err(services.cleanup_after_startup_failure(error).await),
+        };
+    if actual_port != args.port {
+        tracing::warn!(
+            requested = args.port,
+            actual = actual_port,
+            "preferred port was busy; bound a fallback port"
+        );
+    }
+    nomifun_app::bootstrap::announce_bound_port(&cli.data_dir, &args.host, actual_port);
+    // ConnectInfo gives the rate limiter each client's real peer address. Without
+    // it every browser in the deployment collapses into one shared "unknown"
+    // bucket: a single user's login failures 429-lock everyone out, and aggregate
+    // traffic trips the shared per-minute API quota (audit 2026-07-30, finding A).
+    if let Err(error) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
+        return Err(services.cleanup_after_startup_failure(error.into()).await);
+    }
+
+    let browser_shutdown = services.shutdown_browser_platform().await;
+    services.database.close().await;
+    drop(env);
+    browser_shutdown?;
+    Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_paths_are_classified_for_json_404() {
+        assert!(is_api_path("/api"));
+        assert!(is_api_path("/api/fs/browse"));
+        assert!(is_api_path("/ws"));
+        assert!(is_api_path("/ws/anything"));
+        assert!(!is_api_path("/"));
+        assert!(!is_api_path("/login"));
+        assert!(!is_api_path("/apiary")); // prefix must respect segment boundary
+        assert!(!is_api_path("/assets/index-abc123.js"));
+    }
+
+    #[tokio::test]
+    async fn unmatched_api_path_gets_json_404_not_index_html() {
+        use tower::ServiceExt;
+
+        // dist dir intentionally does not exist: the API branch must
+        // short-circuit before any filesystem access.
+        let service = spa_with_api_404(std::path::Path::new("/definitely/missing/dist"));
+        let app = axum::Router::new().fallback_service(service);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/does-not-exist")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        assert!(content_type.contains("application/json"), "got {content_type}");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["success"], false);
+        assert_eq!(json["code"], "NOT_FOUND");
+    }
+
+    /// A dist dir with an index.html and one content-hashed bundle chunk.
+    fn fake_dist() -> tempfile::TempDir {
+        let dist = tempfile::tempdir().expect("temp dist");
+        std::fs::write(dist.path().join("index.html"), "<!doctype html><title>app</title>").unwrap();
+        std::fs::create_dir(dist.path().join("assets")).unwrap();
+        std::fs::write(dist.path().join("assets/index-abc123.js"), "console.log('chunk')").unwrap();
+        dist
+    }
+
+    async fn get_static(dist: &std::path::Path, uri: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        axum::Router::new()
+            .fallback_service(spa_with_api_404(dist))
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    fn cache_control(response: &axum::response::Response) -> String {
+        response
+            .headers()
+            .get(axum::http::header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn hashed_assets_are_immutable_cached() {
+        let dist = fake_dist();
+        let response = get_static(dist.path(), "/assets/index-abc123.js").await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(cache_control(&response), "public, max-age=31536000, immutable");
+    }
+
+    #[tokio::test]
+    async fn missing_hashed_asset_is_a_plain_404_not_index_html() {
+        // A stale index.html requesting a chunk from an older build must get
+        // a fast 404 (→ the app reloads), not index.html as a JS module
+        // (→ white screen with a MIME-type import error).
+        let dist = fake_dist();
+        let response = get_static(dist.path(), "/assets/index-gone999.js").await;
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn index_html_and_client_routes_revalidate_every_load() {
+        let dist = fake_dist();
+        for uri in ["/", "/conversations/some-client-route"] {
+            let response = get_static(dist.path(), uri).await;
+            assert_eq!(response.status(), axum::http::StatusCode::OK, "uri {uri}");
+            assert_eq!(cache_control(&response), "no-cache", "uri {uri}");
+        }
+    }
+
+    #[test]
+    fn api_only_flag_disables_static_spa_mode() {
+        let args = Args::try_parse_from(["nomifun-web", "--api-only"]).expect("parse --api-only");
+
+        assert!(args.api_only);
+    }
+
+    #[test]
+    fn api_only_mode_does_not_require_a_static_distribution() {
+        let args = Args::try_parse_from([
+            "nomifun-web",
+            "--api-only",
+            "--dist",
+            "/definitely/missing/geekclaw-ui-dist",
+        ])
+        .expect("parse API-only args");
+
+        assert!(validate_static_dist(&args).expect("API-only mode should bypass static validation").is_none());
+    }
+
+    #[test]
+    fn static_mode_rejects_a_missing_distribution_before_server_boot() {
+        let args = Args::try_parse_from([
+            "nomifun-web",
+            "--dist",
+            "/definitely/missing/geekclaw-ui-dist",
+        ])
+        .expect("parse static args");
+
+        let error = validate_static_dist_with_build_id(&args, Some("paired-test-build"))
+            .expect_err("static mode must reject a missing distribution");
+        let error_text = format!("{error:#}");
+        assert!(error_text.contains("index.html"), "unexpected error: {error_text}");
+    }
+
+    #[test]
+    fn static_mode_rejects_a_host_without_an_exact_embedded_build_id() {
+        let args = Args::try_parse_from(["nomifun-web", "--dist", "ui/dist"])
+            .expect("parse static args");
+
+        let error = validate_static_dist_with_build_id(&args, None)
+            .expect_err("an API-only host binary must never serve static assets");
+        let error_text = format!("{error:#}");
+        assert!(error_text.contains("exact frontend build identity"), "unexpected error: {error_text}");
+        assert!(error_text.contains("serve:web"), "unexpected error: {error_text}");
+    }
+
+    #[cfg(feature = "static-webui")]
+    #[test]
+    fn static_webui_feature_accepts_only_its_paired_distribution() {
+        let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../ui/dist");
+        let args = Args::try_parse_from([
+            "nomifun-web",
+            "--dist",
+            dist.to_str().expect("workspace path must be UTF-8"),
+        ])
+        .expect("parse paired static args");
+
+        let manifest = validate_static_dist(&args)
+            .expect("the freshly built static host and UI must be paired")
+            .expect("static mode must return its manifest");
+        assert_eq!(
+            manifest.frontend_build_id,
+            option_env!("GEEKCLAW_FRONTEND_BUILD_ID")
+                .expect("static-webui builds must embed an exact frontend build ID")
+        );
+    }
+}

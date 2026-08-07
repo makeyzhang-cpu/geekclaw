@@ -1,0 +1,124 @@
+# syntax=docker/dockerfile:1
+
+# All base images are overrideable so installations behind a Docker Hub proxy
+# can point at registry-compatible mirrors without editing this file. The slim
+# Rust image avoids downloading the full buildpack image on first install.
+ARG BUN_IMAGE="oven/bun:1"
+ARG RUST_IMAGE="rust:1-slim-bookworm"
+ARG RUNTIME_IMAGE="debian:bookworm-slim"
+
+# ============================================================================
+# nomifun-web — headless WebUI server image (no GUI / WebView; runs anywhere)
+#   Stage 1  builds the React SPA (ui/dist)
+#   Stage 2  compiles the nomifun-web Rust binary
+#   Stage 3  slim runtime with bun (required by the agent engine)
+#
+# Authentication is ON by default, but first-run setup is a claim window: the
+# first reachable browser creates the admin account unless GEEKCLAW_ADMIN_PASSWORD
+# pre-seeds it. Bind on trusted networks only until setup is complete, and put
+# TLS in front (see Caddyfile) for anything internet-facing.
+# ============================================================================
+
+# ---- Stage 1: build the SPA -------------------------------------------------
+FROM ${BUN_IMAGE} AS bun-base
+FROM bun-base AS ui
+WORKDIR /app
+# Install deps first for layer caching (only re-runs when manifests change).
+COPY package.json bun.lock ./
+COPY ui/package.json ui/package.json
+ARG BUN_REGISTRY=""
+RUN if [ -n "$BUN_REGISTRY" ]; then \
+      bun install --frozen-lockfile --registry "$BUN_REGISTRY"; \
+    else \
+      bun install --frozen-lockfile; \
+    fi
+COPY . .
+RUN bun run build:ui
+# -> /app/ui/dist
+
+# ---- Stage 2: compile nomifun-web ------------------------------------------
+FROM ${RUST_IMAGE} AS rust
+# Optional Debian mirror to speed up apt fetches (e.g. in CN). Empty = upstream
+# (deb.debian.org). Pass `--build-arg APT_MIRROR=http://mirrors.aliyun.com`.
+# Use an http:// mirror so the same value also works in the slim runtime stage
+# below, which has no ca-certificates until its own apt-get installs them.
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then \
+      for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] && sed -i -E "s|https?://deb.debian.org|$APT_MIRROR|g; s|https?://security.debian.org|$APT_MIRROR|g" "$f" || true; \
+      done; \
+    fi
+# Native build deps: rusqlite(bundled) needs cc; rustls/aws-lc-rs needs cmake+clang
+# (+ nasm for its x86_64 assembly); libgit2-sys needs cmake; the final binary
+# dynamically links zlib and liblzma. If a first build fails on a *-sys crate,
+# add its dep here.
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        build-essential cmake clang pkg-config perl git nasm \
+        zlib1g-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+
+# Optional cargo registry mirror for faster dependency fetches (e.g. in CN):
+#   docker build --build-arg CARGO_REGISTRY_MIRROR=https://rsproxy.cn/index/ .
+# (The repo's own .cargo/ is .dockerignore'd, so the default is crates.io.)
+ARG CARGO_REGISTRY_MIRROR=""
+ENV CARGO_NET_RETRY=10 \
+    CARGO_HTTP_TIMEOUT=600
+RUN if [ -n "$CARGO_REGISTRY_MIRROR" ]; then \
+      printf '[source.crates-io]\nreplace-with = "mirror"\n[source.mirror]\nregistry = "sparse+%s"\n' \
+        "$CARGO_REGISTRY_MIRROR" > "${CARGO_HOME:-/usr/local/cargo}/config.toml"; \
+    fi
+
+COPY . .
+# Pair the Rust host build with the exact UI artifact produced by the UI stage.
+COPY --from=ui /app/ui/dist/geekclaw-build.json /src/ui/dist/geekclaw-build.json
+# BuildKit cache mounts persist the cargo registry + compiled artifacts across
+# rebuilds, so a one-line source change recompiles in seconds, not minutes. The
+# binary is copied OUT of the (ephemeral) target cache mount into a real layer.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p nomifun-web \
+    && cp target/release/nomifun-web /usr/local/bin/nomifun-web
+# -> /usr/local/bin/nomifun-web
+
+# ---- Stage 3: slim runtime --------------------------------------------------
+FROM ${RUNTIME_IMAGE}
+# Reuse the same optional Debian mirror as stage 2 (http:// so it works before
+# ca-certificates is installed just below).
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then \
+      for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] && sed -i -E "s|https?://deb.debian.org|$APT_MIRROR|g; s|https?://security.debian.org|$APT_MIRROR|g" "$f" || true; \
+      done; \
+    fi
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        ca-certificates git ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+# bun is a hard runtime dependency of the agent engine (>= 1.3.13).
+COPY --from=bun-base /usr/local/bin/bun /usr/local/bin/bun
+# Optional: user-configured MCP stdio servers often launch via `npx`.
+# RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+#     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rust /usr/local/bin/nomifun-web /usr/local/bin/nomifun-web
+COPY --from=ui   /app/ui/dist                    /opt/geekclaw/web
+
+ENV GEEKCLAW_WEB_HOST=0.0.0.0 \
+    GEEKCLAW_WEB_PORT=8787 \
+    GEEKCLAW_DATA_DIR=/data \
+    GEEKCLAW_WEB_DIST=/opt/geekclaw/web \
+    SHELL=/bin/bash
+# Set GEEKCLAW_HTTPS=true when a TLS proxy fronts the app (makes cookies Secure).
+# Set GEEKCLAW_ADMIN_PASSWORD (+ GEEKCLAW_ADMIN_USERNAME) to pre-seed the admin
+# and skip the interactive first-run setup.
+
+VOLUME /data
+EXPOSE 8787
+# Liveness: once the server is up it answers an unauthenticated GET / with the
+# SPA (200). bun is already in the image, so no extra curl/wget is needed. The
+# start-period covers first-run data-dir + DB init.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD bun -e "fetch('http://127.0.0.1:'+(process.env.GEEKCLAW_WEB_PORT||'8787')+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["nomifun-web"]

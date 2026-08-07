@@ -1,0 +1,68 @@
+{
+  "groups": [
+    { "id": "dev",   "title": "开发（热重载）" },
+    { "id": "build", "title": "构建（出制品）" },
+    { "id": "serve", "title": "运行（组装好的应用）" },
+    { "id": "test",  "title": "测试" },
+    { "id": "check", "title": "静态检查 / 门禁" },
+    { "id": "gen",   "title": "代码生成" },
+    { "id": "maint", "title": "维护 / 工具" }
+  ],
+  "scripts": {
+    "setup:git-hooks": {
+      "group": "maint",
+      "desc": "Enable this repository's human-only Git attribution hooks without changing global Git config."
+    },
+    "test:git-attribution": {
+      "group": "test",
+      "desc": "Validate the repository-local human-only Git attribution policy."
+    },
+    "check:process-runtime-boundary": {
+      "group": "check",
+      "desc": "Enforce the supervised process runtime boundary and exact hand-off allowlist."
+    },
+    "check:browser-platform-boundary": {
+      "group": "check",
+      "desc": "Enforce the single BrowserSessionHub ownership boundary and reject private browser launch paths."
+    },
+    "check:agent-vocabulary": {
+      "group": "check",
+      "desc": "Enforce AgentExecution as the only active collaboration aggregate and permit only exact migration fences."
+    },
+    "dev":           { "group": "dev",   "desc": "启动桌面应用开发（tauri dev，热重载）" },
+    "dev:web":       { "group": "dev",   "desc": "启动 Web 全栈开发（后端 API + 前端 vite）" },
+    "dev:ui":        { "group": "dev",   "desc": "仅启动前端开发服务器（纯 vite，无后端）" },
+    "build":         { "group": "build", "desc": "为当前操作系统打桌面安装包" },
+    "build:fast":    { "group": "build", "desc": "快速构建可直接运行的 debug 桌面二进制（不打安装包）" },
+    "build:win":     { "group": "build", "desc": "打 Windows 安装包（NSIS），汇总到 dist/desktop/" },
+    "build:mac":     { "group": "build", "desc": "打 macOS 安装包（.dmg），汇总到 dist/desktop/" },
+    "build:linux":   { "group": "build", "desc": "打 Linux 安装包（.deb/.AppImage/.rpm），汇总到 dist/desktop/" },
+    "build:signed":  { "group": "build", "desc": "打桌面包并签名+公证（仅 macOS）" },
+    "build:updater": { "group": "build", "desc": "打桌面包并产出自更新 .sig 制品" },
+    "make:latest":   { "group": "build", "desc": "扫描本机更新产物，生成/合并自动更新清单 latest.json" },
+    "release:mac":   { "group": "build", "desc": "一键 macOS 发版：自动判定追加/首发；首发用 -Version 打版本号 + -NotesFile/-Notes 建 Release；-DryRun 只预检" },
+    "release:win":   { "group": "build", "desc": "一键 Windows 发版：自动判定追加/首发；首发用 -Version 打版本号 + -NotesFile/-Notes 建 Release；-DryRun 只预检" },
+    "release:linux": { "group": "build", "desc": "一键 Linux 发版：自动判定追加/首发；首发用 -Version 打版本号 + -NotesFile/-Notes 建 Release；-DryRun 只预检" },
+    "build:ui":      { "group": "build", "desc": "前端生产构建 → ui/dist" },
+    "docker:prebuilt": { "group": "build", "desc": "用已有 ui/dist + nomifun-web release 二进制快速构建 Docker 运行时镜像" },
+    "serve:web":     { "group": "serve", "desc": "启动 Web 服务器，托管已构建的前端" },
+    "test":          { "group": "test",  "desc": "运行全部 Rust 测试（含 doctest）" },
+    "test:fast":     { "group": "test",  "desc": "用 nextest 快速跑 Rust 测试（日常）" },
+    "test:crate":    { "group": "test",  "desc": "运行单个 Rust crate：bun run test:crate <crate> [cargo 参数]" },
+    "test:core":     { "group": "test",  "desc": "运行不含 desktop-only feature 的 Rust workspace" },
+    "test:desktop":  { "group": "test",  "desc": "运行桌面壳测试，不监听或打包 ui/dist 资源" },
+    "test:browser":  { "group": "test",  "desc": "运行 browser-use 门控的 Rust 测试（browser-platform 全量 + gateway/ai-agent/geekclaw-agent/app 开启 --features browser-use；crate/core 车道会静默跳过这些）" },
+    "test:ui":       { "group": "test",  "desc": "运行前端单元测试（bun test，收集 ui/src 下全部 *.test.ts/tsx）" },
+    "check":         { "group": "check", "desc": "聚合静态门禁：typecheck + i18n + 主题契约 + 图标导入 + 死 CSS 工具类 + 进程运行时边界 + Agent 词汇边界 + 脚本登记" },
+    "typecheck":     { "group": "check", "desc": "前端 TypeScript 类型检查（tsc --noEmit）" },
+    "check:i18n":    { "group": "check", "desc": "校验 i18n 类型与 locale 键是否一致" },
+    "check:theme":   { "group": "check", "desc": "校验预设 CSS 主题契约" },
+    "check:icons":   { "group": "check", "desc": "校验 @icon-park/react 导入禁别名/禁命名空间（别名会被图标包装插件改写成非法代码，tsc 抓不到）" },
+    "check:dead-css": { "group": "check", "desc": "死 CSS 工具类禁令：拦住 <任意颜色前缀>-[rgb(var(--RAMP-N))] / border-border-* / border-b-base / border-b-light / {bg,text,border}-RAMP-N/NN（存量已清零，无基线，出现一处即失败）" },
+    "gen:i18n":      { "group": "gen",   "desc": "由 locale 重新生成 i18n 类型声明" },
+    "clean":         { "group": "maint", "desc": "深度回收构建空间（debug 产物 + flycheck + 旧安装包）" },
+    "seed:dev":      { "group": "maint", "desc": "用生产数据目录播种 dev 数据目录" },
+    "bump":          { "group": "maint", "desc": "统一改版本号：根 Cargo.toml(真源) + package.json + ui + Cargo.lock，可选 --tag 提交并打 tag" },
+    "help":          { "group": "maint", "desc": "打印脚本目录（--check 校验登记 / --readme 生成 README 表）" }
+  }
+}

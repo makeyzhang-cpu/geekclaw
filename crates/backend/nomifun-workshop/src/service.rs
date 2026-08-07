@@ -1,0 +1,1903 @@
+//! [`WorkshopService`] — the single handle the `/api/workshop/*` routes talk
+//! to. Owns canvas CRUD + opaque-doc read/write, asset store/list/patch/delete,
+//! and traversal-safe file serving. Canvas bodies + asset binaries live on disk
+//! under the data dir; index rows live in `nomifun-db` via [`IWorkshopRepository`].
+
+use std::collections::BTreeSet;
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
+use nomifun_common::{
+    AppError, ProviderId, SharedProviderLifecycleBarrier, WorkshopAssetId, WorkshopCanvasId, now_ms,
+};
+use nomifun_db::{AssetSort, IWorkshopRepository, ListAssetsParams, UpdateAssetParams, WorkshopAssetRow};
+use serde_json::Value;
+
+use crate::dto::{WorkshopAsset, WorkshopCanvasMeta};
+use crate::{
+    DEFAULT_DOC, MAX_ASSET_BYTES, MAX_DOC_BYTES, WORKSHOP_REL_DIR, docscan, fsio, imagemeta,
+    thumbnail,
+};
+
+/// A canvas plus its (opaque) doc — the `GET /canvases/{id}` payload.
+pub struct CanvasWithDoc {
+    pub meta: WorkshopCanvasMeta,
+    pub doc: Value,
+}
+
+/// A paginated asset listing.
+pub struct AssetListPage {
+    pub items: Vec<WorkshopAsset>,
+    pub total: i64,
+}
+
+/// A served asset file (bytes + resolved Content-Type).
+pub struct ServedFile {
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Internal descriptor for storing a binary (image/video/audio) asset — the
+/// shared path behind both the HTTP upload and the programmatic
+/// [`WorkshopService::ingest_asset_bytes`].
+struct BinaryAsset {
+    kind: String,
+    ext: String,
+    mime: String,
+    bytes: Vec<u8>,
+    title: String,
+    collection: Option<String>,
+    tags: Option<Vec<String>>,
+    in_library: bool,
+    origin: Option<Value>,
+}
+
+/// A multipart asset upload (binary + optional metadata).
+pub struct NewAssetUpload {
+    pub file_name: String,
+    pub content_type: Option<String>,
+    pub bytes: Vec<u8>,
+    pub title: Option<String>,
+    pub collection: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub in_library: Option<bool>,
+}
+
+/// A `text`-kind asset (no binary; body lives in `text_content`).
+pub struct NewTextAsset {
+    pub title: String,
+    pub text_content: String,
+    pub collection: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub in_library: Option<bool>,
+}
+
+/// Filters + pagination for [`WorkshopService::list_assets`].
+#[derive(Default)]
+pub struct AssetQuery {
+    pub kind: Option<String>,
+    pub collection: Option<String>,
+    pub q: Option<String>,
+    pub in_library: Option<bool>,
+    /// Append-only (M10a): when `true`, return only assets with no collection
+    /// (`collection IS NULL OR ''`). The caller keeps this mutually exclusive
+    /// with `collection`.
+    pub ungrouped: bool,
+    /// Append-only (asset-library page): exact-match filter on one tag.
+    pub tag: Option<String>,
+    /// Append-only (asset-library page): result ordering (default newest first).
+    pub sort: AssetSort,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+/// Partial asset update. A present field updates; an absent one keeps. For
+/// `collection`, `Some("")` clears it to NULL.
+#[derive(Default)]
+pub struct AssetPatch {
+    pub title: Option<String>,
+    pub collection: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub in_library: Option<bool>,
+}
+
+/// GC recency grace (ms). An asset row or on-disk file created/modified more
+/// recently than this is never reclaimed by [`WorkshopService::gc`] or the
+/// `delete_canvas` internal-asset sweep — it may still be an in-flight upload
+/// (file on disk before its row is inserted) or a reference an open canvas has
+/// added but not yet autosaved. A truly orphaned asset is still older than this
+/// on the next pass and gets reclaimed then. 10 minutes ≫ the max
+/// write+thumbnail latency and the 800ms autosave debounce.
+const GC_GRACE_MS: i64 = 10 * 60 * 1000;
+
+pub struct WorkshopService {
+    repo: Arc<dyn IWorkshopRepository>,
+    /// Backend data dir root. Asset `rel_path`s are relative to this.
+    data_dir: PathBuf,
+    /// 画布助手 (canvas assistant) agent-op queue — the in-memory buffer the
+    /// gateway enqueues into and the REST `pending-ops` routes drain. One
+    /// instance per singleton service, so the gateway and the routes share it.
+    agent_ops: crate::agent_ops::AgentOpsQueue,
+    /// GC recency grace (ms). Defaults to [`GC_GRACE_MS`]; tests override it to
+    /// `0` to drive immediate reclamation deterministically.
+    gc_grace_ms: i64,
+    provider_lifecycle: Option<SharedProviderLifecycleBarrier>,
+}
+
+impl WorkshopService {
+    /// Build the service over its index repo + the data dir root.
+    pub fn start(data_dir: &Path, repo: Arc<dyn IWorkshopRepository>) -> Arc<Self> {
+        Self::start_with_gc_grace_and_provider_lifecycle(data_dir, repo, GC_GRACE_MS, None)
+    }
+
+    /// Build the service with the process-wide Provider lifecycle barrier.
+    pub fn start_with_provider_lifecycle(
+        data_dir: &Path,
+        repo: Arc<dyn IWorkshopRepository>,
+        provider_lifecycle: SharedProviderLifecycleBarrier,
+    ) -> Arc<Self> {
+        Self::start_with_gc_grace_and_provider_lifecycle(
+            data_dir,
+            repo,
+            GC_GRACE_MS,
+            Some(provider_lifecycle),
+        )
+    }
+
+    /// [`Self::start`] with an explicit GC recency grace (ms). Production uses
+    /// [`GC_GRACE_MS`]; tests pass `0` for immediate reclamation.
+    #[cfg(test)]
+    fn start_with_gc_grace(data_dir: &Path, repo: Arc<dyn IWorkshopRepository>, gc_grace_ms: i64) -> Arc<Self> {
+        Self::start_with_gc_grace_and_provider_lifecycle(data_dir, repo, gc_grace_ms, None)
+    }
+
+    fn start_with_gc_grace_and_provider_lifecycle(
+        data_dir: &Path,
+        repo: Arc<dyn IWorkshopRepository>,
+        gc_grace_ms: i64,
+        provider_lifecycle: Option<SharedProviderLifecycleBarrier>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            repo,
+            data_dir: data_dir.to_path_buf(),
+            agent_ops: crate::agent_ops::AgentOpsQueue::new(),
+            gc_grace_ms,
+            provider_lifecycle,
+        })
+    }
+
+    // ---- path helpers ----
+
+    fn workshop_dir(&self) -> PathBuf {
+        self.data_dir.join(WORKSHOP_REL_DIR)
+    }
+
+    fn canvas_dir(&self, id: &str) -> PathBuf {
+        self.workshop_dir().join("canvases").join(id)
+    }
+
+    fn assets_dir(&self) -> PathBuf {
+        self.workshop_dir().join("assets")
+    }
+
+    async fn provider_read_guard(
+        &self,
+    ) -> Option<tokio::sync::RwLockReadGuard<'_, ()>> {
+        match &self.provider_lifecycle {
+            Some(barrier) => Some(barrier.read().await),
+            None => None,
+        }
+    }
+
+    async fn validate_generator_providers(&self, doc: &Value) -> Result<(), AppError> {
+        let provider_ids = docscan::collect_generator_provider_refs(doc)
+            .map_err(|error| AppError::BadRequest(format!("invalid workshop canvas doc: {error}")))?;
+        for provider_id in provider_ids {
+            if !self.repo.provider_exists(&provider_id).await? {
+                return Err(AppError::Conflict(format!(
+                    "workshop canvas references missing provider '{provider_id}'"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    // ---- canvases ----
+
+    pub async fn list_canvases(&self) -> Result<Vec<WorkshopCanvasMeta>, AppError> {
+        Ok(self.repo.list_canvases().await?.into_iter().map(WorkshopCanvasMeta::from).collect())
+    }
+
+    /// Read-only startup audit for the Workshop database index and every
+    /// managed canvas/asset file. Any failure makes the current dataset
+    /// incompatible; callers must retire/reset it as a whole.
+    pub async fn audit_managed_data_on_boot(&self) -> Result<(), AppError> {
+        let canvases = self.repo.list_canvases().await?;
+        let mut referenced_assets = BTreeSet::new();
+        for canvas in &canvases {
+            let doc = self.read_doc(&canvas.canvas_id).await?;
+            referenced_assets.extend(docscan::collect_asset_refs(&doc));
+        }
+
+        let assets = self.repo.list_all_assets().await?;
+        let indexed_assets = assets
+            .iter()
+            .map(|asset| asset.asset_id.as_str())
+            .collect::<BTreeSet<_>>();
+        if let Some(asset_id) = referenced_assets
+            .iter()
+            .find(|asset_id| !indexed_assets.contains(asset_id.as_str()))
+        {
+            return Err(AppError::Internal(format!(
+                "managed workshop canvas references missing asset {asset_id}"
+            )));
+        }
+
+        for asset in assets {
+            let tags = serde_json::from_str::<Value>(&asset.tags).map_err(|error| {
+                AppError::Internal(format!(
+                    "managed workshop asset {} has invalid tags JSON: {error}",
+                    asset.asset_id
+                ))
+            })?;
+            if !tags.is_array() {
+                return Err(AppError::Internal(format!(
+                    "managed workshop asset {} tags must be a JSON array",
+                    asset.asset_id
+                )));
+            }
+
+            match asset.rel_path.as_deref() {
+                Some(rel_path) => {
+                    let path = self.resolve_within_workshop(rel_path)?;
+                    let metadata = tokio::fs::metadata(&path).await.map_err(|error| {
+                        AppError::Internal(format!(
+                            "managed workshop asset {} payload is unavailable: {error}",
+                            asset.asset_id
+                        ))
+                    })?;
+                    if !metadata.is_file() {
+                        return Err(AppError::Internal(format!(
+                            "managed workshop asset {} payload is not a regular file",
+                            asset.asset_id
+                        )));
+                    }
+                }
+                None if asset.kind != "text" => {
+                    return Err(AppError::Internal(format!(
+                        "managed binary workshop asset {} has no payload path",
+                        asset.asset_id
+                    )));
+                }
+                None => {}
+            }
+
+            if let Some(thumb_rel_path) = asset.thumb_rel_path.as_deref() {
+                let path = self.resolve_within_workshop(thumb_rel_path)?;
+                let metadata = tokio::fs::metadata(&path).await.map_err(|error| {
+                    AppError::Internal(format!(
+                        "managed workshop asset {} thumbnail is unavailable: {error}",
+                        asset.asset_id
+                    ))
+                })?;
+                if !metadata.is_file() {
+                    return Err(AppError::Internal(format!(
+                        "managed workshop asset {} thumbnail is not a regular file",
+                        asset.asset_id
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn create_canvas(&self, title: Option<String>) -> Result<WorkshopCanvasMeta, AppError> {
+        let id = WorkshopCanvasId::new().into_string();
+        let title = title
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "未命名画布".to_string());
+        let now = now_ms();
+        // Write the empty doc first so a crash between INSERT and write cannot
+        // leave an indexed canvas without its managed document.
+        fsio::save_bytes_atomic(&self.canvas_dir(&id), "canvas.json", DEFAULT_DOC.as_bytes())
+            .await
+            .map_err(|e| AppError::Internal(format!("write canvas doc: {e}")))?;
+        let row = self.repo.create_canvas(&id, &title, now).await?;
+        Ok(row.into())
+    }
+
+    pub async fn get_canvas(&self, id: &str) -> Result<CanvasWithDoc, AppError> {
+        let row = self
+            .repo
+            .get_canvas(id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("workshop canvas {id} not found")))?;
+        let doc = self.read_doc(id).await?;
+        Ok(CanvasWithDoc { meta: row.into(), doc })
+    }
+
+    /// The document payload remains frontend-owned, but its durable identity
+    /// envelope is a backend invariant: every node/edge ID and every declared
+    /// node reference must be canonical before data is served back to clients.
+    async fn read_doc(&self, id: &str) -> Result<Value, AppError> {
+        let path = self.canvas_dir(id).join("canvas.json");
+        let bytes = fsio::read_bytes_opt(&path)
+            .await
+            .map_err(|error| {
+                AppError::Internal(format!(
+                    "read managed workshop canvas {id} document: {error}"
+                ))
+            })?
+            .ok_or_else(|| {
+                AppError::Internal(format!(
+                    "managed workshop canvas {id} document is missing"
+                ))
+            })?;
+        let doc: Value = serde_json::from_slice(&bytes).map_err(|error| {
+            AppError::Internal(format!(
+                "managed workshop canvas {id} document is invalid JSON: {error}"
+            ))
+        })?;
+        docscan::validate_canvas_doc_ids(&doc).map_err(|error| {
+            AppError::Internal(format!(
+                "managed workshop canvas {id} has invalid durable IDs: {error}"
+            ))
+        })?;
+        docscan::collect_generator_provider_refs(&doc).map_err(|error| {
+            AppError::Internal(format!(
+                "managed workshop canvas {id} has invalid provider references: {error}"
+            ))
+        })?;
+        Ok(doc)
+    }
+
+    /// Persist a frontend-owned doc (≤ [`MAX_DOC_BYTES`]), sync `node_count`
+    /// from `doc.nodes`, and return the new `updated_at`.
+    ///
+    /// Although node payloads remain opaque, durable IDs are validated deeply:
+    /// `nodes[].id`/`groupId`, `edges[].id`/`from`/`to`, and `node:<id>` mention
+    /// references must all be canonical and internally resolvable.
+    pub async fn save_doc(&self, id: &str, doc: &Value) -> Result<i64, AppError> {
+        let _provider_guard = self.provider_read_guard().await;
+        self.save_doc_inner(id, doc, true).await
+    }
+
+    async fn save_doc_inner(
+        &self,
+        id: &str,
+        doc: &Value,
+        validate_providers: bool,
+    ) -> Result<i64, AppError> {
+        // Ensure the canvas exists before touching disk.
+        if self.repo.get_canvas(id).await?.is_none() {
+            return Err(AppError::NotFound(format!("workshop canvas {id} not found")));
+        }
+        let node_count = docscan::validate_canvas_doc_ids(doc)
+            .map_err(|error| AppError::BadRequest(format!("invalid workshop canvas doc: {error}")))?
+            as i64;
+        if validate_providers {
+            self.validate_generator_providers(doc).await?;
+        }
+        let bytes = serde_json::to_vec(doc).map_err(|e| AppError::BadRequest(format!("invalid doc json: {e}")))?;
+        if bytes.len() > MAX_DOC_BYTES {
+            return Err(AppError::BadRequest(format!(
+                "canvas doc is too large: {} bytes (max {MAX_DOC_BYTES})",
+                bytes.len()
+            )));
+        }
+        fsio::save_bytes_atomic(&self.canvas_dir(id), "canvas.json", &bytes)
+            .await
+            .map_err(|e| AppError::Internal(format!("write canvas doc: {e}")))?;
+        let row = self.repo.touch_canvas(id, node_count, now_ms()).await?;
+        Ok(row.updated_at)
+    }
+
+    pub async fn rename_canvas(&self, id: &str, title: &str) -> Result<WorkshopCanvasMeta, AppError> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(AppError::BadRequest("title must not be empty".into()));
+        }
+        Ok(self.repo.rename_canvas(id, title, now_ms()).await?.into())
+    }
+
+    /// PATCH a canvas: optionally rename and/or set its gallery thumbnail from an
+    /// asset (append-only over `rename_canvas`). Returns the latest meta. A
+    /// request with no fields is a no-op that returns the current meta.
+    pub async fn patch_canvas(
+        &self,
+        id: &str,
+        title: Option<String>,
+        thumbnail_asset_id: Option<String>,
+    ) -> Result<WorkshopCanvasMeta, AppError> {
+        let mut latest: Option<WorkshopCanvasMeta> = None;
+        if let Some(title) = title {
+            latest = Some(self.rename_canvas(id, &title).await?);
+        }
+        if let Some(asset_id) = thumbnail_asset_id {
+            latest = Some(self.set_canvas_thumbnail(id, &asset_id).await?);
+        }
+        match latest {
+            Some(meta) => Ok(meta),
+            None => {
+                let row = self
+                    .repo
+                    .get_canvas(id)
+                    .await?
+                    .ok_or_else(|| AppError::NotFound(format!("workshop canvas {id} not found")))?;
+                Ok(row.into())
+            }
+        }
+    }
+
+    /// Point a canvas's gallery thumbnail at an asset's thumbnail. The asset
+    /// must be a decodable image (its JPEG thumbnail — generated on demand — is
+    /// copied to `{canvas_dir}/thumb.jpg`).
+    pub async fn set_canvas_thumbnail(&self, canvas_id: &str, asset_id: &str) -> Result<WorkshopCanvasMeta, AppError> {
+        if self.repo.get_canvas(canvas_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("workshop canvas {canvas_id} not found")));
+        }
+        let row = self
+            .repo
+            .get_asset(asset_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("workshop asset {asset_id} not found")))?;
+        let bytes = self
+            .thumb_bytes(&row)
+            .await
+            .ok_or_else(|| AppError::BadRequest("thumbnail asset must be a decodable image".into()))?;
+        fsio::save_bytes_atomic(&self.canvas_dir(canvas_id), "thumb.jpg", &bytes)
+            .await
+            .map_err(|e| AppError::Internal(format!("write canvas thumbnail: {e}")))?;
+        let rel = format!("{WORKSHOP_REL_DIR}/canvases/{canvas_id}/thumb.jpg");
+        Ok(self.repo.set_canvas_thumbnail(canvas_id, &rel, now_ms()).await?.into())
+    }
+
+    /// Serve a canvas's gallery thumbnail bytes (JPEG). NotFound when the canvas
+    /// has no thumbnail set.
+    pub async fn serve_canvas_thumbnail(&self, canvas_id: &str) -> Result<ServedFile, AppError> {
+        let row = self
+            .repo
+            .get_canvas(canvas_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("workshop canvas {canvas_id} not found")))?;
+        let rel = row
+            .thumbnail_rel_path
+            .as_deref()
+            .ok_or_else(|| AppError::NotFound(format!("canvas {canvas_id} has no thumbnail")))?;
+        let abs = self.resolve_within_workshop(rel)?;
+        let bytes = tokio::fs::read(&abs)
+            .await
+            .map_err(|_| AppError::NotFound(format!("canvas {canvas_id} thumbnail is missing")))?;
+        Ok(ServedFile { mime: thumbnail::THUMB_MIME.to_string(), bytes })
+    }
+
+    pub async fn delete_canvas(&self, id: &str) -> Result<(), AppError> {
+        // Snapshot this canvas's asset references before its doc disappears, so
+        // we can GC canvas-internal assets it alone kept alive.
+        let doc = self.read_doc(id).await?;
+        let own_refs = docscan::collect_asset_refs(&doc);
+
+        self.repo.delete_canvas(id).await?;
+        // Best-effort remove the on-disk body dir (row is the source of truth).
+        if let Err(e) = tokio::fs::remove_dir_all(self.canvas_dir(id)).await
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(id, error = %e, "workshop canvas dir remove failed (row deleted)");
+        }
+
+        // GC: for each asset this canvas referenced, if it's canvas-internal
+        // (`in_library = 0`) and no *other* canvas still references it, drop it.
+        // A recency grace protects a freshly-created asset that another OPEN
+        // canvas may reference but hasn't autosaved yet (its ref isn't on disk).
+        if !own_refs.is_empty() {
+            let now = now_ms();
+            let still_referenced = self.collect_all_referenced_asset_ids().await.unwrap_or_default();
+            for asset_id in own_refs {
+                if still_referenced.contains(&asset_id) {
+                    continue;
+                }
+                if let Ok(Some(row)) = self.repo.get_asset(&asset_id).await
+                    && !row.in_library
+                    && now.saturating_sub(row.created_at.max(row.updated_at)) >= self.gc_grace_ms
+                    && let Err(e) = self.delete_asset(&asset_id).await
+                {
+                    tracing::warn!(asset_id, error = %e, "workshop GC: internal asset delete failed");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Every asset id referenced by *any* canvas doc (scans all canvases; the
+    /// canvas count is small by design).
+    async fn collect_all_referenced_asset_ids(&self) -> Result<BTreeSet<String>, AppError> {
+        let mut out = BTreeSet::new();
+        for canvas in self.repo.list_canvases().await? {
+            let doc = self.read_doc(&canvas.canvas_id).await?;
+            out.extend(docscan::collect_asset_refs(&doc));
+        }
+        Ok(out)
+    }
+
+    // ---- agent ops (画布助手) ----
+
+    /// Enqueue or directly apply a batch of 画布助手 agent ops. See
+    /// [`crate::agent_ops`] for the open-frontend-authority rule.
+    ///
+    /// All ops are validated up front (a single bad op fails the whole call so
+    /// the agent can self-correct). Then, per op:
+    /// - an OPEN canvas (a frontend is polling) queues EVERY op for the live
+    ///   frontend to apply (preserving its write authority);
+    /// - a CLOSED canvas applies `add_node` / `connect` straight to `canvas.json`
+    ///   and queues the data-mutating ops (`update_node_data` / `delete_node`)
+    ///   for whenever a frontend next opens.
+    ///
+    /// Returns a per-op disposition (`queued` | `applied` | `skipped`).
+    pub async fn apply_agent_ops(
+        &self,
+        canvas_id: &str,
+        ops: Vec<crate::agent_ops::AgentOp>,
+        source: &str,
+    ) -> Result<Vec<crate::agent_ops::AppliedOp>, AppError> {
+        use crate::agent_ops::{self, AgentOp, AppliedOp, OpDisposition, PendingOp};
+        let _provider_guard = self.provider_read_guard().await;
+
+        if ops.is_empty() {
+            return Err(AppError::BadRequest("no ops provided".into()));
+        }
+        if ops.len() > agent_ops::MAX_OPS_PER_CALL {
+            return Err(AppError::BadRequest(format!(
+                "too many ops in one call: {} (max {})",
+                ops.len(),
+                agent_ops::MAX_OPS_PER_CALL
+            )));
+        }
+        if self.repo.get_canvas(canvas_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("workshop canvas {canvas_id} not found")));
+        }
+        for (i, op) in ops.iter().enumerate() {
+            op.validate().map_err(|e| AppError::BadRequest(format!("ops[{i}]: {e}")))?;
+        }
+
+        let open = self.agent_ops.is_open(canvas_id);
+        let mut results: Vec<AppliedOp> = Vec::with_capacity(ops.len());
+        let mut to_queue: Vec<PendingOp> = Vec::new();
+        // Direct-apply path (closed canvas) mutates one doc snapshot, saved once.
+        let mut doc: Option<Value> = None;
+        let mut dirty = false;
+
+        for op in ops {
+            let op_id = agent_ops::new_op_id();
+            if !open && op.direct_applicable() {
+                if doc.is_none() {
+                    doc = Some(self.read_doc(canvas_id).await?);
+                }
+                let d = doc.as_mut().expect("doc loaded above");
+                match op {
+                    AgentOp::AddNode { node } => {
+                        let node_id = agent_ops::apply_add_node(d, &node);
+                        dirty = true;
+                        results.push(AppliedOp {
+                            op_id,
+                            disposition: OpDisposition::Applied,
+                            node_id: Some(node_id),
+                            note: None,
+                        });
+                    }
+                    AgentOp::Connect { from_node_id, to_node_id } => match agent_ops::apply_connect(d, &from_node_id, &to_node_id) {
+                        Ok(Some(_edge)) => {
+                            dirty = true;
+                            results.push(AppliedOp { op_id, disposition: OpDisposition::Applied, node_id: None, note: None });
+                        }
+                        Ok(None) => results.push(AppliedOp {
+                            op_id,
+                            disposition: OpDisposition::Applied,
+                            node_id: None,
+                            note: Some("edge already existed".into()),
+                        }),
+                        Err(reason) => results.push(AppliedOp {
+                            op_id,
+                            disposition: OpDisposition::Skipped,
+                            node_id: None,
+                            note: Some(reason),
+                        }),
+                    },
+                    // direct_applicable() only matches AddNode/Connect.
+                    other => to_queue.push(PendingOp::new(op_id, other)),
+                }
+            } else {
+                results.push(AppliedOp {
+                    op_id: op_id.clone(),
+                    disposition: OpDisposition::Queued,
+                    node_id: None,
+                    note: None,
+                });
+                to_queue.push(PendingOp::new(op_id, op));
+            }
+        }
+
+        if dirty
+            && let Some(d) = &doc
+        {
+            self.save_doc_inner(canvas_id, d, true).await?;
+        }
+        if !to_queue.is_empty() {
+            self.agent_ops.enqueue(canvas_id, to_queue);
+        }
+        tracing::info!(canvas_id, source, open, ops = results.len(), "workshop agent ops processed");
+        Ok(results)
+    }
+
+    /// Drain (idempotently — ops stay until acked) the pending 画布助手 ops for a
+    /// canvas, recording the poll so the canvas registers as "open".
+    pub async fn take_pending_ops(&self, canvas_id: &str) -> Result<Vec<crate::agent_ops::PendingOp>, AppError> {
+        if self.repo.get_canvas(canvas_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("workshop canvas {canvas_id} not found")));
+        }
+        Ok(self.agent_ops.take_pending(canvas_id))
+    }
+
+    /// Acknowledge (remove) applied 画布助手 ops by id.
+    pub fn ack_agent_ops(&self, canvas_id: &str, op_ids: &[String]) {
+        self.agent_ops.ack(canvas_id, op_ids);
+    }
+
+    /// Register that an editor just opened this canvas (its doc was loaded via
+    /// the REST canvas-doc GET). Marks the canvas "open" immediately so a
+    /// concurrent agent `apply_ops` in the gap before the first pending-ops poll
+    /// is queued for the live editor rather than direct-written and then
+    /// clobbered by the editor's first autosave. See
+    /// [`crate::agent_ops::AgentOpsQueue::mark_open`].
+    pub fn mark_canvas_open(&self, canvas_id: &str) {
+        self.agent_ops.mark_open(canvas_id);
+    }
+
+    // ---- assets ----
+
+    pub async fn upload_asset(&self, input: NewAssetUpload) -> Result<WorkshopAsset, AppError> {
+        let (ext, mime, kind) = classify_upload(&input.file_name, input.content_type.as_deref())?;
+        let title = input
+            .title
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| input.file_name.clone());
+        let row = self
+            .store_binary_asset(BinaryAsset {
+                kind: kind.to_string(),
+                ext,
+                mime,
+                bytes: input.bytes,
+                title,
+                collection: input.collection,
+                tags: input.tags,
+                in_library: input.in_library.unwrap_or(true),
+                origin: None,
+            })
+            .await?;
+        WorkshopAsset::try_from(row)
+    }
+
+    /// Programmatic asset ingest: store raw `bytes` of a given `mime` as a new
+    /// asset row and return it. The shared entry point for other modules (e.g.
+    /// the generation engine writing produced media). `origin` is the JSON
+    /// provenance blob (`{prompt,model,provider_id,params,canvas_id,…}`).
+    pub async fn ingest_asset_bytes(
+        &self,
+        bytes: Vec<u8>,
+        mime: &str,
+        title: &str,
+        in_library: bool,
+        origin: Option<Value>,
+    ) -> Result<WorkshopAssetRow, AppError> {
+        let (kind, ext) = classify_mime(mime)?;
+        let title = title.trim();
+        let title = if title.is_empty() { format!("{kind} asset") } else { title.to_string() };
+        self.store_binary_asset(BinaryAsset {
+            kind: kind.to_string(),
+            ext,
+            mime: mime.trim().to_string(),
+            bytes,
+            title,
+            collection: None,
+            tags: None,
+            in_library,
+            origin,
+        })
+        .await
+    }
+
+    /// Remove Provider selections from all generator nodes in all persisted
+    /// canvas documents. This is a SET_NULL logical-reference cleanup invoked
+    /// by the Provider deletion coordinator while holding the lifecycle write
+    /// guard. The operation is idempotent and validates every rewritten doc
+    /// before replacing it atomically.
+    pub async fn clear_provider_references_under_lifecycle_write_guard(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), AppError> {
+        let provider_id = ProviderId::parse(provider_id)
+            .map_err(|error| AppError::BadRequest(format!("invalid provider_id: {error}")))?
+            .into_string();
+        for canvas in self.repo.list_canvases().await? {
+            let path = self.canvas_dir(&canvas.canvas_id).join("canvas.json");
+            let bytes = fsio::read_bytes_opt(&path)
+                .await
+                .map_err(|error| {
+                    AppError::Internal(format!(
+                        "read workshop canvas {}: {error}",
+                        canvas.canvas_id
+                    ))
+                })?
+                .ok_or_else(|| {
+                    AppError::Conflict(format!(
+                        "workshop canvas {} is missing canvas.json",
+                        canvas.canvas_id
+                    ))
+                })?;
+            let mut doc: Value = serde_json::from_slice(&bytes).map_err(|error| {
+                AppError::Conflict(format!(
+                    "workshop canvas {} has invalid JSON: {error}",
+                    canvas.canvas_id
+                ))
+            })?;
+            docscan::validate_canvas_doc_ids(&doc).map_err(|error| {
+                AppError::Conflict(format!(
+                    "workshop canvas {} has invalid durable IDs: {error}",
+                    canvas.canvas_id
+                ))
+            })?;
+            if !docscan::clear_generator_provider_reference(&mut doc, &provider_id)
+                .map_err(|error| AppError::Conflict(format!("invalid workshop canvas: {error}")))?
+            {
+                continue;
+            }
+            self.save_doc_inner(&canvas.canvas_id, &doc, false).await?;
+        }
+        Ok(())
+    }
+
+    /// Read an asset's original binary + its resolved mime. Errors when the
+    /// asset is unknown, is a text asset (no file), or its file is missing. The
+    /// programmatic counterpart to [`Self::serve_file`] (no thumbnail path).
+    pub async fn read_asset_bytes(&self, asset_id: &str) -> Result<(Vec<u8>, String), AppError> {
+        let row = self
+            .repo
+            .get_asset(asset_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("workshop asset {asset_id} not found")))?;
+        self.read_original(&row).await
+    }
+
+    /// The shared store path: validate size, extract image dimensions, persist
+    /// the binary, best-effort generate a thumbnail (images only), then insert
+    /// the row (rolling the file back if the insert fails).
+    async fn store_binary_asset(&self, input: BinaryAsset) -> Result<WorkshopAssetRow, AppError> {
+        if input.bytes.is_empty() {
+            return Err(AppError::BadRequest("asset payload is empty".into()));
+        }
+        if input.bytes.len() > MAX_ASSET_BYTES {
+            return Err(AppError::BadRequest(format!(
+                "asset is too large: {} bytes (max {MAX_ASSET_BYTES})",
+                input.bytes.len()
+            )));
+        }
+        let is_image = input.kind == "image";
+        let (width, height) = if is_image {
+            match imagemeta::image_dimensions(&input.bytes) {
+                Some((w, h)) => (Some(w as i64), Some(h as i64)),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        let id = WorkshopAssetId::new().into_string();
+        let disk_name = format!("{id}.{}", input.ext);
+        let rel_path = format!("{WORKSHOP_REL_DIR}/assets/{disk_name}");
+        fsio::save_bytes_atomic(&self.assets_dir(), &disk_name, &input.bytes)
+            .await
+            .map_err(|e| AppError::Internal(format!("write asset file: {e}")))?;
+
+        let thumb_rel_path = if is_image {
+            self.generate_and_store_thumb(&id, &input.bytes).await
+        } else {
+            None
+        };
+
+        let now = now_ms();
+        let row = WorkshopAssetRow {
+            id: 0,
+            asset_id: id,
+            kind: input.kind,
+            title: input.title,
+            collection: normalize_opt(input.collection),
+            tags: tags_json(input.tags),
+            rel_path: Some(rel_path),
+            thumb_rel_path,
+            mime: Some(input.mime),
+            width,
+            height,
+            bytes: Some(input.bytes.len() as i64),
+            text_content: None,
+            in_library: input.in_library,
+            origin: input.origin.map(|v| v.to_string()),
+            created_at: now,
+            updated_at: now,
+        };
+        // Roll the files back if the row insert fails.
+        match self.repo.create_asset(&row).await {
+            Ok(saved) => Ok(saved),
+            Err(e) => {
+                for rel in [row.rel_path.as_deref(), row.thumb_rel_path.as_deref()].into_iter().flatten() {
+                    let _ = tokio::fs::remove_file(self.data_dir.join(rel)).await;
+                }
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Generate a JPEG thumbnail from `bytes` and persist it under
+    /// `assets/thumbs/{id}.jpg`. Returns its data-dir-relative path, or `None`
+    /// when the bytes aren't decodable / the write fails (thumbnails are
+    /// best-effort — the asset is still fully usable without one).
+    async fn generate_and_store_thumb(&self, id: &str, bytes: &[u8]) -> Option<String> {
+        let owned = bytes.to_vec();
+        let thumb = tokio::task::spawn_blocking(move || {
+            thumbnail::encode_thumbnail_jpeg(&owned, thumbnail::THUMB_MAX_EDGE)
+        })
+        .await
+        .ok()??;
+        let disk_name = format!("{id}.{}", thumbnail::THUMB_EXT);
+        let dir = self.assets_dir().join("thumbs");
+        if let Err(e) = fsio::save_bytes_atomic(&dir, &disk_name, &thumb).await {
+            tracing::warn!(id, error = %e, "workshop thumbnail write failed");
+            return None;
+        }
+        Some(format!("{WORKSHOP_REL_DIR}/assets/thumbs/{disk_name}"))
+    }
+
+    /// Best-effort thumbnail bytes for an asset: an existing thumbnail file if
+    /// present, else (for images) one generated + persisted on the fly. `None`
+    /// for non-images or when generation fails.
+    async fn thumb_bytes(&self, row: &WorkshopAssetRow) -> Option<Vec<u8>> {
+        if let Some(rel) = row.thumb_rel_path.as_deref()
+            && let Ok(abs) = self.resolve_within_workshop(rel)
+            && let Ok(bytes) = tokio::fs::read(&abs).await
+        {
+            return Some(bytes);
+        }
+        if row.kind != "image" {
+            return None;
+        }
+        let rel = row.rel_path.as_deref()?;
+        let abs = self.resolve_within_workshop(rel).ok()?;
+        let original = tokio::fs::read(&abs).await.ok()?;
+        let thumb_rel = self.generate_and_store_thumb(&row.asset_id, &original).await?;
+        // Persist the freshly minted thumb path (best-effort).
+        let _ = self
+            .repo
+            .set_asset_thumb(&row.asset_id, &thumb_rel, now_ms())
+            .await;
+        let thumb_abs = self.resolve_within_workshop(&thumb_rel).ok()?;
+        tokio::fs::read(&thumb_abs).await.ok()
+    }
+
+    /// Read an asset's original bytes + mime (used by serve + programmatic read).
+    async fn read_original(&self, row: &WorkshopAssetRow) -> Result<(Vec<u8>, String), AppError> {
+        let Some(rel) = row.rel_path.as_deref() else {
+            // Text assets keep their body inline in the row instead of on disk.
+            if let Some(text) = row.text_content.as_deref() {
+                return Ok((text.as_bytes().to_vec(), "text/plain; charset=utf-8".to_string()));
+            }
+            return Err(AppError::NotFound(format!(
+                "asset {} has no file",
+                row.asset_id
+            )));
+        };
+        let abs = self.resolve_within_workshop(rel)?;
+        let bytes = tokio::fs::read(&abs)
+            .await
+            .map_err(|_| AppError::NotFound(format!("asset {} file is missing", row.asset_id)))?;
+        let mime = row.mime.clone().unwrap_or_else(|| "application/octet-stream".to_string());
+        Ok((bytes, mime))
+    }
+
+    pub async fn create_text_asset(&self, input: NewTextAsset) -> Result<WorkshopAsset, AppError> {
+        let title = input.title.trim();
+        if title.is_empty() {
+            return Err(AppError::BadRequest("title must not be empty".into()));
+        }
+        let now = now_ms();
+        let row = WorkshopAssetRow {
+            id: 0,
+            asset_id: WorkshopAssetId::new().into_string(),
+            kind: "text".to_string(),
+            title: title.to_string(),
+            collection: normalize_opt(input.collection),
+            tags: tags_json(input.tags),
+            rel_path: None,
+            thumb_rel_path: None,
+            mime: None,
+            width: None,
+            height: None,
+            bytes: None,
+            text_content: Some(input.text_content),
+            in_library: input.in_library.unwrap_or(true),
+            origin: None,
+            created_at: now,
+            updated_at: now,
+        };
+        WorkshopAsset::try_from(self.repo.create_asset(&row).await?)
+    }
+
+    pub async fn list_assets(&self, query: AssetQuery) -> Result<AssetListPage, AppError> {
+        let (rows, total) = self
+            .repo
+            .list_assets(ListAssetsParams {
+                kind: query.kind.as_deref(),
+                collection: query.collection.as_deref(),
+                q: query.q.as_deref().filter(|s| !s.trim().is_empty()),
+                in_library: query.in_library,
+                ungrouped: query.ungrouped,
+                tag: query.tag.as_deref().filter(|s| !s.trim().is_empty()),
+                sort: query.sort,
+                page: query.page,
+                page_size: query.page_size,
+            })
+            .await?;
+        let items = rows
+            .into_iter()
+            .map(WorkshopAsset::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(AssetListPage { items, total })
+    }
+
+    pub async fn patch_asset(&self, id: &str, patch: AssetPatch) -> Result<WorkshopAsset, AppError> {
+        // Own the JSON string so the borrowed params can reference it.
+        let tags_owned = patch.tags.map(|t| serde_json::to_string(&t).unwrap_or_else(|_| "[]".to_string()));
+        let collection = patch
+            .collection
+            .as_ref()
+            .map(|c| if c.trim().is_empty() { None } else { Some(c.trim()) });
+        let params = UpdateAssetParams {
+            title: patch.title.as_deref().map(str::trim).filter(|t| !t.is_empty()),
+            collection,
+            tags: tags_owned.as_deref(),
+            in_library: patch.in_library,
+        };
+        WorkshopAsset::try_from(self.repo.update_asset(id, params, now_ms()).await?)
+    }
+
+    /// Bulk-rename a collection across every asset that used it (asset-library
+    /// management). `from` must be non-empty; a whitespace-only `to` ungroups
+    /// those assets (sets `collection` to NULL). Returns rows updated.
+    pub async fn rename_collection(&self, from: &str, to: &str) -> Result<u64, AppError> {
+        let from = from.trim();
+        if from.is_empty() {
+            return Err(AppError::BadRequest("collection name must not be empty".into()));
+        }
+        let to = to.trim();
+        let to_opt = if to.is_empty() { None } else { Some(to) };
+        Ok(self.repo.rename_collection(from, to_opt, now_ms()).await?)
+    }
+
+    pub async fn delete_asset(&self, id: &str) -> Result<(), AppError> {
+        let row = self
+            .repo
+            .get_asset(id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("workshop asset {id} not found")))?;
+        self.repo.delete_asset(id).await?;
+        for rel in [row.rel_path.as_deref(), row.thumb_rel_path.as_deref()].into_iter().flatten() {
+            let abs = self.data_dir.join(rel);
+            if let Err(e) = tokio::fs::remove_file(&abs).await
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(id, path = %abs.display(), error = %e, "workshop asset file remove failed (row deleted)");
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve an asset's original (or, when `thumb`, its thumbnail — generated on
+    /// demand for images that lack one, else falling back to the original per
+    /// contract §3.2). Traversal-safe. Missing file → NotFound.
+    pub async fn serve_file(&self, asset_id: &str, thumb: bool) -> Result<ServedFile, AppError> {
+        let row = self
+            .repo
+            .get_asset(asset_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("workshop asset {asset_id} not found")))?;
+
+        if thumb
+            && let Some(bytes) = self.thumb_bytes(&row).await
+        {
+            return Ok(ServedFile { mime: thumbnail::THUMB_MIME.to_string(), bytes });
+        }
+        let (bytes, mime) = self.read_original(&row).await?;
+        Ok(ServedFile { mime, bytes })
+    }
+
+    /// Resolve a data-dir-relative path and guarantee it stays inside the
+    /// workshop dir (defense-in-depth; `rel_path`s are minted by us).
+    fn resolve_within_workshop(&self, rel: &str) -> Result<PathBuf, AppError> {
+        if rel.contains('\0') || Path::new(rel).components().any(|c| matches!(c, Component::ParentDir)) {
+            return Err(AppError::Forbidden("asset path contains invalid traversal".into()));
+        }
+        let abs = self.data_dir.join(rel);
+        let canonical = std::fs::canonicalize(&abs)
+            .map_err(|_| AppError::NotFound("asset file is missing".into()))?;
+        let root = std::fs::canonicalize(self.workshop_dir())
+            .map_err(|e| AppError::Internal(format!("resolve workshop dir: {e}")))?;
+        if !canonical.starts_with(&root) {
+            return Err(AppError::Forbidden("asset path escapes the workshop sandbox".into()));
+        }
+        Ok(canonical)
+    }
+}
+
+#[cfg(test)]
+fn default_doc_value() -> Value {
+    serde_json::from_str(DEFAULT_DOC).expect("DEFAULT_DOC is valid json")
+}
+
+fn normalize_opt(v: Option<String>) -> Option<String> {
+    v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn tags_json(tags: Option<Vec<String>>) -> String {
+    serde_json::to_string(&tags.unwrap_or_default()).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Resolve `(ext, mime, kind)` for an upload. Only image/* and video/* are
+/// accepted; anything else is a bad request.
+fn classify_upload(file_name: &str, content_type: Option<&str>) -> Result<(String, String, &'static str), AppError> {
+    let ext_from_name = Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| !e.is_empty());
+    let guessed_raw = mime_guess::from_path(file_name).first_raw();
+    let mime = content_type
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "application/octet-stream")
+        .map(str::to_string)
+        .or_else(|| guessed_raw.map(str::to_string))
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    let kind = if mime.starts_with("image/") {
+        "image"
+    } else if mime.starts_with("video/") {
+        "video"
+    } else {
+        return Err(AppError::BadRequest(format!(
+            "unsupported media type '{mime}': only image/* and video/* uploads are accepted"
+        )));
+    };
+
+    let ext = ext_from_name
+        .or_else(|| {
+            mime_guess::get_mime_extensions_str(&mime).and_then(|exts| exts.first().map(|e| e.to_string()))
+        })
+        .unwrap_or_else(|| "bin".to_string());
+    Ok((ext, mime, kind))
+}
+
+/// Resolve `(kind, ext)` from a bare mime type (programmatic ingest — no
+/// filename). image/* → image, video/* → video, audio/* → audio; else a bad
+/// request.
+fn classify_mime(mime: &str) -> Result<(&'static str, String), AppError> {
+    let m = mime.trim().to_ascii_lowercase();
+    let kind = if m.starts_with("image/") {
+        "image"
+    } else if m.starts_with("video/") {
+        "video"
+    } else if m.starts_with("audio/") {
+        "audio"
+    } else {
+        return Err(AppError::BadRequest(format!(
+            "unsupported media type '{mime}': only image/*, video/*, audio/* are ingestible"
+        )));
+    };
+    let ext = mime_guess::get_mime_extensions_str(&m)
+        .and_then(|exts| exts.first().map(|e| e.to_string()))
+        .unwrap_or_else(|| "bin".to_string());
+    Ok((kind, ext))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nomifun_common::{
+        ProviderLifecycleBarrier, WorkshopCanvasId, WorkshopEdgeId, WorkshopNodeId,
+    };
+    use nomifun_db::SqliteWorkshopRepository;
+
+    async fn service() -> (Arc<WorkshopService>, tempfile::TempDir) {
+        // Default test harness reclaims immediately (grace 0) so GC/delete tests
+        // stay deterministic; the grace behavior is covered by dedicated tests.
+        service_with_gc_grace(0).await
+    }
+
+    async fn service_with_gc_grace(grace_ms: i64) -> (Arc<WorkshopService>, tempfile::TempDir) {
+        let db = nomifun_db::init_database_memory().await.unwrap();
+        let repo: Arc<dyn IWorkshopRepository> = Arc::new(SqliteWorkshopRepository::new(db.pool().clone()));
+        Box::leak(Box::new(db));
+        let dir = tempfile::tempdir().unwrap();
+        (WorkshopService::start_with_gc_grace(dir.path(), repo, grace_ms), dir)
+    }
+
+    async fn service_with_database_and_lifecycle(
+        provider_lifecycle: Option<SharedProviderLifecycleBarrier>,
+    ) -> (Arc<WorkshopService>, tempfile::TempDir, Arc<nomifun_db::Database>) {
+        let db = Arc::new(nomifun_db::init_database_memory().await.unwrap());
+        let repo: Arc<dyn IWorkshopRepository> =
+            Arc::new(SqliteWorkshopRepository::new(db.pool().clone()));
+        let dir = tempfile::tempdir().unwrap();
+        let service = WorkshopService::start_with_gc_grace_and_provider_lifecycle(
+            dir.path(),
+            repo,
+            0,
+            provider_lifecycle,
+        );
+        (service, dir, db)
+    }
+
+    async fn insert_provider(db: &nomifun_db::Database, provider_id: &str) {
+        nomifun_db::sqlx::query(
+            "INSERT INTO providers (\
+                provider_id, platform, name, base_url, api_key_encrypted, enabled, \
+                created_at, updated_at\
+             ) VALUES (?, 'openai', ?, 'https://example.invalid', 'encrypted', \
+                        1, 1, 1)",
+        )
+        .bind(provider_id)
+        .bind(provider_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    }
+
+    // A 1x1 PNG.
+    fn png_1x1() -> Vec<u8> {
+        let mut b = b"\x89PNG\r\n\x1a\n".to_vec();
+        b.extend_from_slice(&[0, 0, 0, 13]);
+        b.extend_from_slice(b"IHDR");
+        b.extend_from_slice(&1u32.to_be_bytes());
+        b.extend_from_slice(&1u32.to_be_bytes());
+        b.extend_from_slice(&[8, 6, 0, 0, 0]);
+        b
+    }
+
+    #[tokio::test]
+    async fn canvas_create_read_save_delete() {
+        let (svc, dir) = service().await;
+        let meta = svc.create_canvas(None).await.unwrap();
+        assert_eq!(meta.title, "未命名画布");
+        assert!(WorkshopCanvasId::parse(&meta.canvas_id).is_ok());
+        assert!(dir.path().join("workshop/canvases").join(&meta.canvas_id).join("canvas.json").exists());
+
+        // default doc parses; save a doc with 2 nodes → node_count syncs.
+        let read = svc.get_canvas(&meta.canvas_id).await.unwrap();
+        assert_eq!(read.doc["schema"], 1);
+        let doc = serde_json::json!({
+            "schema": 1,
+            "nodes": [
+                {"id": WorkshopNodeId::new().into_string()},
+                {"id": WorkshopNodeId::new().into_string()}
+            ],
+            "edges": []
+        });
+        let updated_at = svc.save_doc(&meta.canvas_id, &doc).await.unwrap();
+        assert!(updated_at >= meta.created_at);
+        let all = svc.list_canvases().await.unwrap();
+        assert_eq!(all[0].node_count, 2);
+
+        // rename
+        let renamed = svc.rename_canvas(&meta.canvas_id, "  我的画布  ").await.unwrap();
+        assert_eq!(renamed.title, "我的画布");
+        assert!(svc.rename_canvas(&meta.canvas_id, "   ").await.is_err());
+
+        // delete removes row + dir
+        svc.delete_canvas(&meta.canvas_id).await.unwrap();
+        assert!(!dir.path().join("workshop/canvases").join(&meta.canvas_id).exists());
+        assert!(svc.get_canvas(&meta.canvas_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn managed_data_audit_rejects_invalid_canvas_ids_without_rewriting_the_file() {
+        let (svc, dir) = service().await;
+        let canvas = svc.create_canvas(None).await.unwrap();
+        let path = dir
+            .path()
+            .join("workshop/canvases")
+            .join(&canvas.canvas_id)
+            .join("canvas.json");
+        let corrupt = br#"{"schema":1,"nodes":[{"id":"node_legacy"}],"edges":[]}"#;
+        tokio::fs::write(&path, corrupt).await.unwrap();
+
+        let error = svc.audit_managed_data_on_boot().await.unwrap_err();
+        assert!(error.to_string().contains("invalid durable IDs"));
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), corrupt);
+    }
+
+    #[tokio::test]
+    async fn save_doc_rejects_oversize_and_unknown_canvas() {
+        let (svc, _dir) = service().await;
+        assert!(
+            svc.save_doc(
+                "0190f5fe-7c00-7a00-8000-000000000099",
+                &serde_json::json!({})
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn save_doc_enforces_generator_provider_logical_references() {
+        let (svc, _dir, _db) = service_with_database_and_lifecycle(None).await;
+        let canvas = svc.create_canvas(Some("provider contract".into())).await.unwrap();
+        let missing_provider_id = "0190f5fe-7c00-7a00-8000-000000000085";
+        let base = serde_json::json!({
+            "schema": 1,
+            "nodes": [{
+                "id": WorkshopNodeId::new().into_string(),
+                "kind": "generator",
+                "data": {
+                    "providerId": missing_provider_id,
+                    "model": "image-model"
+                }
+            }],
+            "edges": []
+        });
+
+        let error = svc.save_doc(&canvas.canvas_id, &base).await.unwrap_err();
+        assert!(
+            matches!(
+                error,
+                AppError::Conflict(ref message)
+                    if message.contains("references missing provider")
+            ),
+            "missing logical parent must be rejected; got {error:?}"
+        );
+
+        let mut noncanonical = base.clone();
+        noncanonical["nodes"][0]["data"]["providerId"] =
+            serde_json::json!(format!("provider_{missing_provider_id}"));
+        let mut missing_model = base.clone();
+        missing_model["nodes"][0]["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("model");
+        let mut missing_provider = base;
+        missing_provider["nodes"][0]["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("providerId");
+
+        for (case, invalid) in [
+            ("non-canonical provider", noncanonical),
+            ("provider without model", missing_model),
+            ("model without provider", missing_provider),
+        ] {
+            let error = svc.save_doc(&canvas.canvas_id, &invalid).await.unwrap_err();
+            assert!(
+                matches!(error, AppError::BadRequest(_)),
+                "{case} must be rejected as an invalid fixed pair; got {error:?}"
+            );
+        }
+
+        assert_eq!(
+            svc.get_canvas(&canvas.canvas_id).await.unwrap().doc,
+            default_doc_value(),
+            "rejected logical references must not replace the persisted document"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_cleanup_clears_only_the_target_generator_pair_and_is_idempotent() {
+        let barrier = Arc::new(ProviderLifecycleBarrier::new());
+        let (svc, _dir, db) =
+            service_with_database_and_lifecycle(Some(barrier.clone())).await;
+        let target_provider_id = "0190f5fe-7c00-7a00-8000-000000000086";
+        let other_provider_id = "0190f5fe-7c00-7a00-8000-000000000087";
+        insert_provider(&db, target_provider_id).await;
+        insert_provider(&db, other_provider_id).await;
+        let canvas = svc.create_canvas(Some("provider cleanup".into())).await.unwrap();
+        let doc = serde_json::json!({
+            "schema": 1,
+            "nodes": [
+                {
+                    "id": WorkshopNodeId::new().into_string(),
+                    "kind": "generator",
+                    "data": {
+                        "providerId": target_provider_id,
+                        "model": "delete-me",
+                        "prompt": "keep prompt"
+                    }
+                },
+                {
+                    "id": WorkshopNodeId::new().into_string(),
+                    "kind": "generator",
+                    "data": {
+                        "providerId": other_provider_id,
+                        "model": "keep-me"
+                    }
+                }
+            ],
+            "edges": []
+        });
+        svc.save_doc(&canvas.canvas_id, &doc).await.unwrap();
+
+        let _write_guard = barrier.write().await;
+        svc.clear_provider_references_under_lifecycle_write_guard(target_provider_id)
+            .await
+            .unwrap();
+        svc.clear_provider_references_under_lifecycle_write_guard(target_provider_id)
+            .await
+            .unwrap();
+
+        let cleaned = svc.get_canvas(&canvas.canvas_id).await.unwrap().doc;
+        assert!(cleaned["nodes"][0]["data"].get("providerId").is_none());
+        assert!(cleaned["nodes"][0]["data"].get("model").is_none());
+        assert_eq!(cleaned["nodes"][0]["data"]["prompt"], "keep prompt");
+        assert_eq!(
+            cleaned["nodes"][1]["data"]["providerId"],
+            serde_json::json!(other_provider_id)
+        );
+        assert_eq!(cleaned["nodes"][1]["data"]["model"], "keep-me");
+    }
+
+    #[tokio::test]
+    async fn provider_lifecycle_write_guard_blocks_workshop_doc_writes() {
+        let barrier = Arc::new(ProviderLifecycleBarrier::new());
+        let (svc, _dir, db) =
+            service_with_database_and_lifecycle(Some(barrier.clone())).await;
+        let provider_id = "0190f5fe-7c00-7a00-8000-000000000088";
+        insert_provider(&db, provider_id).await;
+        let canvas = svc.create_canvas(Some("barrier".into())).await.unwrap();
+        let doc = serde_json::json!({
+            "schema": 1,
+            "nodes": [{
+                "id": WorkshopNodeId::new().into_string(),
+                "kind": "generator",
+                "data": {"providerId": provider_id, "model": "image-model"}
+            }],
+            "edges": []
+        });
+
+        let write_guard = barrier.write().await;
+        let service = svc.clone();
+        let canvas_id = canvas.canvas_id.clone();
+        let mut save = tokio::spawn(async move { service.save_doc(&canvas_id, &doc).await });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut save)
+                .await
+                .is_err(),
+            "a workshop write must wait while Provider deletion holds the lifecycle write guard"
+        );
+        drop(write_guard);
+        save.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn canvas_doc_save_enforces_canonical_ids_and_deep_references() {
+        let (svc, _dir) = service().await;
+        let canvas = svc.create_canvas(Some("identity contract".into())).await.unwrap();
+        let group_id = WorkshopNodeId::new().into_string();
+        let member_id = WorkshopNodeId::new().into_string();
+        let edge_id = WorkshopEdgeId::new().into_string();
+        let valid = serde_json::json!({
+            "schema": 1,
+            "nodes": [
+                {"id": group_id, "kind": "group", "data": {}},
+                {
+                    "id": member_id,
+                    "kind": "generator",
+                    "groupId": group_id,
+                    "data": {"mentions": [format!("node:{group_id}")]}
+                }
+            ],
+            "edges": [{"id": edge_id, "from": group_id, "to": member_id}]
+        });
+        svc.save_doc(&canvas.canvas_id, &valid).await.unwrap();
+
+        let mut non_v7_node_id = valid.clone();
+        non_v7_node_id["nodes"][0]["id"] =
+            serde_json::json!("550e8400-e29b-41d4-a716-446655440000");
+        let mut duplicate_node = valid.clone();
+        let duplicated_id = duplicate_node["nodes"][0]["id"].clone();
+        duplicate_node["nodes"][1]["id"] = duplicated_id;
+        let mut missing_group = valid.clone();
+        missing_group["nodes"][1]["groupId"] =
+            serde_json::json!(WorkshopNodeId::new().into_string());
+        let mut legacy_mention = valid.clone();
+        legacy_mention["nodes"][1]["data"]["mentions"] = serde_json::json!(["node:legacy-node"]);
+        let mut non_v7_edge_id = valid.clone();
+        non_v7_edge_id["edges"][0]["id"] =
+            serde_json::json!("550e8400-e29b-41d4-a716-446655440001");
+        let mut missing_endpoint = valid.clone();
+        missing_endpoint["edges"][0]["to"] =
+            serde_json::json!(WorkshopNodeId::new().into_string());
+
+        for (case, invalid) in [
+            ("non-v7 node id", non_v7_node_id),
+            ("duplicate node id", duplicate_node),
+            ("missing group", missing_group),
+            ("legacy mention", legacy_mention),
+            ("non-v7 edge id", non_v7_edge_id),
+            ("missing endpoint", missing_endpoint),
+        ] {
+            let error = svc
+                .save_doc(&canvas.canvas_id, &invalid)
+                .await
+                .unwrap_err();
+            assert!(matches!(error, AppError::BadRequest(_)), "{case}: {error}");
+        }
+
+        // A rejected write must not replace the last valid document.
+        assert_eq!(svc.get_canvas(&canvas.canvas_id).await.unwrap().doc, valid);
+    }
+
+    #[tokio::test]
+    async fn canvas_doc_read_fails_closed_when_disk_ids_are_not_canonical() {
+        let (svc, dir) = service().await;
+        let canvas = svc.create_canvas(Some("corrupt identity".into())).await.unwrap();
+        let path = dir
+            .path()
+            .join("workshop/canvases")
+            .join(&canvas.canvas_id)
+            .join("canvas.json");
+        tokio::fs::write(
+            path,
+            br#"{"schema":1,"nodes":[{"id":"legacy-node"}],"edges":[]}"#,
+        )
+        .await
+        .unwrap();
+
+        let Err(error) = svc.get_canvas(&canvas.canvas_id).await else {
+            panic!("corrupt managed canvas must not be served");
+        };
+        assert!(
+            matches!(error, AppError::Internal(message) if message.contains("invalid durable IDs"))
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_image_extracts_dimensions_and_serves() {
+        let (svc, _dir) = service().await;
+        let asset = svc
+            .upload_asset(NewAssetUpload {
+                file_name: "shot.png".into(),
+                content_type: Some("image/png".into()),
+                bytes: png_1x1(),
+                title: None,
+                collection: Some("角色".into()),
+                tags: Some(vec!["a".into()]),
+                in_library: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(asset.kind, "image");
+        assert_eq!(asset.width, Some(1));
+        assert_eq!(asset.height, Some(1));
+        assert!(asset.in_library);
+        assert_eq!(asset.url, format!("/api/workshop/files/{}", asset.asset_id));
+
+        // serve returns the bytes + mime
+        let served = svc.serve_file(&asset.asset_id, false).await.unwrap();
+        assert_eq!(served.mime, "image/png");
+        assert_eq!(served.bytes, png_1x1());
+        // thumb=1 falls back to original when no thumb exists
+        let served_thumb = svc.serve_file(&asset.asset_id, true).await.unwrap();
+        assert_eq!(served_thumb.bytes, png_1x1());
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_non_media() {
+        let (svc, _dir) = service().await;
+        let err = svc
+            .upload_asset(NewAssetUpload {
+                file_name: "notes.txt".into(),
+                content_type: Some("text/plain".into()),
+                bytes: b"hi".to_vec(),
+                title: None,
+                collection: None,
+                tags: None,
+                in_library: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn text_asset_list_patch_delete() {
+        let (svc, _dir) = service().await;
+        let a = svc
+            .create_text_asset(NewTextAsset {
+                title: "描述".into(),
+                text_content: "武松打虎".into(),
+                collection: None,
+                tags: None,
+                in_library: Some(false),
+            })
+            .await
+            .unwrap();
+        assert_eq!(a.kind, "text");
+        assert!(!a.in_library);
+        assert_eq!(a.text_content.as_deref(), Some("武松打虎"));
+
+        let patched = svc
+            .patch_asset(
+                &a.asset_id,
+                AssetPatch {
+                    title: Some("新标题".into()),
+                    collection: Some("场景".into()),
+                    in_library: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(patched.title, "新标题");
+        assert_eq!(patched.collection.as_deref(), Some("场景"));
+        assert!(patched.in_library);
+
+        let page = svc
+            .list_assets(AssetQuery { page: 1, page_size: 20, ..Default::default() })
+            .await
+            .unwrap();
+        assert_eq!(page.total, 1);
+
+        // text assets serve their inline body as text/plain (no file on disk)
+        let served = svc.serve_file(&a.asset_id, false).await.unwrap();
+        assert_eq!(served.mime, "text/plain; charset=utf-8");
+        assert_eq!(String::from_utf8(served.bytes).unwrap(), a.text_content.clone().unwrap());
+        svc.delete_asset(&a.asset_id).await.unwrap();
+        assert!(svc.serve_file(&a.asset_id, false).await.is_err());
+    }
+
+    /// A real, decodable PNG (unlike the header-only `png_1x1`).
+    fn real_png(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(w, h, image::Rgb([10, 20, 30]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    async fn upload_png(svc: &WorkshopService, in_library: bool) -> WorkshopAsset {
+        svc.upload_asset(NewAssetUpload {
+            file_name: "pic.png".into(),
+            content_type: Some("image/png".into()),
+            bytes: real_png(800, 600),
+            title: Some("pic".into()),
+            collection: None,
+            tags: None,
+            in_library: Some(in_library),
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn thumbnail_generated_on_upload_and_served_as_jpeg() {
+        let (svc, dir) = service().await;
+        let asset = upload_png(&svc, true).await;
+        assert!(asset.thumb_url.is_some(), "thumb_url should be advertised");
+        assert!(
+            dir.path().join(format!("workshop/assets/thumbs/{}.jpg", asset.asset_id)).exists(),
+            "thumb file should exist on disk"
+        );
+        let served = svc.serve_file(&asset.asset_id, true).await.unwrap();
+        assert_eq!(served.mime, "image/jpeg");
+        assert_eq!(&served.bytes[0..2], &[0xFF, 0xD8], "served thumb is JPEG");
+        // original still served untouched
+        let orig = svc.serve_file(&asset.asset_id, false).await.unwrap();
+        assert_eq!(orig.mime, "image/png");
+    }
+
+    #[tokio::test]
+    async fn ingest_and_read_asset_bytes_roundtrip() {
+        let (svc, _dir) = service().await;
+        let png = real_png(300, 200);
+        let origin = serde_json::json!({ "prompt": "a cat", "model": "x" });
+        let row = svc
+            .ingest_asset_bytes(png.clone(), "image/png", "generated", false, Some(origin.clone()))
+            .await
+            .unwrap();
+        assert_eq!(row.kind, "image");
+        assert!(!row.in_library);
+        assert_eq!(row.width, Some(300));
+        assert!(row.thumb_rel_path.is_some());
+        assert_eq!(row.origin.as_deref().map(|s| s.contains("a cat")), Some(true));
+
+        let (bytes, mime) = svc.read_asset_bytes(&row.asset_id).await.unwrap();
+        assert_eq!(bytes, png);
+        assert_eq!(mime, "image/png");
+
+        // unsupported mime rejected
+        assert!(svc.ingest_asset_bytes(vec![1], "application/pdf", "x", true, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn canvas_thumbnail_set_and_served() {
+        let (svc, _dir) = service().await;
+        let canvas = svc.create_canvas(Some("画布".into())).await.unwrap();
+        assert!(canvas.thumbnail_url.is_none());
+        let asset = upload_png(&svc, true).await;
+
+        let meta = svc.patch_canvas(&canvas.canvas_id, None, Some(asset.asset_id.clone())).await.unwrap();
+        assert_eq!(meta.thumbnail_url.as_deref(), Some(&*format!("/api/workshop/canvas-thumbs/{}", canvas.canvas_id)));
+        let served = svc.serve_canvas_thumbnail(&canvas.canvas_id).await.unwrap();
+        assert_eq!(served.mime, "image/jpeg");
+        assert_eq!(&served.bytes[0..2], &[0xFF, 0xD8]);
+
+        // a text asset cannot be a thumbnail source
+        let text = svc
+            .create_text_asset(NewTextAsset {
+                title: "t".into(),
+                text_content: "x".into(),
+                collection: None,
+                tags: None,
+                in_library: Some(true),
+            })
+            .await
+            .unwrap();
+        assert!(svc.set_canvas_thumbnail(&canvas.canvas_id, &text.asset_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_canvas_gcs_internal_asset_unless_shared() {
+        let (svc, _dir) = service().await;
+        // Asset referenced by two canvases; internal (in_library=0).
+        let asset = upload_png(&svc, false).await;
+        let node_id = WorkshopNodeId::new().into_string();
+        let doc = serde_json::json!({
+            "schema": 1, "nodes": [{ "id": node_id, "kind": "image", "data": { "assetId": asset.asset_id } }], "edges": []
+        });
+        let c1 = svc.create_canvas(Some("c1".into())).await.unwrap();
+        let c2 = svc.create_canvas(Some("c2".into())).await.unwrap();
+        svc.save_doc(&c1.canvas_id, &doc).await.unwrap();
+        svc.save_doc(&c2.canvas_id, &doc).await.unwrap();
+
+        // Deleting c1 keeps the asset (c2 still references it).
+        svc.delete_canvas(&c1.canvas_id).await.unwrap();
+        assert!(svc.serve_file(&asset.asset_id, false).await.is_ok());
+
+        // Deleting c2 (the last referencer) GCs the internal asset + its file.
+        svc.delete_canvas(&c2.canvas_id).await.unwrap();
+        assert!(svc.serve_file(&asset.asset_id, false).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_canvas_keeps_library_asset() {
+        let (svc, _dir) = service().await;
+        let asset = upload_png(&svc, true).await; // in_library=1
+        let node_id = WorkshopNodeId::new().into_string();
+        let doc = serde_json::json!({
+            "schema": 1, "nodes": [{ "id": node_id, "kind": "image", "data": { "assetId": asset.asset_id } }], "edges": []
+        });
+        let c = svc.create_canvas(Some("c".into())).await.unwrap();
+        svc.save_doc(&c.canvas_id, &doc).await.unwrap();
+        svc.delete_canvas(&c.canvas_id).await.unwrap();
+        // Library assets are never GC'd on canvas delete.
+        assert!(svc.serve_file(&asset.asset_id, false).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn delete_canvas_grace_protects_recent_internal_asset() {
+        // A large grace: an internal asset referenced only by the deleted canvas
+        // is NOT reaped while still recent (another open canvas may reference it
+        // but not have autosaved yet); a later full GC reclaims it once aged.
+        let (svc, _dir) = service_with_gc_grace(GC_GRACE_MS).await;
+        let asset = upload_png(&svc, false).await; // canvas-internal
+        let node_id = WorkshopNodeId::new().into_string();
+        let doc = serde_json::json!({
+            "schema": 1, "nodes": [{ "id": node_id, "kind": "image", "data": { "assetId": asset.asset_id } }], "edges": []
+        });
+        let c = svc.create_canvas(Some("c".into())).await.unwrap();
+        svc.save_doc(&c.canvas_id, &doc).await.unwrap();
+        svc.delete_canvas(&c.canvas_id).await.unwrap();
+        assert!(svc.serve_file(&asset.asset_id, false).await.is_ok(), "recent internal asset survives delete_canvas grace");
+    }
+
+    #[tokio::test]
+    async fn mark_canvas_open_routes_agent_ops_to_queue() {
+        use crate::agent_ops::{AddNodeSpec, AgentOp, OpDisposition};
+        let (svc, _dir) = service().await;
+        let canvas = svc.create_canvas(Some("c".into())).await.unwrap();
+
+        // Simulate the editor's REST doc-load registering the canvas as open.
+        svc.mark_canvas_open(&canvas.canvas_id);
+
+        // An agent add_node now QUEUES (frontend authority) instead of writing
+        // straight to canvas.json — closing the cold-open clobber window.
+        let applied = svc
+            .apply_agent_ops(
+                &canvas.canvas_id,
+                vec![AgentOp::AddNode {
+                    node: AddNodeSpec { kind: "image".into(), x: None, y: None, w: None, h: None, data: None },
+                }],
+                "test",
+            )
+            .await
+            .unwrap();
+        assert_eq!(applied[0].disposition, OpDisposition::Queued);
+        // The doc was NOT touched.
+        assert_eq!(svc.get_canvas(&canvas.canvas_id).await.unwrap().meta.node_count, 0);
+    }
+
+    #[tokio::test]
+    async fn list_assets_ungrouped_filters_serverside() {
+        let (svc, _dir) = service().await;
+        // Two ungrouped text assets (no collection) + one in a named collection.
+        svc.create_text_asset(NewTextAsset {
+            title: "散图".into(),
+            text_content: "x".into(),
+            collection: None,
+            tags: None,
+            in_library: Some(true),
+        })
+        .await
+        .unwrap();
+        svc.create_text_asset(NewTextAsset {
+            title: "散图2".into(),
+            text_content: "y".into(),
+            // A whitespace-only collection normalizes to NULL → still ungrouped.
+            collection: Some("   ".into()),
+            tags: None,
+            in_library: Some(true),
+        })
+        .await
+        .unwrap();
+        svc.create_text_asset(NewTextAsset {
+            title: "角色图".into(),
+            text_content: "z".into(),
+            collection: Some("角色".into()),
+            tags: None,
+            in_library: Some(true),
+        })
+        .await
+        .unwrap();
+
+        // ungrouped=true → only the two collection-less assets.
+        let page = svc
+            .list_assets(AssetQuery { ungrouped: true, page: 1, page_size: 50, ..Default::default() })
+            .await
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert!(page.items.iter().all(|a| a.collection.is_none()));
+
+        // Named collection filter is unaffected.
+        let grouped = svc
+            .list_assets(AssetQuery {
+                collection: Some("角色".into()),
+                page: 1,
+                page_size: 50,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(grouped.total, 1);
+        assert_eq!(grouped.items[0].collection.as_deref(), Some("角色"));
+    }
+
+    #[tokio::test]
+    async fn agent_ops_direct_apply_to_closed_canvas() {
+        use crate::agent_ops::{AddNodeSpec, AgentOp, OpDisposition};
+        let (svc, _dir) = service().await;
+        let canvas = svc.create_canvas(Some("c".into())).await.unwrap();
+
+        // No frontend has polled → canvas is CLOSED → add_node applies to the doc.
+        let ops = vec![
+            AgentOp::AddNode {
+                node: AddNodeSpec {
+                    kind: "generator".into(),
+                    x: None,
+                    y: None,
+                    w: None,
+                    h: None,
+                    data: Some(serde_json::json!({ "prompt": "a wolf" })),
+                },
+            },
+        ];
+        let applied = svc.apply_agent_ops(&canvas.canvas_id, ops, "test").await.unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0].disposition, OpDisposition::Applied);
+        let node_id = applied[0].node_id.clone().unwrap();
+
+        // The node is persisted in canvas.json and node_count synced.
+        let read = svc.get_canvas(&canvas.canvas_id).await.unwrap();
+        assert_eq!(read.meta.node_count, 1);
+        assert_eq!(read.doc["nodes"][0]["id"], serde_json::json!(node_id));
+        assert_eq!(read.doc["nodes"][0]["data"]["prompt"], "a wolf");
+
+        // A connect to that node also applies directly.
+        let connect = vec![AgentOp::AddNode {
+            node: AddNodeSpec { kind: "image".into(), x: None, y: None, w: None, h: None, data: None },
+        }];
+        let more = svc.apply_agent_ops(&canvas.canvas_id, connect, "test").await.unwrap();
+        let img_id = more[0].node_id.clone().unwrap();
+        let edge = svc
+            .apply_agent_ops(
+                &canvas.canvas_id,
+                vec![AgentOp::Connect { from_node_id: node_id, to_node_id: img_id }],
+                "test",
+            )
+            .await
+            .unwrap();
+        assert_eq!(edge[0].disposition, OpDisposition::Applied);
+        let read2 = svc.get_canvas(&canvas.canvas_id).await.unwrap();
+        assert_eq!(read2.doc["edges"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn agent_ops_queue_when_open_and_ack_removes() {
+        use crate::agent_ops::{AddNodeSpec, AgentOp, OpDisposition};
+        let (svc, _dir) = service().await;
+        let canvas = svc.create_canvas(Some("c".into())).await.unwrap();
+
+        // A poll marks the canvas OPEN → even add_node is queued (frontend owns writes).
+        assert!(svc.take_pending_ops(&canvas.canvas_id).await.unwrap().is_empty());
+        let applied = svc
+            .apply_agent_ops(
+                &canvas.canvas_id,
+                vec![AgentOp::AddNode {
+                    node: AddNodeSpec { kind: "image".into(), x: None, y: None, w: None, h: None, data: None },
+                }],
+                "test",
+            )
+            .await
+            .unwrap();
+        assert_eq!(applied[0].disposition, OpDisposition::Queued);
+        // The doc was NOT touched (frontend authority preserved).
+        assert_eq!(svc.get_canvas(&canvas.canvas_id).await.unwrap().meta.node_count, 0);
+
+        // The op is pullable and stays until acked.
+        let pending = svc.take_pending_ops(&canvas.canvas_id).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        svc.ack_agent_ops(&canvas.canvas_id, &[pending[0].op_id.clone()]);
+        assert!(svc.take_pending_ops(&canvas.canvas_id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_ops_data_mutations_always_queue_and_bad_ops_rejected() {
+        use crate::agent_ops::{AgentOp, OpDisposition};
+        let (svc, _dir) = service().await;
+        let canvas = svc.create_canvas(Some("c".into())).await.unwrap();
+
+        // delete_node is a data-mutating op → queued even on a closed canvas.
+        let applied = svc
+            .apply_agent_ops(
+                &canvas.canvas_id,
+                vec![AgentOp::DeleteNode { node_id: WorkshopNodeId::new().into_string() }],
+                "test",
+            )
+            .await
+            .unwrap();
+        assert_eq!(applied[0].disposition, OpDisposition::Queued);
+
+        // An invalid op fails the whole batch (BadRequest).
+        let node_id = WorkshopNodeId::new().into_string();
+        let bad = svc
+            .apply_agent_ops(
+                &canvas.canvas_id,
+                vec![AgentOp::Connect { from_node_id: node_id.clone(), to_node_id: node_id }],
+                "test",
+            )
+            .await;
+        assert!(matches!(bad, Err(AppError::BadRequest(_))));
+
+        // Unknown canvas → NotFound.
+        assert!(
+            svc.take_pending_ops("0190f5fe-7c00-7a00-8000-000000000099")
+                .await
+                .is_err()
+        );
+    }
+}

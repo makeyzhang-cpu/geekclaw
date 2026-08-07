@@ -1,0 +1,110 @@
+[package]
+name = "nomifun-ai-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+nomifun-auth.workspace = true
+nomifun-common.workspace = true
+nomifun-db.workspace = true
+nomifun-mcp.workspace = true
+nomifun-runtime.workspace = true
+geekclaw-process-runtime.workspace = true
+nomifun-extension.workspace = true
+nomifun-knowledge.workspace = true
+nomifun-terminal.workspace = true
+nomifun-api-types.workspace = true
+nomifun-model-invoke.workspace = true
+nomifun-net.workspace = true
+reqwest.workspace = true
+axum.workspace = true
+base64.workspace = true
+image = { workspace = true, features = ["jpeg", "webp", "gif"] }
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+rustls.workspace = true
+url.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hex.workspace = true
+dirs.workspace = true
+getrandom.workspace = true
+regex.workspace = true
+sys-locale.workspace = true
+dashmap.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+toml.workspace = true
+tempfile.workspace = true
+geekclaw-agent.workspace = true
+geekclaw-types.workspace = true
+geekclaw-protocol.workspace = true
+geekclaw-config.workspace = true
+geekclaw-mcp.workspace = true
+geekclaw-providers.workspace = true
+geekclaw-memory.workspace = true
+geekclaw-redact.workspace = true
+# Rendering page-fetch backend for knowledge URL sources. This adapter consumes
+# the application-owned Browser Session Hub while the knowledge crate remains
+# independent of the browser platform.
+nomifun-browser-platform = { workspace = true, optional = true }
+# Phase D: the facade `BrowserApprovalGate` trait — the desktop `DesktopApprovalGate`
+# impl (Confirmation + ToolApprovalManager) lives in this crate and is threaded into
+# the native BrowserTool via `AgentBootstrap::approval_gate`. Optional (browser-use only).
+geekclaw-browser = { workspace = true, optional = true }
+chrono.workspace = true
+uuid.workspace = true
+agent-client-protocol = { version = "0.11.1", features = ["unstable_session_model", "unstable_session_usage"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+rusqlite.workspace = true
+libc.workspace = true
+ts-rs.workspace = true
+zip.workspace = true
+flate2.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
+[features]
+# Enables the `AgentRuntimeHandle::Mock` variant used by downstream test harnesses
+# (conversation/cron/team/app) to inject trait-object stubs without having to
+# spawn a real agent process. Production builds must NOT turn this on — it
+# introduces a `dyn AgentRuntimeControl` branch that defeats the enum's zero-dispatch
+# guarantee.
+test-support = []
+# Desktop control tools for the geekclaw engine (desktop host only).
+computer-use = ["geekclaw-agent/computer-use"]
+# Browser-automation tools for the geekclaw engine (desktop host only).
+browser-use = ["geekclaw-agent/browser-use", "dep:geekclaw-browser", "dep:nomifun-browser-platform"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tracing-subscriber.workspace = true
+nomifun-common.workspace = true
+nomifun-extension.workspace = true
+nomifun-db.workspace = true
+nomifun-api-types.workspace = true
+# E2E knowledge_search regression (knowledge_search_e2e): a local NoopBroadcaster
+# implements nomifun_realtime::EventBroadcaster, and the tool itself comes from
+# geekclaw-tools' Tool trait. Both are workspace crates not pulled by [dependencies].
+nomifun-realtime.workspace = true
+geekclaw-tools.workspace = true
+# Summon factory integration test implements the CompanionSummonProvider /
+# sink traits directly (async fns in traits).
+async-trait.workspace = true
+wiremock.workspace = true
+# Used by the acp_session_sync test setup to seed the conversations FK parent
+# directly on the in-memory pool (mirrors nomifun-db's own acp_session tests).
+sqlx = { workspace = true }
+
+# Integration tests under `tests/` need the `AgentRuntimeHandle::Mock` variant.
+# Unlike unit tests (which see `cfg(test)` on the library), integration
+# tests compile as separate binaries and must opt in via a feature.
+[[test]]
+name = "agent_types_integration"
+required-features = ["test-support"]

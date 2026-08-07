@@ -1,0 +1,893 @@
+//! Companion-domain capabilities (registry form): digital companion CRUD,
+//! runtime status, and shared config.
+//!
+//! These tools let the LLM agent manage the desktop's digital companions on
+//! behalf of the user — create/configure/delete companions and inspect their
+//! status.
+
+use std::sync::Arc;
+
+use nomifun_common::{CompanionId, FigureId};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use crate::deps::GatewayDeps;
+use crate::id_schema::ModelRefParam;
+use crate::registry::{Capability, CapabilityMeta, DangerTier, Surface};
+use crate::server::ok;
+
+// ── param structs (single source: schema + runtime) ──────────────────────
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_optional_nullable<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_optional_nullable_figure_id<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    let value = value
+        .map(|value| {
+            FigureId::parse(value.clone())
+                .map(|_| value)
+                .map_err(serde::de::Error::custom)
+        })
+        .transpose()?;
+    Ok(Some(value))
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PersonaPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    preset: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    custom: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct HeadBoxPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    x: Option<f32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    y: Option<f32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    w: Option<f32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    h: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CustomFigurePatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    aspect: Option<f32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    head_box: Option<HeadBoxPatch>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    size_tier: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    size_px: Option<Option<f32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_figure_id"
+    )]
+    #[schemars(schema_with = "crate::id_schema::optional_canonical_uuid_v7_schema")]
+    figure_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionWindowPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    companion_enabled: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    companion_x: Option<Option<i32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    companion_y: Option<Option<i32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    quiet_start: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    quiet_end: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    custom_figure: Option<Option<CustomFigurePatch>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionSkillConfigPatch {
+    /// Opt-in catalog skills explicitly enabled for this companion.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    enabled: Option<Vec<String>>,
+    /// Auto-injected built-in skills this companion has opted out of.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    disabled_auto: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionProfilePatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    name: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    character: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    persona: Option<PersonaPatch>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    model: Option<Option<ModelRefParam>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    skills: Option<CompanionSkillConfigPatch>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    appearance: Option<CompanionWindowPatch>,
+    /// This companion's own 定时学习 loop (install-wide until 2026-08).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    learn: Option<CompanionLearnPatch>,
+    /// This companion's own 技能进化 loop (install-wide until 2026-08).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    evolve: Option<CompanionEvolvePatch>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CollectConfigPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    chat_user_messages: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    requirements: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    terminal_sessions: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    tool_calls: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    companion_dialogues: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionLearnPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    enabled: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    interval_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_nullable")]
+    model: Option<Option<ModelRefParam>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionEvolvePatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    enabled: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    interval_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_nullable")]
+    model: Option<Option<ModelRefParam>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    min_pattern_count: Option<i64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    min_distinct_sessions: Option<usize>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    auto_activate: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    auto_threshold: Option<f64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    skill_half_life_days: Option<f64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    skill_archive_threshold: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SharedArchivePatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    enabled: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    idle_minutes: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    min_chars: Option<usize>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    inject_recent_days: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SharedCompanionConfigPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    collect: Option<CollectConfigPatch>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    archive: Option<SharedArchivePatch>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    smart_collaboration: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_nullable")]
+    #[schemars(schema_with = "crate::id_schema::optional_canonical_uuid_v7_schema")]
+    default_companion_id: Option<Option<CompanionId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_nullable")]
+    bridge_to_memory_dir: Option<Option<String>>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionListParams {}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionGetParams {
+    /// The companion business ID to retrieve (from nomi_companion_list).
+    #[schemars(schema_with = "crate::id_schema::canonical_uuid_v7_schema")]
+    companion_id: CompanionId,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionCreateParams {
+    /// Display name for the new companion.
+    name: String,
+    /// Character archetype / seed description. This seeds the companion's
+    /// personality and initial system prompt generation.
+    character: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionUpdateParams {
+    /// The companion business ID to update (from nomi_companion_list).
+    #[schemars(schema_with = "crate::id_schema::canonical_uuid_v7_schema")]
+    companion_id: CompanionId,
+    /// Fixed RFC 7396 merge-patch shape. Only provided fields are changed;
+    /// omitted fields are untouched and explicit null clears nullable fields.
+    patch: CompanionProfilePatch,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionDeleteParams {
+    /// The companion business ID to permanently delete. This removes all associated
+    /// data (thread, memories attributed to this companion, figure binding).
+    #[schemars(schema_with = "crate::id_schema::canonical_uuid_v7_schema")]
+    companion_id: CompanionId,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionStatusParams {
+    /// The companion business ID. If omitted, returns the default companion's status.
+    #[serde(default)]
+    #[schemars(schema_with = "crate::id_schema::optional_canonical_uuid_v7_schema")]
+    companion_id: Option<CompanionId>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionGetConfigParams {}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionUpdateConfigParams {
+    /// Fixed RFC 7396 merge-patch shape for collection, session archiving and the
+    /// default companion pointer. 学习 / 进化 live on each companion's profile.
+    patch: SharedCompanionConfigPatch,
+}
+
+#[cfg(test)]
+mod id_contract_tests {
+    use super::*;
+
+    const PROVIDER_ID: &str = "0190f5fe-7c00-7a00-8abc-012345678904";
+    const FIGURE_ID: &str = "0190f5fe-7c00-7a00-8abc-012345678905";
+
+    #[test]
+    fn companion_gateway_params_reject_noncanonical_ids() {
+        let companion_id = CompanionId::new();
+        let parsed: CompanionGetParams = serde_json::from_value(
+            json!({"companion_id": companion_id.as_str()}),
+        )
+        .unwrap();
+        assert_eq!(parsed.companion_id, companion_id);
+        assert!(
+            serde_json::from_value::<CompanionGetParams>(json!({"companion_id": "1"})).is_err()
+        );
+        assert!(
+            serde_json::from_value::<CompanionGetParams>(
+                json!({"id": companion_id.as_str()})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn companion_tool_schemas_expose_named_business_ids() {
+        use crate::registry::{Registry, Surface};
+
+        let specs = Registry::global().tool_specs(Surface::Desktop);
+        for name in [
+            "nomi_companion_get",
+            "nomi_companion_update",
+            "nomi_companion_delete",
+            "nomi_companion_status",
+        ] {
+            let spec = specs.iter().find(|spec| spec.name == name).expect("tool registered");
+            let properties = spec
+                .input_schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .expect("tool properties");
+            let companion_id_schema = properties
+                .get("companion_id")
+                .expect("companion_id schema present");
+            assert!(!properties.contains_key("id"), "{name}");
+            assert!(
+                companion_id_schema
+                    .get("pattern")
+                    .and_then(Value::as_str)
+                    .is_some(),
+                "{name}"
+            );
+        }
+
+        // The retired 建议 tools must stay unregistered.
+        for retired in [
+            "nomi_companion_list_suggestions",
+            "nomi_companion_decide_suggestion",
+        ] {
+            assert!(
+                !specs.iter().any(|spec| spec.name == retired),
+                "{retired} must no longer be registered"
+            );
+        }
+    }
+
+    #[test]
+    fn companion_patch_is_closed_and_preserves_nullable_fields() {
+        let params: CompanionUpdateParams = serde_json::from_value(json!({
+            "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+            "patch": {
+                "model": {"provider_id": PROVIDER_ID, "model": "model-a"},
+                "appearance": {
+                    "companion_x": null,
+                    "custom_figure": {
+                        "aspect": 1.25,
+                        "figure_id": FIGURE_ID
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        let patch = serde_json::to_value(params.patch).unwrap();
+        assert_eq!(patch["model"]["provider_id"], PROVIDER_ID);
+        assert_eq!(patch["model"]["model"], "model-a");
+        assert_eq!(patch["appearance"]["companion_x"], Value::Null);
+        assert_eq!(
+            patch["appearance"]["custom_figure"]["figure_id"],
+            FIGURE_ID
+        );
+        assert!(patch["appearance"].get("companion_y").is_none());
+
+        for invalid in [
+            json!({
+                "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+                "patch": {
+                    "model": {"provider_id": PROVIDER_ID}
+                }
+            }),
+            json!({
+                "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+                "patch": {
+                    "model": {
+                        "provider_id": PROVIDER_ID,
+                        "model": "model-a",
+                        "provider": "openai"
+                    }
+                }
+            }),
+            json!({
+                "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+                "patch": {
+                    "appearance": {
+                        "custom_figure": {
+                            "figure_id": 7
+                        }
+                    }
+                }
+            }),
+        ] {
+            assert!(serde_json::from_value::<CompanionUpdateParams>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn companion_patch_accepts_catalog_skills_and_stays_closed() {
+        let params: CompanionUpdateParams = serde_json::from_value(json!({
+            "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+            "patch": {
+                "skills": {"enabled": ["web-search"]}
+            }
+        }))
+        .unwrap();
+        let patch = serde_json::to_value(params.patch).unwrap();
+        assert_eq!(patch["skills"]["enabled"], json!(["web-search"]));
+        assert!(
+            patch["skills"].get("disabled_auto").is_none(),
+            "an omitted skills field must stay omitted in the merge patch"
+        );
+
+        let params: CompanionUpdateParams = serde_json::from_value(json!({
+            "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+            "patch": {
+                "name": "GeekClaw",
+                "skills": {"disabled_auto": ["memory"]}
+            }
+        }))
+        .unwrap();
+        let patch = serde_json::to_value(params.patch).unwrap();
+        assert_eq!(patch["name"], "GeekClaw");
+        assert_eq!(patch["skills"]["disabled_auto"], json!(["memory"]));
+
+        assert!(
+            serde_json::from_value::<CompanionUpdateParams>(json!({
+                "companion_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+                "patch": {
+                    "skills": {"enabled": ["web-search"], "levels": {}}
+                }
+            }))
+            .is_err(),
+            "unknown skills fields must stay closed"
+        );
+    }
+
+    /// 学习 / 进化 are per companion, so their patch shape now hangs off the
+    /// PROFILE tool. Keeping them on the shared-config tool would advertise an MCP
+    /// surface the REST layer rejects.
+    #[test]
+    fn companion_learn_and_evolve_patch_lives_on_the_profile_and_keeps_models_paired() {
+        let params: CompanionUpdateParams = serde_json::from_value(json!({
+            "companion_id": CompanionId::new().as_str(),
+            "patch": {
+                "learn": {
+                    "enabled": true,
+                    "model": {"provider_id": PROVIDER_ID, "model": "model-a"}
+                }
+            }
+        }))
+        .unwrap();
+        let patch = serde_json::to_value(params.patch).unwrap();
+        assert_eq!(patch["learn"]["model"]["provider_id"], PROVIDER_ID);
+        assert_eq!(patch["learn"]["enabled"], Value::Bool(true));
+
+        // A half-specified Provider reference is still refused.
+        assert!(
+            serde_json::from_value::<CompanionUpdateParams>(json!({
+                "companion_id": CompanionId::new().as_str(),
+                "patch": {"evolve": {"model": {"model": "model-a"}}}
+            }))
+            .is_err()
+        );
+        // And the shared-config tool no longer accepts them at all.
+        for retired in ["learn", "evolve"] {
+            assert!(
+                serde_json::from_value::<CompanionUpdateConfigParams>(json!({
+                    "patch": {retired: {"enabled": true}}
+                }))
+                .is_err(),
+                "{retired} must no longer be a shared-config field"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_companion_patch_still_accepts_its_remaining_fields() {
+        let params: CompanionUpdateConfigParams = serde_json::from_value(json!({
+            "patch": {
+                "collect": {"tool_calls": true},
+                "default_companion_id": null
+            }
+        }))
+        .unwrap();
+        let patch = serde_json::to_value(params.patch).unwrap();
+        assert_eq!(patch["collect"]["tool_calls"], Value::Bool(true));
+        assert_eq!(patch["default_companion_id"], Value::Null);
+    }
+}
+
+// ── handlers ──────────────────────────────────────────────────────────────
+
+async fn list(deps: Arc<GatewayDeps>, _p: CompanionListParams) -> Value {
+    let companions = deps.companion_service.list_companions().await;
+    ok(companions)
+}
+
+async fn get(deps: Arc<GatewayDeps>, p: CompanionGetParams) -> Value {
+    match deps
+        .companion_service
+        .get_companion(&p.companion_id)
+        .await
+    {
+        Ok(companion) => ok(companion),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+async fn create(deps: Arc<GatewayDeps>, p: CompanionCreateParams) -> Value {
+    let name = p.name.trim();
+    if name.is_empty() {
+        return json!({ "error": "missing required field: name" });
+    }
+    let character = p.character.trim();
+    if character.is_empty() {
+        return json!({ "error": "missing required field: character" });
+    }
+    match deps.companion_service.create_companion(name, character).await {
+        Ok(companion) => ok(companion),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+async fn update(deps: Arc<GatewayDeps>, p: CompanionUpdateParams) -> Value {
+    let patch = match serde_json::to_value(&p.patch) {
+        Ok(Value::Object(patch)) if !patch.is_empty() => Value::Object(patch),
+        Ok(_) => return json!({ "error": "patch must contain at least one field to update" }),
+        Err(error) => return json!({ "error": format!("invalid patch: {error}") }),
+    };
+    if patch.as_object().is_none_or(|m| m.is_empty()) {
+        return json!({ "error": "patch must contain at least one field to update" });
+    }
+    match deps
+        .companion_service
+        .patch_companion(&p.companion_id, patch)
+        .await
+    {
+        Ok(companion) => ok(companion),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+async fn delete(deps: Arc<GatewayDeps>, p: CompanionDeleteParams) -> Value {
+    match deps
+        .companion_service
+        .delete_companion(&p.companion_id)
+        .await
+    {
+        Ok(()) => json!({ "result": format!("companion {} deleted", p.companion_id) }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+async fn status(deps: Arc<GatewayDeps>, p: CompanionStatusParams) -> Value {
+    let result = match p.companion_id {
+        Some(ref companion_id) => {
+            deps.companion_service
+                .companion_status(companion_id)
+                .await
+        }
+        None => deps.companion_service.status().await,
+    };
+    match result {
+        Ok(s) => ok(s),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+async fn get_config(deps: Arc<GatewayDeps>, _p: CompanionGetConfigParams) -> Value {
+    let config = deps.companion_service.get_config().await;
+    ok(config)
+}
+
+async fn update_config(deps: Arc<GatewayDeps>, p: CompanionUpdateConfigParams) -> Value {
+    let patch = match serde_json::to_value(&p.patch) {
+        Ok(Value::Object(patch)) if !patch.is_empty() => Value::Object(patch),
+        Ok(_) => return json!({ "error": "patch must contain at least one field to update" }),
+        Err(error) => return json!({ "error": format!("invalid patch: {error}") }),
+    };
+    if patch.as_object().is_none_or(|m| m.is_empty()) {
+        return json!({ "error": "patch must contain at least one field to update" });
+    }
+    match deps.companion_service.patch_config(patch).await {
+        Ok(config) => ok(config),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+// ── registration ─────────────────────────────────────────────────────────
+
+/// Register the companion-domain capabilities.
+pub(crate) fn register(out: &mut Vec<Capability>) {
+    // 1. List companions (read)
+    out.push(Capability::new::<CompanionListParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_list",
+            "companion",
+            "List all digital companions (id, name, character, model, appearance).",
+            DangerTier::Read,
+        ),
+        |deps, _ctx, p| list(deps, p),
+    ));
+
+    // 2. Get companion (read)
+    out.push(Capability::new::<CompanionGetParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_get",
+            "companion",
+            "Get a single companion's full profile and configuration by companion_id.",
+            DangerTier::Read,
+        ),
+        |deps, _ctx, p| get(deps, p),
+    ));
+
+    // 3. Create companion (write)
+    out.push(Capability::new::<CompanionCreateParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_create",
+            "companion",
+            "Create a new digital companion with a name and character description. The model must be configured separately via nomi_companion_update.",
+            DangerTier::Write,
+        ),
+        |deps, _ctx, p| create(deps, p),
+    ));
+
+    // 4. Update companion (write)
+    out.push(Capability::new::<CompanionUpdateParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_update",
+            "companion",
+            "Partially update a companion's profile (name, character, persona, model, appearance). Pass an RFC 7396 merge-patch object.",
+            DangerTier::Write,
+        ),
+        |deps, _ctx, p| update(deps, p),
+    ));
+
+    // 5. Delete companion (destructive, deny on channel)
+    out.push(Capability::new::<CompanionDeleteParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_delete",
+            "companion",
+            "Permanently delete a companion and all its associated data (thread, figure binding). Irreversible.",
+            DangerTier::Destructive,
+        )
+        .deny_on(&[Surface::Channel]),
+        |deps, _ctx, p| delete(deps, p),
+    ));
+
+    // 6. Companion status (read)
+    out.push(Capability::new::<CompanionStatusParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_status",
+            "companion",
+            "Get a companion's runtime status (XP, level, mood, memory counts, model readiness). Omit companion_id for the default companion.",
+            DangerTier::Read,
+        ),
+        |deps, _ctx, p| status(deps, p),
+    ));
+
+    // 7. Get shared config (read)
+    out.push(Capability::new::<CompanionGetConfigParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_get_config",
+            "companion",
+            "Read the machine-level companion configuration (collection toggles, session archiving, default companion_id). Learning and evolution settings are per companion — read them with nomi_companion_get.",
+            DangerTier::Read,
+        ),
+        |deps, _ctx, p| get_config(deps, p),
+    ));
+
+    // 8. Update shared config (write)
+    out.push(Capability::new::<CompanionUpdateConfigParams, _, _>(
+        CapabilityMeta::new(
+            "nomi_companion_update_config",
+            "companion",
+            "Partially update the machine-level companion configuration (collection toggles, session archiving, default companion, memory bridge). Learning and evolution are per companion — patch them with nomi_companion_update. RFC 7396 merge-patch.",
+            DangerTier::Write,
+        ),
+        |deps, _ctx, p| update_config(deps, p),
+    ));
+}

@@ -1,0 +1,339 @@
+# Installation
+
+GeekClaw has two host modes that share one Rust backend (see
+[Introduction](introduction.md)). This page covers all three ways to install
+it today:
+
+- [Desktop app from source](#desktop-app-from-source) — `geekclaw-desktop`
+  (Tauri shell), desktop local-trust, single-user.
+- [Web server from source](#web-server-from-source) — `nomifun-web`,
+  authenticated, self-hosted.
+- [Docker / Docker Compose](#docker--docker-compose) — the same web server,
+  containerised.
+
+> **Desktop and native service packaging still depends on the release channel.**
+> The Web server can be built from source, and the official Docker image is
+> published as
+> [`geekclaw/nomifun-web`](https://hub.docker.com/repository/docker/geekclaw/nomifun-web).
+> See
+> [`../contributing/building-and-packaging.md`](../contributing/building-and-packaging.md)
+> for the current packaging notes.
+
+## Prerequisites
+
+You need a working build toolchain regardless of which mode you target. The
+exact requirements:
+
+| Tool | Minimum | Why | Notes |
+| --- | --- | --- | --- |
+| **Rust** | stable, edition 2024 | Compile the backend (and the Tauri shell, for desktop). | Install via [`rustup`](https://rustup.rs/). The workspace pins `edition = "2024"` and `resolver = "3"`. |
+| **Bun** | **≥ 1.3.13** | Frontend package manager + build (and a hard runtime dependency of the agent engine). | `1.1.38` has a stdin bug — do not use it. |
+| **Tauri CLI** | v2 | Build the desktop shell. | Pulled in as a `devDependency`; no global install needed. |
+| **Git** | any recent | Clone, plus skill discovery and some built-in tools. | |
+| **C/C++ build tools** | platform-specific | `rusqlite` (bundled), `aws-lc-rs`, `libgit2-sys`. | Windows: MSVC + WebView2 runtime. macOS: Xcode CLT. Linux: `build-essential cmake clang pkg-config perl`. |
+
+Optional but recommended on the host that runs GeekClaw (not for building):
+
+- **`ripgrep`** — code-search backend; falls back to `grep` if missing.
+- **`node` / `npm` / `npx`** — many user-installed MCP stdio servers launch
+  via `npx -y …`.
+
+### Clone the repo
+
+```bash
+git clone <your-fork-or-mirror>/geekclaw-tauri.git
+cd geekclaw-tauri
+```
+
+The rest of this page assumes the repository root is your working directory.
+
+### Install JS dependencies
+
+```bash
+bun install
+```
+
+This populates `node_modules/` for the workspace and `ui/`. Re-run it any
+time `package.json` or `ui/package.json` changes.
+
+## Desktop app from source
+
+The desktop app is a Tauri 2 shell (`apps/desktop`, binary
+`geekclaw-desktop`) that links the backend in-process and starts it on a free
+localhost port under the desktop `TrustLocalToken` policy. Its own WebView
+receives a per-boot local trust secret, so there is no login screen in the
+desktop window.
+
+### Run in development
+
+```bash
+bun run dev
+```
+
+What this does, end-to-end:
+
+1. Tauri's `beforeDevCommand` runs `bun run --filter=./ui dev` to start the
+   Vite dev server on `http://localhost:5173`.
+2. `cargo` compiles `geekclaw-desktop` (and the workspace it depends on).
+3. The shell starts, picks a free port, spawns the embedded backend, and
+   loads the Vite dev URL. Hot-reload works on the renderer side; the backend
+   restarts only when its Rust code changes.
+
+You will see a tracing line like `Server listening on 127.0.0.1:54760` in the
+console — that is the embedded backend. The renderer reads
+`window.__backendPort` (injected by the Tauri shell as an init script) so the
+SPA always knows where to call `/api`.
+
+![geekclaw-desktop running in dev with the embedded backend](../images/gs-02-desktop-dev.png)
+
+### Build a release binary
+
+```bash
+bun run build:ui         # build the SPA into ui/dist
+bun run build    # tauri build → installers + standalone binary
+```
+
+`tauri build` produces:
+
+- A standalone executable under
+  `target/release/geekclaw-desktop` (`.exe` on Windows).
+- Platform installers under `target/release/bundle/` — `.exe` (NSIS,
+  Windows), `.dmg`/`.app` (macOS), `.deb`/`.AppImage` (Linux).
+
+`bun run build` artifacts are suitable for local testing. For distributable
+macOS builds, configure `apps/desktop/signing/.env.signing` and use
+`bun run build:signed`. Windows signing still requires an external certificate.
+To test the updater scaffold, use `bun run build:updater`, which sets
+`bundle.createUpdaterArtifacts` to true. The updater endpoint and public key in
+`apps/desktop/tauri.conf.json` must be replaced before shipping any update.
+
+### Where data lives (desktop)
+
+The desktop app stores its database and runtime files under the per-user
+application-data directory:
+
+| OS | Default path |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\GeekClaw` (e.g. `C:\Users\<you>\AppData\Local\GeekClaw`) |
+| macOS | `~/Library/Application Support/GeekClaw` |
+| Linux | `$XDG_DATA_HOME/GeekClaw` (usually `~/.local/share/GeekClaw`) |
+
+Override with `GEEKCLAW_DATA_DIR=<absolute path>` before launching — the
+value is taken literally as the data root on every host (no `/GeekClaw`
+suffix appended).
+
+> Older builds stored data under `GeekClaw/GeekClaw` (and, before that, under
+> `<system temp>/geekclaw-data/GeekClaw`, where OS temp cleanup could destroy
+> user data). On the first boot after upgrading, a one-shot automatic
+> migration moves such a legacy dataset into the new root: the migration
+> is crash-safe, absolute paths inside the database are rewritten once
+> after the move, and if it cannot complete it resumes on the next launch
+> (it is deferred to the next launch if the old app instance is still
+> running).
+
+> Note: the app's user-facing name is `GeekClaw` everywhere — the bundle
+> product name (`apps/desktop/tauri.conf.json`), the runtime window title,
+> release artifacts, and the data folder. Internal identifiers keep the legacy `geekclaw`
+> name by design (crates, `GEEKCLAW_*` env vars, the `com.geekclaw.*`
+> bundle identifier).
+
+## Web server from source
+
+`nomifun-web` is an axum server that mounts the same backend in-process
+**and** serves the built SPA on the same port (default `8787`). It is the
+right path for self-hosting on a LAN, VPN, or VPS.
+
+### Build and run
+
+```bash
+bun install
+bun run build:ui       # ui/dist — required before serving in non-dev mode
+bun run serve:web            # = cargo run -p nomifun-web
+```
+
+By default the server binds `127.0.0.1:8787` and uses the same per-user
+data directory as the desktop app (see
+[Where data lives (desktop)](#where-data-lives-desktop)):
+
+```text
+nomifun-web: embedded backend + SPA on one port
+listening on 127.0.0.1:8787  auth=required  dist=../../ui/dist
+```
+
+On a machine that also has the desktop app installed, a bare `nomifun-web`
+run opens the desktop app's data directly — an exclusive `server.lock`
+guarantees the two backends never run on that directory at the same time.
+
+Open `http://127.0.0.1:8787` in a browser. On the very first visit you will
+be sent to a setup screen — the username and password you type **become the
+initial admin account**. After that, login is required for everyone.
+
+![First-run admin setup in the browser](../images/gs-03-web-first-run-setup.png)
+
+### Common flags
+
+`nomifun-web` (defined in `apps/web/src/main.rs`) accepts both CLI flags and
+environment variables:
+
+| Flag | Env var | Default | Meaning |
+| --- | --- | --- | --- |
+| `--host` | `GEEKCLAW_WEB_HOST` | `127.0.0.1` | Bind address. Use `0.0.0.0` only when you intend LAN/VPN/public access; pre-seed or complete admin setup first. |
+| `--port` | `GEEKCLAW_WEB_PORT` | `8787` | Port for both `/api` and the SPA. |
+| `--data-dir` | `GEEKCLAW_DATA_DIR` | _per-user app-data dir, same as the [desktop default](#where-data-lives-desktop)_ | Backend data dir (db / logs / bun cache / agent state). The env value is taken literally (no `/GeekClaw` suffix). Use an absolute path in production. |
+| `--dist` | `GEEKCLAW_WEB_DIST` | `../../ui/dist` | SPA static directory. **Set this explicitly when running outside the repo root.** |
+| `--admin-user` | `GEEKCLAW_ADMIN_USERNAME` | `admin` | Username for pre-seeded admin (only honoured before the admin exists). |
+| `--admin-password` | `GEEKCLAW_ADMIN_PASSWORD` | _(none — interactive first-run setup)_ | Pre-seed the admin password and skip interactive first-run. |
+| `--insecure-no-auth` | `GEEKCLAW_WEB_INSECURE_NO_AUTH` | `false` | **Danger.** Disable authentication entirely (desktop-style local mode). Loopback / trusted private network only. |
+| _(env only)_ | `GEEKCLAW_HTTPS` | `false` | Set to `true` when fronted by TLS so cookies get the `Secure` flag. |
+
+Example, opening it up to the LAN with a pre-seeded admin:
+
+```bash
+nomifun-web \
+  --host 0.0.0.0 --port 8787 \
+  --data-dir /var/lib/geekclaw \
+  --dist /opt/geekclaw/web \
+  --admin-user admin \
+  --admin-password "change-me-to-something-strong"
+```
+
+For full deployment guidance — systemd unit, reverse-proxy, and security
+notes — see
+[`../guides/web-server-deployment.md`](../guides/web-server-deployment.md).
+
+## Docker / Docker Compose
+
+The official Docker Hub image is
+[`geekclaw/nomifun-web`](https://hub.docker.com/repository/docker/geekclaw/nomifun-web).
+It is a **headless** (no GUI) image: SPA + `nomifun-web` + `bun` on
+`debian:bookworm-slim`. The repository also ships a multi-stage `Dockerfile`
+and a `docker-compose.yml` for local source builds. The examples below use the
+published `v0.3.4` tag; replace it with a newer Docker Hub tag when one is
+available.
+
+### Quick start with the official image
+
+```bash
+docker run -d \
+  --name nomifun-web \
+  --restart unless-stopped \
+  -p 8787:8787 \
+  -v geekclaw-data:/data \
+  geekclaw/nomifun-web:v0.3.4
+# then open http://<server-ip>:8787
+```
+
+To close the first-run setup window before the service is reachable, pre-seed
+the first admin:
+
+```bash
+docker run -d \
+  --name nomifun-web \
+  --restart unless-stopped \
+  -p 8787:8787 \
+  -v geekclaw-data:/data \
+  -e GEEKCLAW_ADMIN_USERNAME=admin \
+  -e GEEKCLAW_ADMIN_PASSWORD='change-me-to-something-strong' \
+  geekclaw/nomifun-web:v0.3.4
+```
+
+### Build locally with Compose
+
+From the repo root:
+
+```bash
+docker compose up -d --build
+# then open http://<server-ip>:8787
+```
+
+The service is configured with `restart: unless-stopped` so installing it
+**is** enabling it on boot. Persistent state (SQLite database, logs, bun
+cache, agent state) lives in the named volume `geekclaw-data` mounted at
+`/data` inside the container.
+
+The image's defaults are tuned for container life:
+
+```text
+GEEKCLAW_WEB_HOST=0.0.0.0
+GEEKCLAW_WEB_PORT=8787
+GEEKCLAW_DATA_DIR=/data
+GEEKCLAW_WEB_DIST=/opt/geekclaw/web
+SHELL=/bin/bash
+```
+
+Authentication is on, but first-run setup can be claimed by the first browser
+that reaches the service. Pre-seed the admin or complete setup on a trusted
+network before publishing port `8787` broadly. For anything reachable from the
+internet, put TLS in front of it — the bundled `Caddyfile` and the
+commented-out `caddy` service in `docker-compose.yml` are the recommended path.
+Set
+`GEEKCLAW_HTTPS=true` on the `geekclaw` service when you do, so the session
+cookie gains the `Secure` flag.
+
+### Pre-seed the admin (recommended for non-interactive setup)
+
+The first browser visit otherwise wins the admin account; pre-seeding closes
+that race window:
+
+```yaml
+# docker-compose.yml — under services.geekclaw
+environment:
+  GEEKCLAW_ADMIN_USERNAME: admin
+  GEEKCLAW_ADMIN_PASSWORD: "change-me-to-something-strong"
+  GEEKCLAW_HTTPS: "true"   # only when behind a TLS proxy
+```
+
+### Constrained networks
+
+The Rust stage uses BuildKit cache mounts (`/usr/local/cargo/registry` and
+`/src/target`), so a one-line source change recompiles in seconds. A first
+install still reaches Docker Hub, npm, Debian apt, and crates.io; a timeout at
+any one of those sources can fail the build. Compose forwards a separate mirror
+setting for each package layer, for example:
+
+```bash
+APT_MIRROR=<trusted-debian-mirror> \
+CARGO_REGISTRY_MIRROR=<trusted-sparse-cargo-index> \
+BUN_REGISTRY=<trusted-npm-registry> \
+docker compose up -d --build
+```
+
+If the error occurs at `load metadata for docker.io/...`, the build has not
+reached apt or Cargo yet. Configure a Docker daemon registry mirror, or point
+`BUN_IMAGE`, `RUST_IMAGE`, and `RUNTIME_IMAGE` at trusted compatible images.
+The default Rust build stage now uses the smaller `rust:1-slim-bookworm`, and
+apt/Cargo downloads have retries and extended timeouts.
+
+For the long-form deployment guide (TLS, reverse-proxy patterns, systemd
+unit, security caveats) see
+[`../guides/web-server-deployment.md`](../guides/web-server-deployment.md).
+
+## Verifying your install
+
+A 30-second smoke test you can run after either path:
+
+```bash
+# Rust workspace compiles cleanly
+cargo check --workspace
+
+# All three binaries build
+cargo build --workspace --bins
+# → target/(debug|release)/{geekclaw, nomifun-web, geekclaw-desktop}
+
+# Web host responds with the SPA + auth status
+curl -sS http://127.0.0.1:8787/                | head -c 200
+curl -sS http://127.0.0.1:8787/api/auth/status
+# → 200 {"success":true,"needs_setup":..., "user_count":...}
+```
+
+If you see `nomifun-web: embedded backend + SPA on one port` in the logs and
+`/api/auth/status` returns JSON, the backend is up and the SPA is being
+served from the same port.
+
+## What's next
+
+- [Quick Start](quick-start.md) — your first conversation in GeekClaw.
+- [`../guides/web-server-deployment.md`](../guides/web-server-deployment.md)
+  — production hardening for the web host.
+- [`../contributing/development.md`](../contributing/development.md)
+  — set up a developer loop (renderer hot-reload, backend rebuild, debug tools).

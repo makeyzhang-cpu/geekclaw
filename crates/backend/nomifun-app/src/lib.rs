@@ -1,0 +1,64 @@
+//! Application crate: assembles all domain crates into an Axum server with DI and middleware.
+//!
+//! This file is a public façade — it only re-exports symbols defined in
+//! submodules. All logic lives in the modules below.
+
+mod config;
+// Spec D2 delivery-notify observer (public so integration tests can drive
+// the full receipt loop without the whole app harness).
+pub mod delivery_notify;
+#[cfg(feature = "browser-use")]
+mod browser_mcp_server;
+#[cfg(feature = "browser-use")]
+mod browser_lane_provider;
+// Public only for `BUNDLED_CHROME_DIR_ENV`: the desktop shell resolves the
+// Tauri resource dir and publishes it through that env seam (F48).
+#[cfg(feature = "browser-use")]
+pub mod browser_resource;
+mod browser_inventory_events;
+mod provider_deletion;
+mod router;
+mod services;
+mod workshop_bridge;
+mod channel_asset_resolver;
+
+// Promoted from the `geekclaw` bin so in-process hosts (Tauri desktop, web)
+// can boot the backend as a library — no spawned binary.
+pub mod bootstrap;
+pub mod channel;
+pub mod cli;
+pub mod commands;
+pub mod desktop;
+
+pub use config::{AppConfig, derive_encryption_key, load_or_create_data_encryption_key};
+pub use desktop::{
+    DesktopKeepAlive, DesktopServer, DesktopStartError, StartupCleanupDisposition,
+    WebUiAsset, WebUiAssetSource, WebUiStatus,
+};
+pub use nomifun_auth::AuthPolicy;
+pub use router::{
+    ChannelMessageLoopComponents, ModuleStates, build_preset_state, build_conversation_state,
+    build_extension_states, build_module_states, build_ws_state, create_router, create_router_with_all_state,
+    create_router_with_states,
+};
+pub use services::AppServices;
+
+/// In-process server entry used by embedded hosts (Tauri desktop, `nomifun-web`)
+/// and by the `geekclaw` bin's default path. Builds environment → data layer →
+/// services, then serves until shutdown. For a host that also serves static
+/// assets (the web SPA), compose `create_router` + your fallback instead.
+pub async fn run_embedded_server(cli: &cli::Cli, merged_path: &str) -> anyhow::Result<std::process::ExitCode> {
+    let env = bootstrap::init_environment(cli, merged_path)?;
+    let database = bootstrap::init_data_layer(&env.config).await?;
+    let services = AppServices::from_config(database, &env.config)
+        .await?
+        .with_boot_reconciliation_authority(
+            env.boot_reconciliation_authority(),
+            &env.config,
+        )
+        .await?;
+    if let Err(error) = bootstrap::finalize_data_layer(&env.config) {
+        return Err(services.cleanup_after_startup_failure(error).await);
+    }
+    commands::run_server(env, services).await
+}

@@ -1,0 +1,38 @@
+# crates/backend
+
+Backend crates. Package names use the `geekclaw-*` prefix. Together these crates
+provide the HTTP/WS server, data layer, auth, conversations, MCP/skills,
+knowledge, requirements/AutoWork, terminal sessions, companions, public
+capability gateway, and app composition.
+
+The current backend group contains 32 crates. The most important entry points
+are:
+
+| Crate | Role |
+| --- | --- |
+| `nomifun-app` | Composition root, CLI, bootstrap, service graph, router assembly, and embedded-server helpers. |
+| `nomifun-db` | SQLite, migrations, repository traits, and repository implementations. |
+| `nomifun-api-types` | Shared HTTP/WS request and response types. |
+| `nomifun-auth` | JWT, local trust, CSRF, auth routes, QR login, and security middleware. |
+| `nomifun-conversation` | Conversation/message service and agent stream relay. |
+| `nomifun-ai-agent` | Single bridge into `crates/agent`; Agent factory, runtime registry, and ACP/session lifecycle. |
+| `nomifun-mcp` | MCP server config, OAuth, adapters, sync, and connection tests. |
+| `nomifun-extension` | Extension, skill, assistant contribution, and hub plumbing. |
+| `nomifun-requirement` | Requirements Platform and the persistent AutoWork runner. |
+| `nomifun-terminal` | PTY-backed terminal sessions. |
+| `geekclaw-knowledge` | Knowledge bases and scoped knowledge MCP server. |
+| `nomifun-companion` | Desktop companions and companion memory/persona state. |
+| `nomifun-gateway` | Platform Gateway MCP tools exposed through scoped session claims. |
+| `nomifun-public` | Companion-token authenticated `/mcp`, `/mcp-agent`, and `/v1` public front doors. |
+
+See `docs/architecture/backend-crates.md` for the maintained map.
+
+## Agent Boundary
+
+Only `nomifun-ai-agent` should depend directly on `geekclaw-*` crates. Other backend
+crates consume agent-facing types through its re-exports, for example
+`nomifun_ai_agent::{geekclaw_config, geekclaw_types, RequirementSink}`.
+
+This keeps the agent layer isolated enough to reason about, but the older
+`geekclaw-agent-rs` extraction language in historical specs is not a current
+roadmap commitment.

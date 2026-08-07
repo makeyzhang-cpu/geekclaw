@@ -1,0 +1,305 @@
+[workspace]
+resolver = "3"
+members = ["crates/agent/*", "crates/backend/*", "crates/shared/*", "apps/web", "apps/desktop"]
+
+[workspace.package]
+version = "0.4.1"
+edition = "2024"
+license = "Apache-2.0"
+repository = "local/geekclaw-tauri"
+
+[workspace.dependencies]
+# --- Internal crates: backend (from geekclaw-be-rs) ---
+nomifun-common = { path = "crates/backend/nomifun-common" }
+nomifun-assets = { path = "crates/backend/nomifun-assets" }
+nomifun-db = { path = "crates/backend/nomifun-db" }
+nomifun-api-types = { path = "crates/backend/nomifun-api-types" }
+nomifun-realtime = { path = "crates/backend/nomifun-realtime" }
+nomifun-runtime = { path = "crates/backend/nomifun-runtime" }
+nomifun-auth = { path = "crates/backend/nomifun-auth" }
+nomifun-system = { path = "crates/backend/nomifun-system" }
+nomifun-file = { path = "crates/backend/nomifun-file" }
+nomifun-office = { path = "crates/backend/nomifun-office" }
+nomifun-shell = { path = "crates/backend/nomifun-shell" }
+nomifun-ai-agent = { path = "crates/backend/nomifun-ai-agent" }
+nomifun-mcp = { path = "crates/backend/nomifun-mcp" }
+nomifun-model-invoke = { path = "crates/backend/nomifun-model-invoke" }
+nomifun-conversation = { path = "crates/backend/nomifun-conversation" }
+nomifun-extension = { path = "crates/backend/nomifun-extension" }
+nomifun-channel = { path = "crates/backend/nomifun-channel" }
+nomifun-cron = { path = "crates/backend/nomifun-cron" }
+nomifun-requirement = { path = "crates/backend/nomifun-requirement" }
+nomifun-idmm = { path = "crates/backend/nomifun-idmm" }
+nomifun-knowledge = { path = "crates/backend/nomifun-knowledge" }
+nomifun-companion = { path = "crates/backend/nomifun-companion" }
+nomifun-gateway = { path = "crates/backend/nomifun-gateway" }
+nomifun-public = { path = "crates/backend/nomifun-public" }
+nomifun-webhook = { path = "crates/backend/nomifun-webhook" }
+nomifun-agent-execution = { path = "crates/backend/nomifun-agent-execution" }
+nomifun-terminal = { path = "crates/backend/nomifun-terminal" }
+nomifun-preset = { path = "crates/backend/nomifun-preset" }
+nomifun-customer-service = { path = "crates/backend/nomifun-customer-service" }
+nomifun-workshop = { path = "crates/backend/nomifun-workshop" }
+nomifun-creation = { path = "crates/backend/nomifun-creation" }
+nomifun-app = { path = "crates/backend/nomifun-app" }
+nomifun-browser-platform = { path = "crates/backend/nomifun-browser-platform" }
+
+# --- Internal crates: shared ---
+nomifun-net = { path = "crates/shared/nomifun-net" }
+geekclaw-redact = { path = "crates/shared/nomi-redact" }
+geekclaw-process-runtime = { path = "crates/shared/nomi-process-runtime" }
+geekclaw-ssh = { path = "crates/shared/nomi-ssh" }
+nomifun-ssh = { path = "crates/backend/nomifun-ssh" }
+
+# --- Internal crates: agent (from geekclaw-agent-rs, now local) ---
+geekclaw-types = { path = "crates/agent/nomi-types" }
+geekclaw-protocol = { path = "crates/agent/nomi-protocol" }
+geekclaw-compact = { path = "crates/agent/nomi-compact" }
+geekclaw-config = { path = "crates/agent/nomi-config" }
+geekclaw-providers = { path = "crates/agent/nomi-providers" }
+geekclaw-tools = { path = "crates/agent/nomi-tools" }
+geekclaw-mcp = { path = "crates/agent/nomi-mcp" }
+geekclaw-skills = { path = "crates/agent/nomi-skills" }
+geekclaw-memory = { path = "crates/agent/nomi-memory" }
+geekclaw-agent = { path = "crates/agent/nomi-agent" }
+geekclaw-computer = { path = "crates/agent/nomi-computer" }
+geekclaw-a11y = { path = "crates/agent/nomi-a11y" }
+geekclaw-browser-engine = { path = "crates/agent/nomi-browser-engine" }
+geekclaw-browser = { path = "crates/agent/nomi-browser" }
+
+# --- Core framework ---
+tokio = { version = "1", features = ["full"] }
+# CancellationToken (tokio_util::sync) — exposed in default features on 0.7.x.
+# Hierarchical parent→child cancellation is the Rust idiom for Playwright's
+# LongStandingScope (page.close / frame.detach cancels all in-flight ops below).
+tokio-util = { version = "0.7" }
+axum = { version = "0.8", features = ["multipart", "ws"] }
+tower = { version = "0.5" }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit", "fs"] }
+http = "1"
+futures = "0.3"
+futures-util = "0.3"
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+
+# --- Serialization ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+jsonschema = { version = "0.47", default-features = false }
+ts-rs = "12.0.1"
+
+# --- Async / error / log ---
+async-trait = "0.1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+
+# --- CLI ---
+clap = { version = "4", features = ["derive", "env"] }
+
+# --- Database ---
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# --- Auth / Crypto ---
+# NOTE: geekclaw-providers uses jsonwebtoken 10; nomifun-auth pins 9 in its own
+# manifest (the only be-rs consumer). Keep the workspace default at 10.
+jsonwebtoken = "10"
+bcrypt = "0.17"
+aes-gcm = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+# Public Suffix List (compile-time embedded, offline) for browser domain policy.
+psl = "2"
+
+uuid = { version = "1", features = ["v7"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream", "gzip", "rustls-tls", "socks", "system-proxy"], default-features = false }
+dashmap = "6"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
+prost = "0.13"
+semver = "1"
+dirs = "6"
+regex = "1"
+sys-locale = "0.3"
+
+# --- File system ---
+include_dir = "0.7"
+notify = "8"
+walkdir = "2"
+ignore = "0.4"
+# Unified-diff computation for the knowledge-base inbox review panel (P4).
+similar = "2"
+zip = "2"
+# Node portable-runtime archive extraction (provisioner): tar.gz on unix/macos.
+flate2 = "1"
+tar = "0.4"
+git2 = { version = "0.20", default-features = false }
+mime_guess = "2"
+rust-embed = "8"
+fs2 = "0.4"
+zstd = "0.13"
+glob = "0.3"
+# Windows path de-UNC-ing: `dunce::simplified` strips the `\\?\` verbatim
+# prefix whenever the path is losslessly representable without it. Used at
+# every canonicalization boundary that feeds persisted markers, env exports,
+# or user-visible messages.
+dunce = "1"
+
+# --- Cron / time ---
+cron = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+
+# --- PTY / shell ---
+portable-pty = "0.8"
+
+# --- SSH remote sessions ---
+# russh: crypto backend = `ring` (0.17.14 already in the lock), which avoids the
+# aws-lc-sys native toolchain burden (NASM on Windows x86, clang-cl on ARM64).
+# Pinned exactly: russh's Handler API churns fast (8 releases in July 2026), so
+# the `geekclaw-ssh` adapter crate isolates it and an upgrade touches one place.
+russh = { version = "=0.62.5", default-features = false, features = ["ring", "flate2"] }
+russh-sftp = "2.4.0"
+zeroize = { version = "1.8", features = ["derive"] }
+# `shellexecute-on-windows`: launch via real ShellExecuteExW on Windows instead
+# of the default `cmd /c start "" <target>` fallback. The `start` builtin
+# mis-parses URLs/paths as window titles, runs with no console (CREATE_NO_WINDOW)
+# so its failure dialog can't surface, and pops a blocking "Windows cannot find
+# '\\'" modal. ShellExecuteExW delegates to the interactive shell (like the
+# `microsoft-edge:` protocol path that works) — no cmd, no console, no dialog.
+# Windows-only feature; macOS/Linux paths are unaffected.
+open = { version = "5", features = ["shellexecute-on-windows"] }
+which = "7"
+
+# --- Office ---
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+
+# --- AWS ---
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-bedrock = { version = "1", default-features = false, features = ["rt-tokio", "default-https-client"] }
+aws-sigv4 = "1"
+aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
+
+# --- TLS ---
+rustls = "0.23"
+rustls-native-certs = "0.8"
+
+# --- OAuth / config ---
+oauth2 = "5.0.0-rc.1"
+# NOTE: geekclaw-config uses toml 1.0; be-rs (nomifun-mcp/runtime) uses 0.8 which is
+# the workspace default. geekclaw-config pins 1.0 in its own manifest.
+toml = "0.8"
+
+# --- Encoding / misc ---
+base64 = "0.22"
+http-body-util = "0.1"
+getrandom = "0.2"
+hex = "0.4"
+# AES-128-ECB + MD5 for the WeChat (iLink) CDN media upload/encryption.
+aes = "0.8"
+md-5 = "0.10"
+# Nostr protocol (keys, NIP-04 DMs, event signing) — pure crypto, no net/TLS deps.
+nostr = { version = "0.37", default-features = false, features = ["std", "nip04"] }
+# HTML → Markdown (URL knowledge-source snapshots)
+htmd = "0.5"
+libc = "0.2"
+lru = "0.18"
+url = "2"
+unicode-width = "0.2.2"
+unicode-normalization = "0.1"
+unicase = "2.9"
+crossterm = "0.29"
+is-terminal = "0.4"
+
+# --- Computer / browser use ---
+image = { version = "0.25", default-features = false, features = ["png"] }
+xcap = "0.9"
+enigo = "0.6"
+# In-process self-hosted CDP browser engine (geekclaw-browser-engine). 0.9.1 has NO
+# `tokio-runtime` feature — its transport rides `async-tungstenite` and is
+# runtime-agnostic, so the core CDP engine needs NO extra features here.
+# Deliberately default-features-only: we do NOT use chromiumoxide's built-in
+# Chrome *fetcher*. Task 6 ships a self-contained, proxy-aware download
+# (workspace `zip` + `nomifun_net::http_client`) instead — the fetcher uses a
+# non-proxy-aware reqwest and would break the proxy-aware install promise, so its
+# `rustls`/`native-tls`/`zip*` features stay OFF (enabling a TLS feature without
+# `zip0`/`zip8` also won't compile in 0.9.1). CDP generated types arrive
+# transitively via `chromiumoxide_cdp`, so no separate workspace entry.
+chromiumoxide = { version = "0.9" }
+
+# --- Testing ---
+tempfile = "3"
+wiremock = "0.6"
+tokio-test = "0.4"
+mockall = "0.14"
+rstest = "0.26"
+serial_test = "3"
+# 快照测试：注入侧 aria 契约（observe_fixtures.rs）+ 序列化层契约（T6）防 PW 升级漂移。
+# yaml/json/redactions feature 用于结构化快照与随机字段归一。
+insta = { version = "1.48", features = ["yaml", "json", "redactions"] }
+
+# Minimal debuginfo to shrink build output. Incremental compilation stays at
+# the Cargo default (on for dev/test): it only applies to workspace members and
+# cuts touched-crate rebuilds 2-3x, which is the hot path of local iteration.
+# The disk cost lives in the build dir (see .cargo/config.toml build-dir) and
+# is reclaimed by the self-cleaning preflight in scripts/prune-build.mjs, which
+# runs at the start of every dev/build/test entry point (package.json scripts).
+# CI, if added, should set CARGO_INCREMENTAL=0 instead of hardcoding it here.
+[profile.dev]
+debug = "line-tables-only"
+
+# Dependencies don't need debuginfo — you never single-step into them. Dropping
+# it for the whole dependency graph (not workspace crates) is where most of the
+# build-dir size and file count lived: under macOS unpacked split-debuginfo each
+# dep emits many object/.dwo files, and high-frequency rebuilds never GC the old
+# ones. Workspace members keep line-tables above for usable stack traces; deps
+# compile once, so there is no rebuild-speed cost. Stale artifacts are pruned by
+# the self-cleaning preflight (scripts/prune-build.mjs) at each build start.
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+# Test binaries in this workspace are unusually large on Windows. Even minimal
+# line tables produced hundreds of MiB of PDB data per integration target, so
+# keep the normal dev profile debuggable and make the high-volume test profile
+# artifact-light.
+debug = false
+
+[profile.test.package."*"]
+debug = false
+
+# Size-optimized release profile. The packaged `geekclaw-desktop.exe` is the first
+# and largest file the NSIS installer writes, and an oversized *unsigned* binary
+# is the dominant cause of end-user "Extract: error writing to file
+# geekclaw-desktop.exe" failures: the longer the write window, the more likely
+# antivirus real-time scanning locks/quarantines the half-written exe (and the
+# bigger the download). Cargo's default release profile (no LTO,
+# codegen-units=16) left the binary at ~140 MB. These knobs cut the machine-code
+# bulk without changing runtime behavior:
+#   opt-level = 3      keep the default speed-optimized codegen (NOT "s"/"z"): the
+#                      LTO + codegen-units=1 win below is the main size lever, so
+#                      keeping opt-level=3 guarantees runtime perf >= the old build
+#                      (which was opt-level=3 but had NO LTO). Slightly larger than
+#                      opt-level="s" would be, but still far below the ~140 MB baseline.
+#   lto = "thin"       cross-crate dead-code elimination. Deliberately NOT fat
+#                      `true`: the desktop binary already embeds ui/dist (~34 MB)
+#                      and needs RUST_MIN_STACK=128MB for opt-level=3 codegen
+#                      (see .cargo/config.toml); fat LTO's memory/link pressure
+#                      would worsen the known intermittent rust-lld heap
+#                      corruption. Thin LTO keeps most of the size win, lighter.
+#   codegen-units = 1  let the optimizer see whole crates → smaller output.
+#   strip = true       drop residual symbol tables (also shrinks the non-Windows
+#                      appimage/deb/rpm/dmg artifacts).
+# NOT panic = "abort": the codebase relies on panic = "unwind" to isolate a
+# panicking tool from the agent process (geekclaw-agent/src/tool_execution.rs,
+# apps/desktop/src/main.rs catch_unwind boundaries) and a test asserts unwind
+# semantics (nomifun-ai-agent/src/protocol/acp.rs). Aborting would turn a single
+# tool panic into a full-process crash — a real behavior regression.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

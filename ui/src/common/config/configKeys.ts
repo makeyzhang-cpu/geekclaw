@@ -1,0 +1,144 @@
+import type { AcpInitializeResult, AcpSessionConfigOption, AcpSessionModes } from '@/common/types/platform/acpTypes';
+import type { SpeechToTextConfig } from '@/common/types/provider/speech';
+import type { ICssTheme } from '@/common/config/storage';
+import type { CompanionId, ProviderId } from '@/common/types/ids';
+
+// `headless` (default) and `external` are the two supported user policies;
+// `embedded` remains in the read type only so installations can migrate the
+// removed viewer's persisted value. New product code persists only
+// `headless` or `external`.
+export type BrowserDisplayMode = 'embedded' | 'external' | 'headless';
+
+export type ConfigKeyMap = {
+  'google.config': {
+    proxy?: string;
+  };
+  'codex.config':
+    | { cli_path?: string; yoloMode?: boolean; sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' }
+    | undefined;
+  'acp.config': {
+    [backend: string]: {
+      auth_methodId?: string;
+      authToken?: string;
+      lastAuthTime?: number;
+      cli_path?: string;
+      yoloMode?: boolean;
+      preferredMode?: string;
+      preferredModelId?: string;
+      promptTimeout?: number;
+    };
+  };
+  'acp.promptTimeout': number | undefined;
+  'acp.agentIdleTimeout': number | undefined;
+  'acp.cachedInitializeResult': Record<string, AcpInitializeResult> | undefined;
+  'acp.cached_config_options': Record<string, AcpSessionConfigOption[]> | undefined;
+  'acp.cachedModes': Record<string, AcpSessionModes> | undefined;
+  language: string;
+  theme: string;
+  colorScheme: string;
+  'ui.zoomFactor': number | undefined;
+  'window.bounds': { x?: number; y?: number; width: number; height: number } | undefined;
+  'webui.desktop.enabled': boolean | undefined;
+  'webui.desktop.allowRemote': boolean | undefined;
+  'webui.desktop.port': number | undefined;
+  customCss: string;
+  'css.themes': ICssTheme[];
+  'css.activeThemeId': string;
+  'geekclaw.config': { preferredMode?: string } | undefined;
+  'geekclaw.defaultModel': { provider_id: ProviderId; model: string } | undefined;
+  // 智能协作的模型偏好：除主模型（geekclaw.defaultModel）外，可为不同任务选择的
+  // 额外模型。仅创建 GeekClaw 对话时使用；空数组表示只使用主模型。
+  'geekclaw.collaborationModels': { provider_id: ProviderId; model: string }[] | undefined;
+  // Default provider+model for the knowledge-base AI description/overview
+  // generators (autogen / description.generate / description.polish). Empty
+  // value = let the backend fall back to its own default completer model.
+  'knowledge.autogenModel': { provider_id: ProviderId; model: string } | undefined;
+  'tools.imageGenerationModel': { provider_id: ProviderId; model: string; switch?: boolean };
+  'tools.speechToText': SpeechToTextConfig | undefined;
+  'workspace.pasteConfirm': boolean | undefined;
+  'upload.saveToWorkspace': boolean | undefined;
+  'guid.lastSelectedAgent': string | undefined;
+  'system.notificationEnabled': boolean | undefined;
+  'system.cronNotificationEnabled': boolean | undefined;
+  'system.keepAwake': boolean | undefined;
+  'system.autoPreviewOfficeFiles': boolean | undefined;
+  // 发送键偏好：'enter'=Enter 发送/Shift+Enter 换行（默认）；'mod-enter'=Ctrl/⌘+Enter 发送、Enter 换行
+  'chat.sendKey': 'enter' | 'mod-enter' | undefined;
+  // Desktop control (computer-use): gates the geekclaw engine's Computer tool
+  // (observe/click/type/launch). Read by the backend agent factory per session.
+  'agent.computerUse': boolean | undefined;
+  // Browser control (browser-use): gates the geekclaw engine's built-in browser
+  // tools (native CDP engine). ON by default on browser-use (desktop) builds; it
+  // opens an isolated managed Chrome / Edge instance. Routine work is silent
+  // and headless unless the installation owner explicitly selects `external`.
+  // Read by the backend agent factory per session.
+  'agent.browserUse': boolean | undefined;
+  // Application-level browser default visibility policy. New installs persist
+  // `headless` (silent Agent browsing); the user may explicitly choose
+  // `external` (default-visible Primary). Historical `embedded`, unversioned,
+  // and legacy `agent.browserUse.silent` state all fail closed to `headless`.
+  // Agent tool input can never select the mode.
+  'agent.browserUse.displayMode': BrowserDisplayMode | undefined;
+  // Lineage marker for an explicit visibility policy. Only v2 plus a valid
+  // displayMode may be shown as a trusted local fallback; the live owner API
+  // remains authoritative.
+  'agent.browserUse.displayModeVersion': 2 | undefined;
+  // Legacy compatibility read only. New settings code must not write this key.
+  // Visibility migration no longer derives an external window from this key.
+  // Elastic crawl/replica/isolated hosts choose headless execution internally.
+  'agent.browserUse.silent': boolean | undefined;
+  // Browser source (browser-use sub-setting, orthogonal to silent): 'managed' =
+  // bundled/downloaded Chrome for Testing; 'system' (default) = the user's
+  // installed Chrome/Edge binary (still an isolated profile — never the real
+  // profile). Read by the backend agent factory per session.
+  'agent.browserUse.source': 'managed' | 'system' | undefined;
+  // Persistent login (browser-use sub-setting): keeps cookies/storage across
+  // sessions in an encrypted vault. ON by default. When on, evaluate full-power
+  // mode is blocked (security mutex). Read by the backend browser engine.
+  'agent.browserUse.persistentLogin': boolean | undefined;
+  // Full-power browser evaluate mode: unlocks arbitrary page-script evaluation.
+  // OFF by default and mutually exclusive with persistent login on the backend.
+  'agent.browserUse.fullPower': boolean | undefined;
+  // Site memory (browser-use sub-setting): persists per-site interaction hints to
+  // disk + injects them into the agent's context. OFF by default (opt-in,
+  // privacy-relevant). Read by the backend browser factory.
+  'agent.browserUse.siteMemory': boolean | undefined;
+  // Human takeover / approval (browser-use sub-setting): irreversible browser
+  // actions + gated cross-origin POSTs are held for the user's approval instead of
+  // hard-blocked. ON by default. Read by the backend agent factory.
+  'agent.browserUse.takeover': boolean | undefined;
+  // Dangerous Browser Use approval bypass: skips Browser-specific irreversible
+  // action and gated egress confirmations. OFF by default.
+  'agent.browserUse.unrestrictedApproval': boolean | undefined;
+  // Visual fallback (browser-use sub-setting): when DOM/aria anchoring fails, the
+  // agent screenshots the page and asks the vision model to locate the target, then
+  // clicks the mapped point. OFF by default (opt-in, vision-token cost). Read by the
+  // backend agent factory.
+  'agent.browserUse.visualFallback': boolean | undefined;
+  'channels.telegram.agent':
+    | { agent_type: string; backend?: string; name?: string }
+    | undefined;
+  // Companion binding per IM channel platform (mirror of the backend
+  // client-preference written by POST /api/channel/settings/companion).
+  // Empty/missing = no binding → no companion greets this platform's channel.
+  'channels.telegram.companion_id': CompanionId | undefined;
+  'channels.lark.agent':
+    | { agent_type: string; backend?: string; name?: string }
+    | undefined;
+  'channels.lark.companion_id': CompanionId | undefined;
+  'channels.dingtalk.agent':
+    | { agent_type: string; backend?: string; name?: string }
+    | undefined;
+  'channels.dingtalk.companion_id': CompanionId | undefined;
+  'channels.weixin.agent':
+    | { agent_type: string; backend?: string; name?: string }
+    | undefined;
+  'channels.weixin.companion_id': CompanionId | undefined;
+  'channels.wecom.agent':
+    | { agent_type: string; backend?: string; name?: string }
+    | undefined;
+  'channels.wecom.companion_id': CompanionId | undefined;
+  'skillsMarket.enabled': boolean | undefined;
+};
+
+export type ConfigKey = keyof ConfigKeyMap;

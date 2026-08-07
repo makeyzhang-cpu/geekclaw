@@ -1,0 +1,482 @@
+/**
+ * @license
+ * Copyright 2025-2026 GeekClaw (geekclaw.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import type { ProviderModelResponse } from '@/common/types/provider/providerModel';
+import type { ModelTask } from '@/common/protocolBindings/ModelTask';
+import type { ModelTrait } from '@/common/protocolBindings/ModelTrait';
+import type { ProfileSource } from '@/common/protocolBindings/ProfileSource';
+import type { PresetReference, ResolvedPresetSnapshot } from '@/common/types/agent/presetTypes';
+import type {
+  TDecisionPolicy,
+  TDelegationPolicy,
+  TExecutionModelPool,
+} from '@/common/types/agentExecution/agentExecutionTypes';
+import type {
+  ConversationId,
+  CompanionId,
+  CronJobId,
+  ExecutionAttemptId,
+  ExecutionId,
+  ExecutionStepId,
+  ExecutionTemplateId,
+  MessageId,
+  McpServerId,
+  PresetId,
+  ProviderId,
+  RemoteAgentId,
+} from '@/common/types/ids';
+
+/**
+ * Conversation source type - identifies where the conversation was created
+ * 会话来源类型 - 标识会话创建的来源
+ */
+export type ConversationSource = 'geekclaw' | 'telegram' | 'lark' | 'dingtalk' | 'weixin' | 'wecom' | (string & {});
+
+export type TChatConversationStatus = 'pending' | 'running' | 'finished';
+export type TConversationRuntimeStateKind = 'idle' | 'starting' | 'running' | 'waiting_confirmation';
+
+export type TConversationRuntimeSummary = {
+  state: TConversationRuntimeStateKind;
+  can_send_message: boolean;
+  has_runtime: boolean;
+  runtime_status?: TChatConversationStatus;
+  is_processing: boolean;
+  pending_confirmations: number;
+  /** Exact backend turn currently owning this runtime. This is lifecycle
+   * authority; processing_started_at is display-only and may collide. */
+  active_turn_id?: MessageId;
+  /** Epoch ms when the currently-running turn started, present while
+   *  is_processing. Anchors the elapsed-time indicator so it survives view
+   *  unmount/remount (tab/session switch) instead of restarting from zero. */
+  processing_started_at?: number;
+};
+
+interface IChatConversation<T, Extra> {
+  created_at: number;
+  modified_at: number;
+  name: string;
+  desc?: string;
+  /** Canonical backend-minted Conversation entity id. */
+  id: ConversationId;
+  type: T;
+  extra: Extra;
+  model: TProviderWithModel;
+  status?: TChatConversationStatus | undefined;
+  runtime?: TConversationRuntimeSummary;
+  /** 会话来源，默认为 geekclaw / Conversation source, defaults to geekclaw */
+  source?: ConversationSource;
+  /** First-class conversation pin state. This is the only authoritative UI field. */
+  pinned?: boolean;
+  pinned_at?: number;
+  /** Channel chat isolation ID (e.g. user:xxx, group:xxx) */
+  channel_chat_id?: string;
+  /** Cron job that spawned this conversation. */
+  cron_job_id?: CronJobId;
+  /** Immutable preset lineage resolved and persisted by the backend. */
+  preset_id?: PresetReference;
+  preset_revision?: number;
+  preset_snapshot?: ResolvedPresetSnapshot;
+  /** GeekClaw-only collaboration policy persisted as first-class conversation fields. */
+  delegation_policy?: TDelegationPolicy;
+  execution_model_pool?: TExecutionModelPool;
+  decision_policy?: TDecisionPolicy;
+  /** Optional collaboration authoring template. Runtime executions copy its
+   * resolved snapshot and never retain this mutable reference. `null` is the
+   * PATCH wire value for explicitly clearing the selection. */
+  execution_template_id?: ExecutionTemplateId | null;
+  /** Collaboration aggregate linked to this lead or retained Attempt transcript. */
+  linked_execution_id?: ExecutionId;
+  execution_step_id?: ExecutionStepId;
+  execution_attempt_id?: ExecutionAttemptId;
+}
+
+// Token 使用统计数据类型
+export interface TokenUsageData {
+  total_tokens: number;
+  /** Cumulative input tokens reported by the GeekClaw session usage payload. */
+  input_tokens?: number;
+  /** Cumulative output tokens reported by the GeekClaw session usage payload. */
+  output_tokens?: number;
+  /** Tokens written into the provider prompt cache. */
+  cache_creation_tokens?: number;
+  /** Tokens read back from the provider prompt cache. */
+  cache_read_tokens?: number;
+  /** Wall-clock duration of the last turn in milliseconds (optional; geekclaw
+   * turn_completed carries it). Absent on legacy persisted payloads. */
+  elapsed_ms?: number;
+  /** Current context occupancy (gauge numerator). */
+  context_tokens?: number;
+  /** Effective context budget (gauge denominator). */
+  context_window?: number;
+}
+
+export type TChatConversation =
+  | Omit<
+      IChatConversation<
+        'acp',
+        {
+          workspace?: string;
+          backend: string;
+          cli_path?: string;
+          custom_workspace?: boolean;
+          /** Opaque AgentRegistry key; external/extension agent ids are not UUID entities. */
+          agent_id: string;
+          agent_name?: string;
+          /** Skills snapshot for this conversation — authoritative list, written
+           * once at creation. Join with `GET /api/skills` for descriptions. */
+          skills?: string[];
+          /** MCP server id snapshot chosen when the conversation was created. */
+          mcp_server_ids?: McpServerId[];
+          /** MCP server name snapshot chosen when the conversation was created. */
+          mcp_servers?: string[];
+          /** Conversation-scoped MCP status snapshot shown in the sendbox menu. */
+          mcp_statuses?: IConversationMcpStatus[];
+          /** Session-only MCP server snapshot persisted at creation time. */
+          session_mcp_servers?: ISessionMcpServer[];
+          /** ACP 后端的 session UUID，用于会话恢复 / ACP backend session UUID for session resume */
+          acp_session_id?: string;
+          /** Conversation ID that owns the ACP session / 拥有该 ACP session 的会话 ID */
+          acp_session_conversation_id?: ConversationId;
+          /** ACP session 最后更新时间 / Last update time of ACP session */
+          acp_session_updated_at?: number;
+          /** Last context usage from usage_update */
+          last_token_usage?: TokenUsageData;
+          /** Context window capacity from usage_update */
+          last_context_limit?: number;
+          /** Persisted session mode for resume support / 持久化的会话模式，用于恢复 */
+          session_mode?: string;
+          /** Persisted model ID for resume support / 持久化的模型 ID，用于恢复 */
+          current_model_id?: string;
+          /** Cached config options from ACP backend / 缓存的 ACP 配置选项 */
+          cached_config_options?: import('@/common/types/platform/acpTypes').AcpSessionConfigOption[];
+          /** Pending config option selections from Guid page / Guid 页面待应用的配置选项 */
+          pending_config_options?: Record<string, string>;
+          /** Codex ACP-specific sandbox setting for newly created sessions. */
+          sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
+          /** Codex ACP-specific selected model. */
+          codexModel?: string;
+          /** Legacy marker for pre-provider-probe health-check conversations */
+          is_health_check?: boolean;
+        }
+      >,
+      'model'
+    >
+  | Omit<
+      IChatConversation<
+        'openclaw-gateway',
+        {
+          workspace?: string;
+          backend?: string;
+          agent_name?: string;
+          custom_workspace?: boolean;
+          /** Gateway configuration */
+          gateway?: {
+            host?: string;
+            port?: number;
+            token?: string;
+            password?: string;
+            useExternalGateway?: boolean;
+            cli_path?: string;
+          };
+          /** Session key for resume */
+          sessionKey?: string;
+          /** Runtime validation snapshot used for post-switch strong checks */
+          runtimeValidation?: {
+            expectedWorkspace?: string;
+            expectedBackend?: string;
+            expectedAgentName?: string;
+            expectedCliPath?: string;
+            expectedModel?: string;
+            expectedIdentityHash?: string | null;
+            switchedAt?: number;
+          };
+          /** Skills snapshot for this conversation — authoritative list, written
+           * once at creation. Join with `GET /api/skills` for descriptions. */
+          skills?: string[];
+          /** Legacy marker for pre-provider-probe health-check conversations */
+          is_health_check?: boolean;
+        }
+      >,
+      'model'
+    >
+  | Omit<
+      IChatConversation<
+        'nanobot',
+        {
+          workspace?: string;
+          custom_workspace?: boolean;
+          /** Skills snapshot for this conversation — authoritative list, written
+           * once at creation. Join with `GET /api/skills` for descriptions. */
+          skills?: string[];
+          /** Legacy marker for pre-provider-probe health-check conversations */
+          is_health_check?: boolean;
+        }
+      >,
+      'model'
+    >
+  | Omit<
+      IChatConversation<
+        'remote',
+        {
+          workspace?: string;
+          custom_workspace?: boolean;
+          /** Remote-agent business ID (application-enforced logical reference). */
+          remote_agent_id: RemoteAgentId;
+          /** Remote session key for resume */
+          sessionKey?: string;
+          /** Skills snapshot for this conversation — authoritative list, written
+           * once at creation. Join with `GET /api/skills` for descriptions. */
+          skills?: string[];
+          /** Legacy marker for pre-provider-probe health-check conversations */
+          is_health_check?: boolean;
+        }
+      >,
+      'model'
+    >
+  | IChatConversation<
+      'geekclaw',
+      {
+        workspace: string;
+        custom_workspace?: boolean;
+        proxy?: string;
+        /** Skills snapshot for this conversation — authoritative list, written
+         * once at creation. Join with `GET /api/skills` for descriptions. */
+        skills?: string[];
+        /** MCP server id snapshot chosen when the conversation was created. */
+        mcp_server_ids?: McpServerId[];
+        /** MCP server name snapshot chosen when the conversation was created. */
+        mcp_servers?: string[];
+        /** Conversation-scoped MCP status snapshot shown in the sendbox menu. */
+        mcp_statuses?: IConversationMcpStatus[];
+        /** Session-only MCP server snapshot persisted at creation time. */
+        session_mcp_servers?: ISessionMcpServer[];
+        /** Max tokens per response */
+        maxTokens?: number;
+        /** Max agentic turns */
+        maxTurns?: number;
+        /** Persisted session mode for resume support */
+        session_mode?: string;
+        /** Legacy marker for pre-provider-probe health-check conversations */
+        is_health_check?: boolean;
+        /** Last token usage stats */
+        last_token_usage?: TokenUsageData;
+        /** Marks this geekclaw conversation as a desktop-companion's single per-companion
+         * session (单会话契约). Written by the backend at companion-session creation.
+         * Drives the 桌面伙伴 session-list group, the constrained companion chat panel
+         * (CompanionChatPanel), and the work-conversation list filter. */
+        companion_session?: boolean;
+        /** The companion (桌面伙伴) this session belongs to, when `companion_session` is
+         * set. Resolves the companion profile for the constrained chat panel + the
+         * session-list group's active-row highlight. */
+        companion_id?: CompanionId;
+        /** IM-channel platform when a companion turn originated from an external
+         * channel (telegram/lark/…). Present on channel-sourced companion turns. */
+        channel_platform?: string;
+        /** In-session companion summon marker（设计 B）: the summoned companion's
+         * id + hand-picked memory ids + excluded skills, `summoned_at`
+         * server-stamped. Written only through PUT
+         * /api/conversations/{id}/summon or trusted backend creators; drives
+         * the sendbox summon control and the header/sidebar badges. */
+        summon?: {
+          companion_id: CompanionId;
+          memory_ids: string[];
+          skill_exclusions: string[];
+          summoned_at: number;
+        };
+      }
+    >;
+
+export type IChatConversationRefer = {
+  'chat.history': TChatConversation[];
+};
+
+/**
+ * 统一多模态能力词表 —— ts-rs 生成契约的 re-export（生成源
+ * crates/backend/nomifun-api-types/src/model_task.rs，由
+ * `cargo test -p nomifun-api-types` 重新生成到 @/common/protocolBindings/）。
+ * ModelTask 决定端点/请求体；ModelTrait 是同一任务内的细化（主要修饰 chat）。
+ */
+export type { ModelTask } from '@/common/protocolBindings/ModelTask';
+export type { ModelTrait } from '@/common/protocolBindings/ModelTrait';
+export type { ProfileSource } from '@/common/protocolBindings/ProfileSource';
+
+/** 权威 per-model 能力档案（键 (provider_id, model)）。 */
+export interface ModelProfile {
+  provider_id: ProviderId;
+  model: string;
+  tasks: ModelTask[];
+  traits: ModelTrait[];
+  params?: Record<string, unknown>;
+  source?: ProfileSource;
+  updated_at: number;
+}
+
+export interface IProvider {
+  id: ProviderId;
+  platform: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  models: string[];
+  /**
+   * 每个模型的上下文窗口限制。映射模型名称到 token 数。
+   * Per-model context window limits. Maps model name to token count.
+   */
+  model_context_limits?: Record<string, number>;
+  /**
+   * 每个模型的协议覆盖配置。映射模型名称到协议字符串。
+   * 仅在 platform 为 'new-api' 时使用。
+   * Per-model protocol overrides. Maps model name to protocol string.
+   * Only used when platform is 'new-api'.
+   * e.g. { "gemini-2.5-pro": "gemini", "claude-sonnet-4": "anthropic", "gpt-4o": "openai" }
+   */
+  model_protocols?: Record<string, string>;
+  /**
+   * 每个模型的用户撰写描述。映射模型名称到描述文本。
+   * 供智能协作按描述自动选择模型。
+   * Per-model user-authored descriptions. Maps model name to description text.
+   * Used by collaboration planning to select models by description.
+   * e.g. { "gpt-4o": "擅长前端与多模态", "claude-sonnet-4": "长上下文推理" }
+   */
+  model_descriptions?: Record<string, string>;
+  /**
+   * AWS Bedrock specific configuration
+   * Only used when platform is 'bedrock'
+   */
+  bedrock_config?: {
+    auth_method: 'accessKey' | 'profile';
+    region: string;
+    // For access key method
+    access_key_id?: string;
+    secret_access_key?: string;
+    // For profile method
+    profile?: string;
+  };
+  /**
+   * 供应商启用状态，默认为 true
+   * Provider enabled state, defaults to true
+   */
+  enabled?: boolean;
+  /**
+   * 供应商排序优先级，数值越小优先级越高。
+   * Provider priority order; lower values are used first.
+   */
+  sort_order?: number;
+  /**
+   * 各个模型的启用状态，默认全部为 true
+   * Individual model enabled states, defaults to all true
+   */
+  model_enabled?: Record<string, boolean>;
+  /**
+   * 各个模型的健康检测结果（仅用于 UI 显示，不影响启用状态）
+   * Model health check results (for UI display only, does not affect enabled state)
+   */
+  model_health?: Record<
+    string,
+    {
+      status: 'unknown' | 'healthy' | 'unhealthy';
+      last_check?: number; // 时间戳 / timestamp
+      latency?: number; // 延迟时间（毫秒）/ latency in milliseconds
+      error?: string; // 错误信息 / error message
+    }
+  >;
+  /**
+   * 权威 per-model 目录行（provider_models 表投影），wire→renderer 透传。
+   * Authoritative row-level model catalog entries, passed through as-is from
+   * `ProviderResponse.models_detail`. Absent when the provider has no rows.
+   */
+  models_detail?: ProviderModelResponse[];
+  is_full_url?: boolean;
+}
+
+export type TProviderWithModel = Omit<IProvider, 'models'> & {
+  use_model: string;
+};
+
+// MCP Server Configuration Types
+export interface IMcpServerTransportStdio {
+  type: 'stdio';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface IMcpServerTransportSSE {
+  type: 'sse';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export interface IMcpServerTransportHTTP {
+  type: 'http';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export interface IMcpServerTransportStreamableHTTP {
+  type: 'streamable_http';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export type IMcpServerTransport =
+  | IMcpServerTransportStdio
+  | IMcpServerTransportSSE
+  | IMcpServerTransportHTTP
+  | IMcpServerTransportStreamableHTTP;
+
+export interface IMcpServer {
+  mcp_server_id: McpServerId;
+  name: string;
+  description?: string;
+  enabled: boolean; // 是否默认启用（新会话默认勾选）
+  transport: IMcpServerTransport;
+  tools?: IMcpTool[];
+  last_test_status?: 'connected' | 'disconnected' | 'error' | 'testing'; // 最近一次检测结果
+  last_connected?: number;
+  created_at: number;
+  updated_at: number;
+  original_json: string; // 存储原始JSON配置，用于编辑时的准确显示
+  /** Built-in MCP server managed by GeekClaw (hide edit/delete in UI) */
+  builtin?: boolean;
+}
+
+/** Conversation-scoped MCP snapshot keyed by the stable MCP business ID. */
+export interface ISessionMcpServer {
+  mcp_server_id: McpServerId;
+  name: string;
+  transport: IMcpServerTransport;
+}
+
+export type IConversationMcpStatusKind = 'loaded' | 'failed' | 'unsupported';
+
+export interface IConversationMcpStatus {
+  mcp_server_id: McpServerId;
+  name: string;
+  status: IConversationMcpStatusKind;
+  reason?: string;
+}
+
+export interface IMcpTool {
+  name: string;
+  description?: string;
+  input_schema?: unknown;
+  _meta?: Record<string, unknown>;
+}
+
+/**
+ * CSS 主题配置接口 / CSS Theme configuration interface
+ * 用于存储用户自定义的 CSS 皮肤 / Used to store user-defined CSS skins
+ */
+export interface ICssTheme {
+  id: string; // 唯一标识 / Unique identifier
+  name: string; // 主题名称 / Theme name
+  cover?: string; // 封面图片 base64 或 URL / Cover image base64 or URL
+  css: string; // CSS 样式代码 / CSS style code
+  is_preset?: boolean; // 是否为预设主题 / Whether it's a preset theme
+  created_at: number; // 创建时间 / Creation time
+  updated_at: number; // 更新时间 / Update time
+}

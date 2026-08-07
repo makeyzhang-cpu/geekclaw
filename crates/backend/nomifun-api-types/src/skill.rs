@@ -1,0 +1,856 @@
+use nomifun_common::ConversationId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+// ---------------------------------------------------------------------------
+// A. Skill list & info
+// ---------------------------------------------------------------------------
+
+/// Origin of a listed skill — `builtin`, `custom`, or `extension`.
+///
+/// Matches the renderer contract in
+/// `src/common/adapter/ipcBridge.ts::listAvailableSkills`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillSourceResponse {
+    Builtin,
+    Custom,
+    Extension,
+}
+
+/// Single item in the available skills list (`GET /api/skills`).
+///
+/// For `source=builtin` entries, `location` is a synthesized absolute path
+/// under `{data_dir}/builtin-skills-view/{name}/SKILL.md` (lazily
+/// materialized from the embedded corpus so the export-symlink flow can
+/// resolve it), and `relative_location` carries the path the frontend
+/// passes back into `POST /api/skills/builtin-skill` (e.g.
+/// `"auto-inject/cron/SKILL.md"` or `"{name}/SKILL.md"`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillListItemResponse {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub name_i18n: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub description_i18n: HashMap<String, String>,
+    pub location: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relative_location: Option<String>,
+    pub is_custom: bool,
+    pub source: SkillSourceResponse,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audience_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenario_tags: Vec<String>,
+}
+
+/// Request body for `PUT /api/skills/{name}/tags`.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SetSkillTagsRequest {
+    #[serde(default)]
+    pub audience_tags: Vec<String>,
+    #[serde(default)]
+    pub scenario_tags: Vec<String>,
+}
+
+/// An auto-injected built-in skill (`GET /api/skills/builtin-auto`).
+///
+/// `location` is the relative path the frontend passes back into
+/// `POST /api/skills/builtin-skill` (e.g. `"auto-inject/cron/SKILL.md"`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BuiltinAutoSkillResponse {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub name_i18n: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub description_i18n: HashMap<String, String>,
+    pub location: String,
+}
+
+/// Request body for `POST /api/skills/info`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadSkillInfoRequest {
+    pub skill_path: String,
+}
+
+/// Response for `POST /api/skills/info`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReadSkillInfoResponse {
+    pub name: String,
+    pub description: String,
+}
+
+// ---------------------------------------------------------------------------
+// B. Skill import / export / delete
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/skills/import` and `POST /api/skills/import-symlink`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportSkillRequest {
+    pub skill_path: String,
+}
+
+/// Response for skill import operations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImportSkillResponse {
+    pub skill_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_names: Vec<String>,
+}
+
+/// Request body for `POST /api/skills/export-symlink`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportSkillRequest {
+    pub skill_path: String,
+    pub target_dir: String,
+}
+
+// ---------------------------------------------------------------------------
+// C. Skill scanning & discovery
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/skills/scan`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScanForSkillsRequest {
+    pub folder_path: String,
+}
+
+/// A skill discovered by directory scanning.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScannedSkillResponse {
+    pub name: String,
+    pub description: String,
+    pub path: String,
+}
+
+/// Response for `POST /api/skills/scan`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScanForSkillsResponse {
+    pub skills: Vec<ScannedSkillResponse>,
+}
+
+/// An external skill source with count (`GET /api/skills/detect-external`).
+///
+/// `source` is a stable slug identifying the origin (e.g. `"claude"`,
+/// `"gemini"`, `"agents"`, or `"custom-<abs-path>"` for user-added paths).
+/// The renderer uses it as a React key and `data-testid` suffix in
+/// `SkillsHubSettings.tsx`, so it must be unique across the returned list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExternalSkillSourceResponse {
+    pub name: String,
+    pub path: String,
+    pub source: String,
+    pub skill_count: usize,
+    pub skills: Vec<ScannedSkillResponse>,
+}
+
+/// A named filesystem path (`GET /api/skills/detect-paths`, external paths).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NamedPathResponse {
+    pub name: String,
+    pub path: String,
+}
+
+/// Response for `GET /api/skills/paths`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillPathsResponse {
+    pub user_skills_dir: String,
+    pub builtin_skills_dir: String,
+}
+
+// ---------------------------------------------------------------------------
+// D. Preset rules & skills
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/skills/preset-rule/read` and
+/// `POST /api/skills/preset-skill/read`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadPresetRuleRequest {
+    #[serde(deserialize_with = "crate::serde_util::deserialize_preset_reference")]
+    pub preset_id: String,
+    #[serde(default)]
+    pub locale: Option<String>,
+}
+
+/// Request body for `POST /api/skills/preset-rule/write` and
+/// `POST /api/skills/preset-skill/write`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WritePresetRuleRequest {
+    #[serde(deserialize_with = "crate::serde_util::deserialize_preset_reference")]
+    pub preset_id: String,
+    pub content: String,
+    #[serde(default)]
+    pub locale: Option<String>,
+}
+
+/// Request body for `POST /api/skills/builtin-rule` and
+/// `POST /api/skills/builtin-skill`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadBuiltinResourceRequest {
+    pub file_name: String,
+}
+
+/// Request body for `POST /api/skills/materialize-for-agent`.
+///
+/// Callers pass the resolved skill snapshot (see
+/// `conversation.extra.skills`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterializeSkillsRequest {
+    pub conversation_id: ConversationId,
+    #[serde(default)]
+    pub skills: Vec<String>,
+}
+
+/// One entry in the `MaterializeSkillsResponse::skills` list.
+///
+/// Each entry tells the frontend the absolute on-disk directory of a
+/// resolved skill. The frontend is expected to symlink that directory
+/// into the agent CLI's native skills dir — the backend no longer
+/// copies files per-conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MaterializedSkillRef {
+    pub name: String,
+    /// Absolute path on disk to the skill's source directory. May live
+    /// under `{data_dir}/builtin-skills/` (top-level or `auto-inject/`)
+    /// or `{data_dir}/skills/` (user-created skills).
+    pub source_path: String,
+}
+
+/// Response for `POST /api/skills/materialize-for-agent`.
+///
+/// Returns a list of resolved skill references rather than a copied
+/// directory; the frontend symlinks each `source_path` into the CLI's
+/// native skills dir. Unknown names from the request are silently
+/// omitted from the list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MaterializeSkillsResponse {
+    pub skills: Vec<MaterializedSkillRef>,
+}
+
+// ---------------------------------------------------------------------------
+// E. External path management
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/skills/external-paths`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddExternalPathRequest {
+    pub name: String,
+    pub path: String,
+}
+
+/// Request body for `DELETE /api/skills/external-paths`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveExternalPathRequest {
+    pub path: String,
+}
+
+// ---------------------------------------------------------------------------
+// F. Skill market ranking
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/skills/market/rankings/sync`.
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillMarketSyncRequest {
+    /// Optional source allow-list. Empty means all supported sources.
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// Single entry scraped from a skill market ranking.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillMarketItemResponse {
+    /// Stable source-local id, e.g. `clawhub:owner/skill`.
+    pub id: String,
+    /// Source slug, e.g. `clawhub`, `loophub`, `skillhub_mcp`, or `mcpworld`.
+    pub source: String,
+    pub rank: usize,
+    pub name: String,
+    pub description: String,
+    pub url: String,
+    /// Command shown to the user/GeekClaw. The backend only returns text; it never executes it.
+    pub install_command: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audience_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenario_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<String>,
+}
+
+/// Response for `POST /api/skills/market/rankings/sync`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillMarketSyncResponse {
+    pub fetched_at: i64,
+    pub items: Vec<SkillMarketItemResponse>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
+/// Request body for resolving a market MCP entry into importable MCP JSON.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillMarketMcpConfigRequest {
+    pub source: String,
+    pub id: String,
+    pub url: String,
+}
+
+/// Response for a resolved market MCP config.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillMarketMcpConfigResponse {
+    pub config_json: serde_json::Value,
+}
+
+/// Request body for resolving a SkillHub expert package entry.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillMarketPackageRequest {
+    pub source: String,
+    pub id: String,
+    pub url: String,
+}
+
+/// Response for a resolved expert package that can be imported as a user preset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillMarketPackageResponse {
+    pub name: String,
+    pub description: String,
+    pub instructions: String,
+    #[serde(default)]
+    pub skill_slugs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+}
+
+/// One failed child skill install while importing a SkillHub expert package.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillMarketPackageInstallError {
+    pub skill_slug: String,
+    pub error: String,
+}
+
+/// Response for installing the skills behind a SkillHub expert package.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillMarketPackageInstallResponse {
+    pub package: SkillMarketPackageResponse,
+    #[serde(default)]
+    pub installed_skill_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<SkillMarketPackageInstallError>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // -- Skill list --
+
+    #[test]
+    fn test_skill_list_item_serde() {
+        let item = SkillListItemResponse {
+            name: "my-skill".into(),
+            description: "Does things".into(),
+            name_i18n: HashMap::new(),
+            description_i18n: HashMap::new(),
+            location: "/home/user/.geekclaw/skills/my-skill".into(),
+            relative_location: None,
+            is_custom: true,
+            source: SkillSourceResponse::Custom,
+            audience_tags: vec![],
+            scenario_tags: vec![],
+        };
+        let json = serde_json::to_value(&item).unwrap();
+        assert_eq!(json["name"], "my-skill");
+        // Project-wide wire contract: field names are snake_case.
+        assert_eq!(json["is_custom"], true);
+        assert!(json.get("isCustom").is_none());
+        assert_eq!(json["source"], "custom");
+        // Absent for custom source — Option<String>::None is skipped.
+        assert!(json.get("relative_location").is_none());
+        assert!(json.get("relativeLocation").is_none());
+    }
+
+    #[test]
+    fn test_skill_list_item_builtin_with_relative_location() {
+        let item = SkillListItemResponse {
+            name: "cron".into(),
+            description: "Schedule recurring tasks".into(),
+            name_i18n: HashMap::new(),
+            description_i18n: HashMap::new(),
+            location: "/home/user/.geekclaw/builtin-skills-view/cron/SKILL.md".into(),
+            relative_location: Some("auto-inject/cron/SKILL.md".into()),
+            is_custom: false,
+            source: SkillSourceResponse::Builtin,
+            audience_tags: vec![],
+            scenario_tags: vec![],
+        };
+        let json = serde_json::to_value(&item).unwrap();
+        // Project-wide wire contract: relative_location stays snake_case.
+        assert_eq!(json["relative_location"], "auto-inject/cron/SKILL.md");
+        assert!(json.get("relativeLocation").is_none());
+        assert_eq!(json["source"], "builtin");
+    }
+
+    #[test]
+    fn test_skill_list_item_deserializes_snake_case() {
+        // Frontend wire format → backend deserialization round-trip.
+        let raw = json!({
+            "name": "cron",
+            "description": "Schedule",
+            "location": "/tmp/view/cron/SKILL.md",
+            "relative_location": "auto-inject/cron/SKILL.md",
+            "is_custom": false,
+            "source": "builtin",
+        });
+        let item: SkillListItemResponse = serde_json::from_value(raw).unwrap();
+        assert_eq!(item.name, "cron");
+        assert!(!item.is_custom);
+        assert_eq!(item.relative_location.as_deref(), Some("auto-inject/cron/SKILL.md"));
+    }
+
+    #[test]
+    fn test_skill_tags_default_and_skip_empty() {
+        let item = SkillListItemResponse {
+            name: "x".into(),
+            description: "d".into(),
+            name_i18n: HashMap::new(),
+            description_i18n: HashMap::new(),
+            location: "/l".into(),
+            relative_location: None,
+            is_custom: true,
+            source: SkillSourceResponse::Custom,
+            audience_tags: vec![],
+            scenario_tags: vec!["document".into()],
+        };
+        let j = serde_json::to_value(&item).unwrap();
+        assert!(j.get("audience_tags").is_none()); // empty skipped
+        assert_eq!(j["scenario_tags"], serde_json::json!(["document"]));
+    }
+
+    #[test]
+    fn test_materialize_request_roundtrip() {
+        let conversation_id = "0190f5fe-7c00-7a00-8abc-012345678901";
+        let raw = json!({
+            "conversation_id": conversation_id,
+            "skills": ["planning-with-files", "pdf"],
+        });
+        let req: MaterializeSkillsRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.conversation_id.as_str(), conversation_id);
+        assert_eq!(req.skills, vec!["planning-with-files", "pdf"]);
+    }
+
+    #[test]
+    fn test_materialize_request_rejects_unknown_retired_field() {
+        let raw = json!({
+            "conversation_id": "0190f5fe-7c00-7a00-8abc-012345678901",
+            "enabled_skills": ["pdf"],
+        });
+        assert!(serde_json::from_value::<MaterializeSkillsRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn test_materialize_request_rejects_numeric_conversation_id() {
+        let raw = json!({
+            "conversation_id": 42,
+            "skills": [],
+        });
+        assert!(serde_json::from_value::<MaterializeSkillsRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn test_materialize_request_default_enabled() {
+        let raw = json!({"conversation_id": "0190f5fe-7c00-7a00-8abc-012345678901"});
+        let req: MaterializeSkillsRequest = serde_json::from_value(raw).unwrap();
+        assert!(req.skills.is_empty());
+    }
+
+    #[test]
+    fn test_materialize_response_serializes_snake() {
+        let resp = MaterializeSkillsResponse {
+            skills: vec![
+                MaterializedSkillRef {
+                    name: "cron".into(),
+                    source_path: "/tmp/builtin-skills/auto-inject/cron".into(),
+                },
+                MaterializedSkillRef {
+                    name: "planning-with-files".into(),
+                    source_path: "/tmp/builtin-skills/planning-with-files".into(),
+                },
+            ],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        let skills = json["skills"].as_array().unwrap();
+        assert_eq!(skills.len(), 2);
+        // Project-wide wire contract: snake_case fields on the wire.
+        assert_eq!(skills[0]["name"], "cron");
+        assert_eq!(skills[0]["source_path"], "/tmp/builtin-skills/auto-inject/cron");
+        assert!(skills[0].get("sourcePath").is_none());
+    }
+
+    #[test]
+    fn test_materialize_response_roundtrip() {
+        let raw = json!({
+            "skills": [
+                {"name": "cron", "source_path": "/tmp/builtin-skills/auto-inject/cron"}
+            ]
+        });
+        let resp: MaterializeSkillsResponse = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(resp.skills.len(), 1);
+        assert_eq!(resp.skills[0].name, "cron");
+        assert_eq!(resp.skills[0].source_path, "/tmp/builtin-skills/auto-inject/cron");
+        assert_eq!(serde_json::to_value(&resp).unwrap(), raw);
+    }
+
+    #[test]
+    fn test_skill_source_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_value(SkillSourceResponse::Builtin).unwrap(),
+            serde_json::json!("builtin")
+        );
+        assert_eq!(
+            serde_json::to_value(SkillSourceResponse::Custom).unwrap(),
+            serde_json::json!("custom")
+        );
+        assert_eq!(
+            serde_json::to_value(SkillSourceResponse::Extension).unwrap(),
+            serde_json::json!("extension")
+        );
+    }
+
+    #[test]
+    fn test_read_skill_info_request() {
+        // Project-wide wire contract: skill_path on the wire.
+        let raw = json!({"skill_path": "/path/to/skill"});
+        let req: ReadSkillInfoRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.skill_path, "/path/to/skill");
+        // Legacy camelCase must now fail.
+        let legacy = json!({"skillPath": "/path/to/skill"});
+        assert!(serde_json::from_value::<ReadSkillInfoRequest>(legacy).is_err());
+    }
+
+    #[test]
+    fn test_read_skill_info_response() {
+        let resp = ReadSkillInfoResponse {
+            name: "test".into(),
+            description: "A test skill".into(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["name"], "test");
+        assert_eq!(json["description"], "A test skill");
+    }
+
+    // -- Import / Export --
+
+    #[test]
+    fn test_import_skill_request() {
+        let raw = json!({"skill_path": "/external/skill"});
+        let req: ImportSkillRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.skill_path, "/external/skill");
+    }
+
+    #[test]
+    fn test_import_skill_response() {
+        let resp = ImportSkillResponse {
+            skill_name: "imported-skill".into(),
+            skill_names: vec!["imported-skill".into(), "second-skill".into()],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["skill_name"], "imported-skill");
+        assert_eq!(json["skill_names"], json!(["imported-skill", "second-skill"]));
+        assert!(json.get("skillName").is_none());
+    }
+
+    #[test]
+    fn test_export_skill_request() {
+        let raw = json!({"skill_path": "/user/skill", "target_dir": "/external/dir"});
+        let req: ExportSkillRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.skill_path, "/user/skill");
+        assert_eq!(req.target_dir, "/external/dir");
+    }
+
+    // -- Scanning --
+
+    #[test]
+    fn test_scan_for_skills_request() {
+        let raw = json!({"folder_path": "/some/dir"});
+        let req: ScanForSkillsRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.folder_path, "/some/dir");
+    }
+
+    #[test]
+    fn test_scanned_skill_response() {
+        let skill = ScannedSkillResponse {
+            name: "found-skill".into(),
+            description: "Found during scan".into(),
+            path: "/dir/found-skill".into(),
+        };
+        let json = serde_json::to_value(&skill).unwrap();
+        assert_eq!(json["name"], "found-skill");
+        assert_eq!(json["path"], "/dir/found-skill");
+    }
+
+    #[test]
+    fn test_external_skill_source_response() {
+        let source = ExternalSkillSourceResponse {
+            name: "Claude Skills".into(),
+            path: "/home/user/.claude/skills".into(),
+            source: "claude".into(),
+            skill_count: 2,
+            skills: vec![
+                ScannedSkillResponse {
+                    name: "s1".into(),
+                    description: "d1".into(),
+                    path: "/p1".into(),
+                },
+                ScannedSkillResponse {
+                    name: "s2".into(),
+                    description: "d2".into(),
+                    path: "/p2".into(),
+                },
+            ],
+        };
+        let json = serde_json::to_value(&source).unwrap();
+        // Project-wide wire contract: skill_count stays snake_case.
+        assert_eq!(json["skill_count"], 2);
+        assert!(json.get("skillCount").is_none());
+        assert_eq!(json["skills"].as_array().unwrap().len(), 2);
+        assert_eq!(json["source"], "claude");
+    }
+
+    #[test]
+    fn test_external_skill_source_response_custom_source() {
+        let source = ExternalSkillSourceResponse {
+            name: "My Extras".into(),
+            path: "/opt/extras".into(),
+            source: "custom-/opt/extras".into(),
+            skill_count: 0,
+            skills: vec![],
+        };
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["source"], "custom-/opt/extras");
+        assert_eq!(json["name"], "My Extras");
+    }
+
+    #[test]
+    fn test_external_skill_source_response_roundtrip() {
+        let raw = json!({
+            "name": "Gemini Skills",
+            "path": "/home/user/.gemini/skills",
+            "source": "gemini",
+            "skill_count": 0,
+            "skills": []
+        });
+        let parsed: ExternalSkillSourceResponse = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(parsed.source, "gemini");
+        assert_eq!(parsed.name, "Gemini Skills");
+        assert_eq!(parsed.skill_count, 0);
+        let round = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(round, raw);
+    }
+
+    #[test]
+    fn test_named_path_response() {
+        let path = NamedPathResponse {
+            name: "Claude Config".into(),
+            path: "/home/user/.claude".into(),
+        };
+        let json = serde_json::to_value(&path).unwrap();
+        assert_eq!(json["name"], "Claude Config");
+        assert_eq!(json["path"], "/home/user/.claude");
+    }
+
+    #[test]
+    fn test_skill_paths_response() {
+        let resp = SkillPathsResponse {
+            user_skills_dir: "/home/user/.geekclaw/skills".into(),
+            builtin_skills_dir: "/app/resources/skills".into(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        // Project-wide wire contract: snake_case fields on the wire.
+        assert_eq!(json["user_skills_dir"], "/home/user/.geekclaw/skills");
+        assert_eq!(json["builtin_skills_dir"], "/app/resources/skills");
+        assert!(json.get("userSkillsDir").is_none());
+        assert!(json.get("builtinSkillsDir").is_none());
+    }
+
+    // -- Preset rules --
+
+    const PRESET_ID: &str = "0190f5fe-7c00-7a00-8000-000000000001";
+
+    #[test]
+    fn test_read_preset_rule_request_with_locale() {
+        let raw = json!({"preset_id": PRESET_ID, "locale": "zh-CN"});
+        let req: ReadPresetRuleRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.preset_id, PRESET_ID);
+        assert_eq!(req.locale.as_deref(), Some("zh-CN"));
+    }
+
+    #[test]
+    fn test_read_preset_rule_request_without_locale() {
+        let raw = json!({"preset_id": PRESET_ID});
+        let req: ReadPresetRuleRequest = serde_json::from_value(raw).unwrap();
+        assert!(req.locale.is_none());
+    }
+
+    #[test]
+    fn test_write_preset_rule_request() {
+        let raw = json!({
+            "preset_id": PRESET_ID,
+            "content": "# Rules\nBe helpful.",
+            "locale": "en-US"
+        });
+        let req: WritePresetRuleRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.preset_id, PRESET_ID);
+        assert_eq!(req.content, "# Rules\nBe helpful.");
+        assert_eq!(req.locale.as_deref(), Some("en-US"));
+    }
+
+    #[test]
+    fn preset_rule_request_rejects_prefixed_uuidv7_entity_value() {
+        let raw = json!({
+            "preset_id": "preset_0190f5fe-7c00-7a00-8abc-012345678901"
+        });
+        assert!(serde_json::from_value::<ReadPresetRuleRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn preset_rule_request_rejects_catalog_natural_key() {
+        assert!(
+            serde_json::from_value::<ReadPresetRuleRequest>(json!({
+                "preset_id": "builtin-office"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_read_builtin_resource_request() {
+        // Project-wide wire contract: the frontend sends `file_name`.
+        let raw = json!({"file_name": "code-review.md"});
+        let req: ReadBuiltinResourceRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.file_name, "code-review.md");
+
+        // Legacy camelCase now fails — matches project-wide wire contract.
+        let legacy = json!({"fileName": "code-review.md"});
+        assert!(serde_json::from_value::<ReadBuiltinResourceRequest>(legacy).is_err());
+    }
+
+    // -- External paths --
+
+    #[test]
+    fn test_add_external_path_request() {
+        let raw = json!({"name": "My Skills", "path": "/path/to/skills"});
+        let req: AddExternalPathRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.name, "My Skills");
+        assert_eq!(req.path, "/path/to/skills");
+    }
+
+    #[test]
+    fn test_remove_external_path_request() {
+        let raw = json!({"path": "/path/to/skills"});
+        let req: RemoveExternalPathRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.path, "/path/to/skills");
+    }
+
+    #[test]
+    fn test_skill_market_sync_request_defaults_sources() {
+        let req: SkillMarketSyncRequest = serde_json::from_value(json!({})).unwrap();
+        assert!(req.sources.is_empty());
+    }
+
+    #[test]
+    fn test_skill_market_response_serializes_snake_case() {
+        let resp = SkillMarketSyncResponse {
+            fetched_at: 123,
+            items: vec![SkillMarketItemResponse {
+                id: "clawhub:owner/demo".into(),
+                source: "clawhub".into(),
+                rank: 1,
+                name: "demo".into(),
+                description: "Demo skill".into(),
+                url: "https://clawhub.ai/owner/skills/demo".into(),
+                install_command: "openclaw skills install @owner/demo".into(),
+                tags: vec!["coding".into()],
+                audience_tags: vec!["developer".into()],
+                scenario_tags: vec!["coding".into()],
+                stats: Some("1.2k installs".into()),
+            }],
+            errors: vec![],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["fetched_at"], 123);
+        assert!(json.get("fetchedAt").is_none());
+        assert_eq!(json["items"][0]["install_command"], "openclaw skills install @owner/demo");
+        assert!(json["items"][0].get("installCommand").is_none());
+        assert!(json.get("errors").is_none());
+    }
+
+    #[test]
+    fn test_skill_market_mcp_config_response_serializes_snake_case() {
+        let req = SkillMarketMcpConfigRequest {
+            source: "mcpworld".into(),
+            id: "mcpworld:c7897f8abf0350fbbf5a7fccc3e79bb8".into(),
+            url: "https://www.mcpworld.com/zh/detail/c7897f8abf0350fbbf5a7fccc3e79bb8".into(),
+        };
+        let req_json = serde_json::to_value(&req).unwrap();
+        assert_eq!(req_json["source"], "mcpworld");
+        assert!(req_json.get("sourceUrl").is_none());
+
+        let resp = SkillMarketMcpConfigResponse {
+            config_json: json!({
+                "mcpServers": {
+                    "playwright": {
+                        "command": "npx",
+                        "args": ["@playwright/mcp@latest"]
+                    }
+                }
+            }),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json["config_json"].get("mcpServers").is_some());
+        assert!(json.get("configJson").is_none());
+    }
+
+    #[test]
+    fn test_skill_market_package_install_response_serializes_snake_case() {
+        let resp = SkillMarketPackageInstallResponse {
+            package: SkillMarketPackageResponse {
+                name: "Test Automation".into(),
+                description: "Testing workflow package".into(),
+                instructions: "# Test Automation".into(),
+                skill_slugs: vec!["superpowers-tdd".into()],
+                avatar: None,
+            },
+            installed_skill_names: vec!["superpowers-tdd".into(), "test-case-generator".into()],
+            errors: vec![SkillMarketPackageInstallError {
+                skill_slug: "missing-skill".into(),
+                error: "download failed".into(),
+            }],
+        };
+
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(
+            json["installed_skill_names"],
+            serde_json::json!(["superpowers-tdd", "test-case-generator"])
+        );
+        assert!(json.get("installedSkillNames").is_none());
+        assert_eq!(json["errors"][0]["skill_slug"], "missing-skill");
+    }
+}

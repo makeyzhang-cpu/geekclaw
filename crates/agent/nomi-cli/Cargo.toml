@@ -1,0 +1,28 @@
+[package]
+name = "geekclaw-cli"
+description = "CLI binary for GeekClaw — a multi-provider AI agent with tool execution and delegation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["ai", "agent", "cli", "llm", "anthropic"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "geekclaw"
+path = "src/main.rs"
+
+[dependencies]
+geekclaw-agent = { workspace = true, features = ["computer-use"] }
+geekclaw-compact.workspace  = true
+geekclaw-config.workspace   = true
+geekclaw-mcp.workspace      = true
+geekclaw-protocol.workspace = true
+geekclaw-skills.workspace   = true
+geekclaw-process-runtime.workspace = true
+
+tokio.workspace              = true
+anyhow.workspace             = true
+clap.workspace               = true
+tracing.workspace            = true
+tracing-subscriber.workspace = true

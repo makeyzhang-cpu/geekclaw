@@ -1,0 +1,35 @@
+[package]
+name = "nomifun-companion"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nomifun-common.workspace = true
+geekclaw-redact.workspace = true
+geekclaw-memory.workspace = true
+nomifun-db.workspace = true
+nomifun-api-types.workspace = true
+nomifun-realtime.workspace = true
+nomifun-ai-agent.workspace = true
+nomifun-extension.workspace = true
+nomifun-auth.workspace = true
+nomifun-conversation.workspace = true
+nomifun-preset.workspace = true
+nomifun-knowledge.workspace = true
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+zip.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true

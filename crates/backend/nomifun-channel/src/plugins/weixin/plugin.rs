@@ -1,0 +1,777 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use dashmap::DashMap;
+use reqwest::Client;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
+
+use crate::constants::{WEIXIN_MAX_RETRIES, WEIXIN_POLL_TIMEOUT, WEIXIN_RETRY_DELAY};
+use crate::error::ChannelError;
+use crate::plugin::{ChannelPlugin, PluginCallbacks, SharedPluginStatus, mark_error_on_unexpected_exit};
+use crate::types::{
+    BotInfo, MessageContentType, PluginConfig, PluginStatus, PluginType, UnifiedIncomingMessage, UnifiedMessageContent,
+    UnifiedOutgoingMessage, UnifiedUser,
+};
+
+use super::api::WeixinApi;
+use super::types::{ITEM_TYPE_TEXT, ITEM_TYPE_VOICE, MESSAGE_TYPE_USER, WeixinRawItem, WeixinRawMessage};
+
+/// Default base URL for the iLink Bot API.
+const DEFAULT_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
+
+/// WeChat (iLink Bot) platform plugin.
+///
+/// Connects via long-polling (buffer-based `getupdates`), handles text/voice
+/// messages. Does not support editing messages (WeChat limitation);
+/// `edit_message` sends a new reply instead.
+pub struct WeixinPlugin {
+    status: SharedPluginStatus,
+    bot_info: Option<BotInfo>,
+    last_error: Option<String>,
+    api: Option<Arc<WeixinApi>>,
+    callbacks: Option<PluginCallbacks>,
+    poll_handle: Option<JoinHandle<()>>,
+    shutdown_tx: Option<watch::Sender<bool>>,
+    context_tokens: Arc<DashMap<String, String>>,
+}
+
+impl Default for WeixinPlugin {
+    fn default() -> Self {
+        Self {
+            status: SharedPluginStatus::new(PluginStatus::Created),
+            bot_info: None,
+            last_error: None,
+            api: None,
+            callbacks: None,
+            poll_handle: None,
+            shutdown_tx: None,
+            context_tokens: Arc::new(DashMap::new()),
+        }
+    }
+}
+
+impl WeixinPlugin {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait::async_trait]
+impl ChannelPlugin for WeixinPlugin {
+    async fn initialize(&mut self, config: PluginConfig, callbacks: PluginCallbacks) -> Result<(), ChannelError> {
+        self.status.set(PluginStatus::Initializing);
+
+        let bot_token = config
+            .credentials
+            .bot_token
+            .as_deref()
+            .filter(|t| !t.is_empty())
+            .ok_or_else(|| {
+                self.status.set(PluginStatus::Error);
+                self.last_error = Some("Missing WeChat bot_token".into());
+                ChannelError::InvalidConfig("Missing WeChat bot_token".into())
+            })?;
+
+        let account_id = config
+            .credentials
+            .account_id
+            .as_deref()
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| {
+                self.status.set(PluginStatus::Error);
+                self.last_error = Some("Missing WeChat account_id".into());
+                ChannelError::InvalidConfig("Missing WeChat account_id".into())
+            })?;
+
+        let base_url = config
+            .credentials
+            .extra
+            .get("baseUrl")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_BASE_URL);
+
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(WEIXIN_POLL_TIMEOUT.as_secs() + 10))
+            .build()
+            .map_err(|e| {
+                self.status.set(PluginStatus::Error);
+                self.last_error = Some(format!("HTTP client init failed: {e}"));
+                ChannelError::ConnectionFailed(format!("HTTP client init failed: {e}"))
+            })?;
+
+        let api = Arc::new(WeixinApi::new(http_client, base_url, bot_token));
+
+        self.bot_info = Some(BotInfo {
+            id: account_id.to_string(),
+            username: None,
+            display_name: format!("WeChat Bot ({account_id})"),
+        });
+
+        info!(account_id, "WeChat bot initialized");
+
+        self.api = Some(api);
+        self.callbacks = Some(callbacks);
+        self.status.set(PluginStatus::Ready);
+        Ok(())
+    }
+
+    async fn start(&mut self) -> Result<(), ChannelError> {
+        self.status.set(PluginStatus::Starting);
+
+        let api = Arc::clone(
+            self.api
+                .as_ref()
+                .ok_or_else(|| ChannelError::PlatformApi("Plugin not initialized".into()))?,
+        );
+        let callbacks = self
+            .callbacks
+            .take()
+            .ok_or_else(|| ChannelError::PlatformApi("Plugin callbacks not initialized".into()))?;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        self.shutdown_tx = Some(shutdown_tx);
+
+        let context_tokens = Arc::clone(&self.context_tokens);
+        let status = self.status.clone();
+        // Publish Running before the task becomes schedulable. Otherwise a
+        // fast unexpected exit could mark Error and then be overwritten by
+        // this facade after `spawn`, leaving a dead channel looking healthy.
+        self.status.set(PluginStatus::Running);
+        self.poll_handle = Some(tokio::spawn(poll_loop(
+            api,
+            callbacks.message_tx,
+            shutdown_rx,
+            context_tokens,
+            status,
+        )));
+
+        info!("WeChat plugin started");
+        Ok(())
+    }
+
+    async fn stop(&mut self) -> Result<(), ChannelError> {
+        self.status.set(PluginStatus::Stopping);
+
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(true);
+        }
+
+        if let Some(mut handle) = self.poll_handle.take()
+            && tokio::time::timeout(Duration::from_secs(5), &mut handle)
+                .await
+                .is_err()
+        {
+            warn!("WeChat poll loop did not stop within 5s; aborting task");
+            handle.abort();
+            let _ = handle.await;
+        }
+
+        self.api = None;
+        self.context_tokens.clear();
+        self.status.set(PluginStatus::Stopped);
+        info!("WeChat plugin stopped");
+        Ok(())
+    }
+
+    async fn send_message(&self, chat_id: &str, message: UnifiedOutgoingMessage) -> Result<String, ChannelError> {
+        let api = self
+            .api
+            .as_ref()
+            .ok_or_else(|| ChannelError::PlatformApi("Plugin not initialized".into()))?;
+
+        let text = message.text.as_deref().unwrap_or("").to_string();
+        let context_token = self.context_tokens.get(chat_id).map(|v| v.clone());
+
+        api.send_message(chat_id, &text, context_token.as_deref()).await?;
+        Ok(String::new())
+    }
+
+    /// WeChat does not support editing messages.
+    async fn edit_message(
+        &self,
+        chat_id: &str,
+        _message_id: &str,
+        message: UnifiedOutgoingMessage,
+    ) -> Result<(), ChannelError> {
+        let _ = self.send_message(chat_id, message).await?;
+        Ok(())
+    }
+
+    async fn send_media(
+        &self,
+        chat_id: &str,
+        media: crate::types::OutgoingMedia,
+        _caption: Option<&str>,
+    ) -> Result<String, ChannelError> {
+        use crate::types::MediaKind;
+        let api = self
+            .api
+            .as_ref()
+            .ok_or_else(|| ChannelError::PlatformApi("Plugin not initialized".into()))?;
+        // context_token (from the inbound turn) routes the reply to the right
+        // conversation — same requirement as text sends.
+        let context_token = self.context_tokens.get(chat_id).map(|v| v.clone());
+        let is_image = matches!(media.kind, MediaKind::Image);
+        api.send_media(chat_id, media.bytes, &media.filename, is_image, context_token.as_deref())
+            .await?;
+        Ok(String::new())
+    }
+
+    fn active_user_count(&self) -> usize {
+        0
+    }
+
+    fn bot_info(&self) -> Option<&BotInfo> {
+        self.bot_info.as_ref()
+    }
+
+    fn plugin_type(&self) -> PluginType {
+        PluginType::Weixin
+    }
+
+    fn status(&self) -> PluginStatus {
+        self.status.get()
+    }
+
+    fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Long-polling loop (buffer-based protocol)
+// ---------------------------------------------------------------------------
+
+async fn poll_loop(
+    api: Arc<WeixinApi>,
+    message_tx: tokio::sync::mpsc::Sender<UnifiedIncomingMessage>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    context_tokens: Arc<DashMap<String, String>>,
+    status: SharedPluginStatus,
+) {
+    let mut buf = String::new();
+    let mut consecutive_failures: u32 = 0;
+    let mut long_poll_timeout = WEIXIN_POLL_TIMEOUT;
+
+    'poll: loop {
+        if *shutdown_rx.borrow() {
+            debug!("WeChat poll loop received shutdown signal");
+            break;
+        }
+
+        match api.get_updates(&buf, long_poll_timeout).await {
+            Ok(resp) => {
+                let is_api_error = resp.ret.unwrap_or(0) != 0 || resp.errcode.unwrap_or(0) != 0;
+
+                if is_api_error {
+                    consecutive_failures += 1;
+                    warn!(
+                        ret = resp.ret,
+                        errcode = resp.errcode,
+                        errmsg = resp.errmsg.as_deref().unwrap_or_default(),
+                        consecutive_failures,
+                        "WeChat getupdates API error"
+                    );
+
+                    if consecutive_failures >= WEIXIN_MAX_RETRIES {
+                        warn!("WeChat getupdates API retry budget exhausted");
+                        break;
+                    }
+
+                    tokio::select! {
+                        _ = tokio::time::sleep(WEIXIN_RETRY_DELAY) => {}
+                        _ = shutdown_rx.changed() => {
+                            debug!("WeChat poll loop shutdown during retry");
+                            break;
+                        }
+                    }
+                    continue;
+                }
+
+                consecutive_failures = 0;
+
+                if let Some(suggested_ms) = resp.longpolling_timeout_ms {
+                    // Bound provider input so a malformed response cannot make
+                    // stop/recovery wait indefinitely or spin the poll loop.
+                    long_poll_timeout = Duration::from_millis(suggested_ms.clamp(5_000, 120_000));
+                }
+
+                if let Some(new_buf) = resp.get_updates_buf {
+                    buf = new_buf;
+                }
+
+                for msg in resp.msgs.unwrap_or_default() {
+                    if let Err(error) = handle_message(&msg, &message_tx, &context_tokens).await {
+                        warn!(error = %error, "WeChat inbound channel unavailable; stopping poll loop");
+                        break 'poll;
+                    }
+                }
+            }
+            Err(e) => {
+                consecutive_failures += 1;
+                warn!(error = %e, consecutive_failures, "WeChat poll error");
+
+                if consecutive_failures >= WEIXIN_MAX_RETRIES {
+                    warn!("WeChat poll retry budget exhausted");
+                    break;
+                }
+
+                tokio::select! {
+                    _ = tokio::time::sleep(WEIXIN_RETRY_DELAY) => {}
+                    _ = shutdown_rx.changed() => {
+                        debug!("WeChat poll loop shutdown during retry");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    mark_error_on_unexpected_exit(&status, &shutdown_rx, "weixin");
+    debug!("WeChat poll loop exited");
+}
+
+// ---------------------------------------------------------------------------
+// Message handling
+// ---------------------------------------------------------------------------
+
+async fn handle_message(
+    msg: &WeixinRawMessage,
+    message_tx: &tokio::sync::mpsc::Sender<UnifiedIncomingMessage>,
+    context_tokens: &DashMap<String, String>,
+) -> Result<(), ChannelError> {
+    // getUpdates may include completed bot messages. Only user-originated
+    // events may enter pairing/agent routing; absent type remains accepted for
+    // backwards-compatible gateways.
+    if msg.message_type.is_some_and(|kind| kind != MESSAGE_TYPE_USER) {
+        return Ok(());
+    }
+
+    let from_user_id = match &msg.from_user_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return Ok(()),
+    };
+
+    let Some(stable_event_id) = msg.stable_event_id() else {
+        warn!(
+            from_user_id = %from_user_id,
+            "WeChat inbound message missing stable message_id/seq; dropping event"
+        );
+        return Ok(());
+    };
+
+    // Store context_token for reply use
+    if let Some(ctx) = &msg.context_token
+        && !ctx.is_empty()
+    {
+        context_tokens.insert(from_user_id.clone(), ctx.clone());
+    }
+
+    let items = msg.item_list.as_deref().unwrap_or_default();
+    let (content_type, mut text, has_media) = extract_content(items);
+
+    if text.is_empty() && has_media {
+        // Media download/decryption is handled separately, but a media-only
+        // first contact must still reach authorization/pairing instead of
+        // disappearing silently.
+        text = "[WeChat media message]".to_owned();
+    } else if text.is_empty() {
+        return Ok(());
+    }
+
+    // Never slice an untrusted provider ID at an arbitrary UTF-8 byte
+    // boundary. iLink IDs are normally ASCII, but malformed input must not
+    // crash the receive loop and take the entire channel offline.
+    let display_name: String = from_user_id
+        .chars()
+        .rev()
+        .take(6)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+
+    let unified = UnifiedIncomingMessage {
+        id: stable_event_id,
+        platform: PluginType::Weixin,
+        chat_id: from_user_id.clone(),
+        user: UnifiedUser {
+            id: from_user_id,
+            username: None,
+            display_name,
+            avatar_url: None,
+        },
+        content: UnifiedMessageContent {
+            content_type,
+            text,
+            attachments: None,
+        },
+        timestamp: provider_timestamp_seconds(msg.create_time_ms).unwrap_or_else(chrono_now),
+        reply_to_message_id: None,
+        action: None,
+        raw: None,
+    };
+
+    message_tx.send(unified).await.map_err(|error| {
+        ChannelError::ConnectionFailed(format!(
+            "WeChat inbound channel closed; message could not be forwarded: {error}"
+        ))
+    })
+}
+
+/// Extract text content from item_list.
+///
+/// Returns (content_type, combined_text, has_media_items).
+fn extract_content(items: &[WeixinRawItem]) -> (MessageContentType, String, bool) {
+    let mut text_parts: Vec<&str> = Vec::new();
+    let mut has_media = false;
+
+    for item in items {
+        match item.item_type {
+            Some(ITEM_TYPE_TEXT) => {
+                if let Some(ref ti) = item.text_item
+                    && let Some(ref t) = ti.text
+                {
+                    let trimmed = t.trim();
+                    if !trimmed.is_empty() {
+                        text_parts.push(trimmed);
+                    }
+                }
+            }
+            Some(ITEM_TYPE_VOICE) => {
+                has_media = true;
+                if let Some(ref vi) = item.voice_item
+                    && let Some(ref t) = vi.text
+                {
+                    let trimmed = t.trim();
+                    if !trimmed.is_empty() {
+                        text_parts.push(trimmed);
+                    }
+                }
+            }
+            Some(2) | Some(4) => {
+                has_media = true;
+            }
+            _ => {}
+        }
+    }
+
+    let text = text_parts.join("\n\n");
+
+    let content_type = if text.starts_with('/') {
+        MessageContentType::Command
+    } else {
+        MessageContentType::Text
+    };
+
+    (content_type, text, has_media)
+}
+
+fn chrono_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn provider_timestamp_seconds(create_time_ms: Option<i64>) -> Option<i64> {
+    create_time_ms.filter(|value| *value > 0).map(|value| value / 1_000)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PluginCredentials;
+
+    // -- extract_content -------------------------------------------------------
+
+    #[test]
+    fn extract_text_only() {
+        let items = vec![make_text_item("Hello world")];
+        let (ct, text, has_media) = extract_content(&items);
+        assert_eq!(ct, MessageContentType::Text);
+        assert_eq!(text, "Hello world");
+        assert!(!has_media);
+    }
+
+    #[test]
+    fn extract_command() {
+        let items = vec![make_text_item("/start")];
+        let (ct, text, _) = extract_content(&items);
+        assert_eq!(ct, MessageContentType::Command);
+        assert_eq!(text, "/start");
+    }
+
+    #[test]
+    fn extract_voice_text() {
+        let items = vec![WeixinRawItem {
+            item_type: Some(ITEM_TYPE_VOICE),
+            voice_item: Some(super::super::types::VoiceItem {
+                text: Some("transcribed text".into()),
+            }),
+            ..Default::default()
+        }];
+        let (ct, text, _) = extract_content(&items);
+        assert_eq!(ct, MessageContentType::Text);
+        assert_eq!(text, "transcribed text");
+    }
+
+    #[test]
+    fn extract_mixed_text_and_voice() {
+        let items = vec![
+            make_text_item("Hello"),
+            WeixinRawItem {
+                item_type: Some(ITEM_TYPE_VOICE),
+                voice_item: Some(super::super::types::VoiceItem {
+                    text: Some("voice part".into()),
+                }),
+                ..Default::default()
+            },
+        ];
+        let (_, text, _) = extract_content(&items);
+        assert_eq!(text, "Hello\n\nvoice part");
+    }
+
+    #[test]
+    fn extract_media_items_detected() {
+        let items = vec![WeixinRawItem {
+            item_type: Some(2),
+            image_item: Some(super::super::types::MediaItemData {
+                media: Some(super::super::types::MediaEncryptInfo {
+                    encrypt_query_param: Some("enc".into()),
+                    aes_key: Some("key".into()),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }];
+        let (_, text, has_media) = extract_content(&items);
+        assert!(text.is_empty());
+        assert!(has_media);
+    }
+
+    #[test]
+    fn extract_empty_items() {
+        let items: Vec<WeixinRawItem> = vec![];
+        let (_, text, has_media) = extract_content(&items);
+        assert!(text.is_empty());
+        assert!(!has_media);
+    }
+
+    // -- WeixinPlugin constructor -----------------------------------------------
+
+    #[test]
+    fn new_plugin_initial_state() {
+        let plugin = WeixinPlugin::new();
+        assert_eq!(plugin.status(), PluginStatus::Created);
+        assert!(plugin.bot_info().is_none());
+        assert!(plugin.last_error().is_none());
+        assert_eq!(plugin.plugin_type(), PluginType::Weixin);
+        assert_eq!(plugin.active_user_count(), 0);
+    }
+
+    // -- initialize validation --------------------------------------------------
+
+    #[tokio::test]
+    async fn initialize_missing_bot_token_fails() {
+        let mut plugin = WeixinPlugin::new();
+        let config = make_config(None, Some("acc_1"));
+        let callbacks = make_callbacks();
+        let result = plugin.initialize(config, callbacks).await;
+        assert!(result.is_err());
+        assert_eq!(plugin.status(), PluginStatus::Error);
+        assert_eq!(plugin.last_error(), Some("Missing WeChat bot_token"));
+    }
+
+    #[tokio::test]
+    async fn initialize_missing_account_id_fails() {
+        let mut plugin = WeixinPlugin::new();
+        let config = make_config(Some("tok_1"), None);
+        let callbacks = make_callbacks();
+        let result = plugin.initialize(config, callbacks).await;
+        assert!(result.is_err());
+        assert_eq!(plugin.status(), PluginStatus::Error);
+        assert_eq!(plugin.last_error(), Some("Missing WeChat account_id"));
+    }
+
+    #[tokio::test]
+    async fn initialize_empty_bot_token_fails() {
+        let mut plugin = WeixinPlugin::new();
+        let config = make_config(Some(""), Some("acc_1"));
+        let callbacks = make_callbacks();
+        let result = plugin.initialize(config, callbacks).await;
+        assert!(result.is_err());
+        assert_eq!(plugin.status(), PluginStatus::Error);
+    }
+
+    #[tokio::test]
+    async fn inbound_official_message_id_reaches_channel_loop() {
+        let (message_tx, mut message_rx) = tokio::sync::mpsc::channel(16);
+        let context_tokens = DashMap::new();
+        let msg: WeixinRawMessage = serde_json::from_str(
+            r#"{
+                "seq": 42,
+                "message_id": 9007199254740993,
+                "from_user_id": "wx_user_1",
+                "context_token": "ctx_1",
+                "message_type": 1,
+                "create_time_ms": 1700000000123,
+                "item_list": [{"type": 1, "text_item": {"text": "hello"}}]
+            }"#,
+        )
+        .unwrap();
+
+        handle_message(&msg, &message_tx, &context_tokens)
+            .await
+            .unwrap();
+
+        let unified = message_rx.try_recv().unwrap();
+        assert_eq!(unified.id, "message:9007199254740993");
+        assert_eq!(unified.chat_id, "wx_user_1");
+        assert_eq!(unified.timestamp, 1_700_000_000);
+        assert_eq!(
+            context_tokens.get("wx_user_1").as_deref().map(String::as_str),
+            Some("ctx_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn inbound_message_without_provider_identity_is_dropped() {
+        let (message_tx, mut message_rx) = tokio::sync::mpsc::channel(16);
+        let context_tokens = DashMap::new();
+        let msg: WeixinRawMessage = serde_json::from_str(
+            r#"{
+                "from_user_id": "wx_user_1",
+                "context_token": "ctx_1",
+                "item_list": [{"type": 1, "text_item": {"text": "hello"}}]
+            }"#,
+        )
+        .unwrap();
+
+        handle_message(&msg, &message_tx, &context_tokens)
+            .await
+            .unwrap();
+
+        assert!(message_rx.try_recv().is_err());
+        assert!(
+            context_tokens.get("wx_user_1").is_none(),
+            "dropped event must not mutate reply context"
+        );
+    }
+
+    #[tokio::test]
+    async fn inbound_bot_echo_is_not_forwarded() {
+        let (message_tx, mut message_rx) = tokio::sync::mpsc::channel(16);
+        let context_tokens = DashMap::new();
+        let msg: WeixinRawMessage = serde_json::from_str(
+            r#"{
+                "message_id": 99,
+                "from_user_id": "wx_bot",
+                "message_type": 2,
+                "item_list": [{"type": 1, "text_item": {"text": "echo"}}]
+            }"#,
+        )
+        .unwrap();
+
+        handle_message(&msg, &message_tx, &context_tokens)
+            .await
+            .unwrap();
+        assert!(message_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn media_only_first_contact_reaches_pairing_pipeline() {
+        let (message_tx, mut message_rx) = tokio::sync::mpsc::channel(16);
+        let context_tokens = DashMap::new();
+        let msg: WeixinRawMessage = serde_json::from_str(
+            r#"{
+                "message_id": 100,
+                "from_user_id": "wx_user_1",
+                "message_type": 1,
+                "item_list": [{"type": 2, "image_item": {"media": {"encrypt_query_param": "encrypted"}}}]
+            }"#,
+        )
+        .unwrap();
+
+        handle_message(&msg, &message_tx, &context_tokens)
+            .await
+            .unwrap();
+        let unified = message_rx.try_recv().unwrap();
+        assert_eq!(unified.content.text, "[WeChat media message]");
+    }
+
+    #[tokio::test]
+    async fn unicode_provider_id_does_not_crash_display_name_derivation() {
+        let (message_tx, mut message_rx) = tokio::sync::mpsc::channel(16);
+        let context_tokens = DashMap::new();
+        let msg: WeixinRawMessage = serde_json::from_str(
+            r#"{
+                "message_id": 101,
+                "from_user_id": "用户标识甲乙丙丁戊己庚",
+                "message_type": 1,
+                "item_list": [{"type": 1, "text_item": {"text": "hello"}}]
+            }"#,
+        )
+        .unwrap();
+
+        handle_message(&msg, &message_tx, &context_tokens)
+            .await
+            .unwrap();
+        let unified = message_rx.try_recv().unwrap();
+        assert_eq!(unified.user.display_name, "乙丙丁戊己庚");
+    }
+
+    #[tokio::test]
+    async fn closed_inbound_channel_is_reported_to_poll_loop() {
+        let (message_tx, message_rx) = tokio::sync::mpsc::channel(1);
+        drop(message_rx);
+        let context_tokens = DashMap::new();
+        let msg: WeixinRawMessage = serde_json::from_str(
+            r#"{
+                "message_id": 102,
+                "from_user_id": "wx_user_1",
+                "message_type": 1,
+                "item_list": [{"type": 1, "text_item": {"text": "hello"}}]
+            }"#,
+        )
+        .unwrap();
+
+        let error = handle_message(&msg, &message_tx, &context_tokens)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("inbound channel closed"));
+    }
+
+    // -- Test helpers -----------------------------------------------------------
+
+    fn make_text_item(text: &str) -> WeixinRawItem {
+        WeixinRawItem {
+            item_type: Some(ITEM_TYPE_TEXT),
+            text_item: Some(super::super::types::TextItem {
+                text: Some(text.into()),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn make_config(bot_token: Option<&str>, account_id: Option<&str>) -> PluginConfig {
+        PluginConfig {
+            credentials: PluginCredentials {
+                account_id: account_id.map(String::from),
+                bot_token: bot_token.map(String::from),
+                ..Default::default()
+            },
+            config: None,
+        }
+    }
+
+    fn make_callbacks() -> PluginCallbacks {
+        let (message_tx, _) = tokio::sync::mpsc::channel(16);
+        PluginCallbacks { message_tx }
+    }
+}
