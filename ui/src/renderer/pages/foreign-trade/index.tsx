@@ -33,7 +33,7 @@ const ForeignTradePage: React.FC = () => {
         title={t('foreignTrade.title', { defaultValue: 'AI外贸工作台' })}
         subtitle={t('foreignTrade.subtitle', {
           defaultValue:
-            'GeekFlow AI 外贸工作台——一站式跨境电商 AI 运营：智能选品、Listing 优化、多平台店铺管理与自动化营销，让外贸生意更高效。',
+            '聚合AI外贸专家团队、AI获客Agent、千人千面的AI邮件触达和AI WhatsApp触达、AI CRM、AI企业智脑、企业数字资产管理为一体，一站式B2B外贸AI工作平台。',
         })}
         maxWidthClass='md:max-w-1600px'
       >
@@ -77,34 +77,6 @@ const ForeignTradePage: React.FC = () => {
                   {t('foreignTrade.openExternal', { defaultValue: '在浏览器中打开' })}
                 </span>
               </div>
-            </button>
-          </div>
-
-          {/* 直达链接 + 浏览器打开 */}
-          <div className='flex flex-col md:flex-row items-start md:items-center justify-between gap-16px border border-[var(--color-border-2)] rounded-12px bg-[var(--color-bg-2)] p-24px'>
-            <div className='flex-1'>
-              <h3 className='text-16px font-600 text-t-primary'>登录入口</h3>
-              <p className='mt-8px text-13px leading-22px text-t-secondary'>
-                点击下方链接或「在浏览器中打开」即可跳转至 GeekFlow 外贸工作台登录页：
-              </p>
-              <a
-                href={FOREIGN_TRADE_URL}
-                onClick={(e) => {
-                  e.preventDefault();
-                  openExternalUrl(FOREIGN_TRADE_URL);
-                }}
-                className='mt-12px inline-flex items-center gap-6px text-13px font-500 text-primary-6 hover:underline cursor-pointer'
-              >
-                <LinkOut theme='outline' size={14} />
-                {FOREIGN_TRADE_URL}
-              </a>
-            </div>
-            <button
-              onClick={() => openExternalUrl(FOREIGN_TRADE_URL)}
-              className='shrink-0 inline-flex items-center gap-6px px-16px py-8px text-13px font-500 text-primary-6 border border-primary-6 rounded-8px hover:bg-primary-1 cursor-pointer transition-colors'
-            >
-              <LinkOut theme='outline' size={14} />
-              {t('foreignTrade.openExternal', { defaultValue: '在浏览器中打开' })}
             </button>
           </div>
         </div>

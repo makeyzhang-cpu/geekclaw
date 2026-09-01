@@ -1,11 +1,11 @@
 {
-  "version": "5.0.12",
-  "notes": "GeekClaw v5.0.12 发布说明\n\n新增：\n- 左侧栏「AI品牌营销」下新增【AI外贸工作台】入口；右侧内容区直达 GeekFlow 外贸工作台（https://geekflow.geekclaw.ai/login），提供「在浏览器中打开」跳转，并可应用内 Webview 内嵌打开登录页。\n\n修复与优化（含 5.0.11 内容）：\n- 套餐与定价页：修正「当前方案」判定逻辑，三张套餐卡不再全部误显示为当前方案（根因在云端 subscription_plans 的 backend_plan 字段，已同步修正）。\n- 会话列表头像统一替换为 GeekClaw 品牌爪印图标，与品牌一致。\n- 移除主菜单「帮助与反馈」入口。\n- 自动更新：切换至 makeyzhang-cpu/geekclaw 仓库作为更新源，并更换 updater 签名密钥。\n\n升级提示：\n- 由于更新签名密钥已更换，已安装 5.0.10 / 5.0.11 的用户需手动安装一次本版本（5.0.12），之后即可在应用内「检查更新」自动升级。",
-  "pub_date": "2026-09-01T14:24:34.225Z",
+  "version": "5.0.13",
+  "notes": "GeekClaw v5.0.13 发布说明\n\n优化：\n- AI外贸工作台：文案更新为一站式 B2B 外贸 AI 工作平台定位（聚合 AI 外贸专家团队、AI 获客 Agent、千人千面的 AI 邮件触达和 AI WhatsApp 触达、AI CRM、AI 企业智脑、企业数字资产管理为一体）；移除页面下方重复的「登录入口」区块（与卡片内「在浏览器中打开」功能重复）。\n\n升级提示：\n- 已安装 5.0.12 的用户可直接在应用内「检查更新」升级到本版本（5.0.12 已切换至 makeyzhang-cpu/geekclaw 仓库并更新签名密钥）。",
+  "pub_date": "2026-09-01T15:43:29.453Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVovNnFoenI4WWZMb2ZUUFdrcTIxdDlmOXlLNlJ0UEFENEhleStkWjJ4VWxFMEVQL0JBY0tFYUtyT2VvWExDS2g5N2Z4YStKMW12ejJRaEx2VnJSM3dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjcyNjIyCWZpbGU6R2Vla0NsYXdfNS4wLjEyX3g2NC1zZXR1cC5leGUKTWFybE9FNytNcUFRNUMvcHcrcUpZc0VMWitwREdtajQyZ1hpNWZ1dmxndzROVFVZc2xaaEg0OFJCMVpwWVJDOEk4ejg1UFRaaEhhNVZuWTFSMDN6Qmc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.12/GeekClaw_5.0.12_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVhDTHdiYjZsR2pxcFRHMW9HWVV6MklGazRlOWdzemJ0MHBmWU4rUUVlMTVMNDJqSS9nRFZkUk5NT3k3Si8yYUlMQmtUY29MSWhPTzBkK2JzUHFDOGdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Mjc3MDc2CWZpbGU6R2Vla0NsYXdfNS4wLjEzX3g2NC1zZXR1cC5leGUKYkE0ZkQ1dFNncFBZTVg0cjh0dGJrUHdISTg1UkVOY0Z5SGxrMmhDMkpSUEt2ZkpldUR0U3pDZGhuWS9KV1ovZ2RzUTVLelhYTXp3eU9ONHFGK3hOQmc9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.13/GeekClaw_5.0.13_x64-setup.exe"
     }
   }
 }
