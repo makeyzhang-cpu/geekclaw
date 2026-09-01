@@ -10,7 +10,8 @@ use nomifun_ai_agent::{
     AgentSendError, AgentStreamEvent,
     artifact_store::ArtifactStore,
     protocol::events::{
-        FinishEventData, PlanEventData, ThinkingEventData, TurnStopReason,
+        FinishEventData, PlanEventData, ThinkingEventData, TurnCompletedEventData,
+        TurnStopReason,
         tool_call::{
             AcpToolCallSessionUpdateKind, AcpToolCallStatus, ToolCallEventData,
             ToolCallStatus, validate_artifact_receipt_integrity,
@@ -28,7 +29,8 @@ use nomifun_common::{
 
 use crate::service::ConversationService;
 use nomifun_db::{
-    DbError, IConversationRepository, MessageRowUpdate, SortOrder, TurnArtifactMessageCommit,
+    DbError, IConversationRepository, IUserRepository, MessageRowUpdate, SortOrder,
+    TurnArtifactMessageCommit,
 };
 use nomifun_db::models::MessageRow;
 use nomifun_realtime::UserEventSink;
@@ -1774,6 +1776,14 @@ pub struct StreamRelay {
     /// the final database commit barrier. Runtime event payloads are untrusted:
     /// a marker proves an atomic DB transition, not that bytes exist.
     artifact_workspace: Option<PathBuf>,
+    /// Billing context for token-cost deduction. Wired by `ConversationService`
+    /// only when the user-repository slot is registered AND the turn's model is
+    /// resolvable; `None` = billing disabled (tests, model-only conversations,
+    /// or the installation owner, who is metered-exempt). When set, every
+    /// `TurnCompleted` deducts credits for that turn's actual token usage.
+    billing_user_repo: Option<Arc<dyn IUserRepository>>,
+    billing_provider: Option<String>,
+    billing_model: Option<String>,
 }
 
 impl StreamRelay {
@@ -1830,6 +1840,9 @@ impl StreamRelay {
             cancellation: None,
             derived_message_ids: std::sync::Mutex::new(HashMap::new()),
             artifact_workspace: None,
+            billing_user_repo: None,
+            billing_provider: None,
+            billing_model: None,
         }
     }
 
@@ -1852,6 +1865,93 @@ impl StreamRelay {
     pub fn with_runtime_state(mut self, runtime_state: Arc<ConversationRuntimeStateService>) -> Self {
         self.runtime_state = Some(runtime_state);
         self
+    }
+
+    /// Wire billing: the user repository plus the (provider, model) this turn
+    /// actually runs on. When set, each `TurnCompleted` deducts token-cost
+    /// credits from the owning user's wallet. The installation owner is exempted
+    /// by the caller (`ConversationService::send_message_inner`).
+    pub fn with_billing(
+        mut self,
+        user_repo: Arc<dyn IUserRepository>,
+        provider: String,
+        model: String,
+    ) -> Self {
+        self.billing_user_repo = Some(user_repo);
+        self.billing_provider = Some(provider);
+        self.billing_model = Some(model);
+        self
+    }
+
+    /// Deduct this turn's token-cost credits from the owning user's wallet.
+    ///
+    /// Pricing is looked up by `(provider, model, "Chat")`. Cost = (input +
+    /// output + cache_read) tokens × the per-1k-credits rate, rounded up to an
+    /// integer credit. A negative delta is a debit via `add_credits`. Every
+    /// failure path is non-fatal: billing must never break a completed turn.
+    async fn charge_turn_tokens(&self, metrics: &TurnCompletedEventData) {
+        let Some(user_repo) = self.billing_user_repo.as_ref() else {
+            return;
+        };
+        let Some(provider) = self.billing_provider.as_deref() else {
+            return;
+        };
+        let Some(model) = self.billing_model.as_deref() else {
+            return;
+        };
+        let pricing = match user_repo.get_model_pricing(provider, model, "Chat").await {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(
+                    conversation_id = %self.conversation_id,
+                    user_id = %self.user_id,
+                    error = %e,
+                    "billing: failed to read model pricing; skipping deduction"
+                );
+                return;
+            }
+        };
+        let Some(pricing) = pricing else {
+            // No price configured for this model — treat as free, never block.
+            return;
+        };
+        let input_cost = metrics.input_tokens as f64 / 1000.0 * pricing.input_credits_per_1k;
+        let output_cost = metrics.output_tokens as f64 / 1000.0 * pricing.output_credits_per_1k;
+        let cache_read_cost =
+            metrics.cache_read_tokens as f64 / 1000.0 * pricing.cache_read_credits_per_1k;
+        let cost = (input_cost + output_cost + cache_read_cost).ceil() as i64;
+        if cost <= 0 {
+            return;
+        }
+        let note = format!(
+            "LLM 用量 {}/{}: in={} out={} cache_read={}",
+            provider, model, metrics.input_tokens, metrics.output_tokens, metrics.cache_read_tokens
+        );
+        match user_repo
+            .add_credits(
+                &self.user_id,
+                -cost,
+                "consume",
+                Some("conversation"),
+                Some(&self.conversation_id),
+                Some(&note),
+            )
+            .await
+        {
+            Ok(balance_after) => info!(
+                conversation_id = %self.conversation_id,
+                user_id = %self.user_id,
+                cost,
+                balance_after,
+                "billing: deducted turn token cost"
+            ),
+            Err(e) => warn!(
+                conversation_id = %self.conversation_id,
+                user_id = %self.user_id,
+                error = %e,
+                "billing: failed to deduct credits"
+            ),
+        }
     }
 
     pub fn with_cancellation(mut self, cancellation: AgentTurnCancellation) -> Self {
@@ -3121,6 +3221,10 @@ impl StreamRelay {
                                 runtime_state
                                     .add_turn_tokens(&self.conversation_id, turn_tokens as i64);
                             }
+                            // Token-cost billing: deduct credits for this turn's actual
+                            // usage once it completes. A billing hiccup must never break
+                            // a turn, so all failures are logged and swallowed here.
+                            self.charge_turn_tokens(&metrics).await;
                             self.forward_to_websocket(&event);
                         }
                         _ => {

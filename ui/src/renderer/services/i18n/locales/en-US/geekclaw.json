@@ -21,7 +21,7 @@
           "desc": "The verbatim questions you send in conversations (very long ones are truncated)."
         },
         "requirements": {
-          "name": "Requirements",
+          "name": "A2A cross-border content",
           "desc": "Titles, descriptions and tags of requirements you create."
         },
         "terminal_sessions": {
@@ -30,7 +30,7 @@
         },
         "companion_dialogues": {
           "name": "Messages to companions",
-          "desc": "The verbatim things you say to a desktop companion (long ones are truncated). The companion’s own replies are not recorded; replies stored by earlier versions still take up space but no longer feed learning, and the retention policy cleans them up. On by default."
+          "desc": "The verbatim things you say to a digital avatar companion (long ones are truncated). The companion’s own replies are not recorded; replies stored by earlier versions still take up space but no longer feed learning, and the retention policy cleans them up. On by default."
         }
       }
     },
@@ -63,7 +63,7 @@
       "done": "Everything turned off"
     }
   },
-  "title": "Desktop Companion",
+  "title": "Digital Avatar Companion",
   "openChat": "Open chat",
   "tabs": {
     "overview": "Overview",
@@ -288,7 +288,7 @@
     "quietTitle": "Quiet hours",
     "quietSectionDesc": "Give this companion a quiet window: it will not reach out, and its background learning rests too.",
     "quietRange": "Quiet hours",
-    "quietRangeDesc": "During this window the desktop companion stops popping bubbles at you and unread notices pile up on its badge; scheduled learning and skill generation are skipped until it wakes. Incoming messages are still answered. Leave it empty to allow interruptions all day."
+    "quietRangeDesc": "During this window the digital avatar companion stops popping bubbles at you and unread notices pile up on its badge; scheduled learning and skill generation are skipped until it wakes. Incoming messages are still answered. Leave it empty to allow interruptions all day."
   },
   "history": {
     "sectionTitle": "Chat history",
@@ -388,7 +388,7 @@
   },
   "settings": {
     "name": "Name",
-    "nameHint": "What your companion is called — shown in chat and on the desktop companion",
+    "nameHint": "What your companion is called — shown in chat and on the digital avatar companion",
     "providerPlaceholder": "Select provider",
     "modelPlaceholder": "Select model",
     "preset": "Reusable preset",
@@ -552,5 +552,5 @@
     "unmatchedTitle": "These knowledge bases were not found locally — import their bundles first, then bind manually:",
     "desktopOnly": "Migration is only available in the desktop app"
   },
-  "siderTitle": "Desktop Companion"
+  "siderTitle": "Digital Avatar Companion"
 }

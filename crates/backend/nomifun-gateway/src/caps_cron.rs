@@ -87,7 +87,7 @@ async fn list(deps: Arc<GatewayDeps>, ctx: CallerCtx, p: CronListParams) -> Valu
         conversation_id: p.conversation_id.map(ConversationId::into_string),
     };
     match deps.cron_service.list_jobs(ctx.user_id.as_str(), &query).await {
-        Ok(jobs) => ok(jobs.iter().map(cron_job_to_response).collect::<Vec<_>>()),
+        Ok(jobs) => ok(jobs.iter().map(|j| cron_job_to_response(j, None)).collect::<Vec<_>>()),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
@@ -117,7 +117,7 @@ async fn create(deps: Arc<GatewayDeps>, ctx: CallerCtx, p: CronCreateParams) -> 
             {
                 return ok(json!({
                     "duplicate": true,
-                    "existing_job": cron_job_to_response(existing),
+                    "existing_job": cron_job_to_response(existing, None),
                     "note": "an ACTIVE cron job with the same name or message already exists in this conversation —nothing was created. Use nomi_cron_update to modify it; only create a second job if the owner explicitly asked for a duplicate this turn."
                 }));
             }

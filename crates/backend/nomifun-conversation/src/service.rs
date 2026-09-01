@@ -1081,6 +1081,12 @@ pub struct ConversationService {
     failover_provider_model_repo:
         Arc<RwLock<Option<Arc<dyn nomifun_db::IProviderModelRepository>>>>,
     failover_client_prefs: Arc<RwLock<Option<Arc<dyn nomifun_db::IClientPreferenceRepository>>>>,
+    /// 统一经济闭环(套餐分级 → 积分账本按 token 成本扣 → 邀请双向奖励)的计费侧。
+    /// 沿用「构造后注册」槽位模式:`nomifun-app` 装配处调用 [`Self::with_user_repo`]
+    /// 注入 `IUserRepository`,之后 `send_message_inner` 才会在发起 turn 前做余额预检、
+    /// 并在 `StreamRelay` 上挂 `with_billing` 让 `TurnCompleted` 按实际 token 用量扣积分。
+    /// `None`(默认/测试)即关闭计费,保证不跑计费的上下文零改动、fail-safe。
+    user_repo: Arc<RwLock<Option<Arc<dyn nomifun_db::IUserRepository>>>>,
     /// Mandatory read-side for the explicit Conversation↔Execution relation.
     /// Production assembly shares one repository-backed instance across every
     /// ConversationService; isolated tests must opt into the explicit no-op
@@ -2214,6 +2220,7 @@ impl ConversationService {
             failover_provider_repo: Arc::new(RwLock::new(None)),
             failover_provider_model_repo: Arc::new(RwLock::new(None)),
             failover_client_prefs: Arc::new(RwLock::new(None)),
+            user_repo: Arc::new(RwLock::new(None)),
             execution_conversation_boundary,
             terminal_proof_provider: Arc::new(RwLock::new(None)),
         }
@@ -2399,6 +2406,17 @@ impl ConversationService {
         }
         if let Ok(mut guard) = self.failover_client_prefs.write() {
             *guard = Some(client_prefs);
+        }
+    }
+
+    /// Register the user repository for the unified economy seam (post-
+    /// construction, same slot pattern as `with_failover_deps`). Wired by
+    /// `nomifun-app` on the send-loop instance. When unset, billing is disabled
+    /// (fail-safe): no balance pre-check and no per-turn credit deduction, so
+    /// contexts that never run billing (tests, pure webui) need not call this.
+    pub fn with_user_repo(&self, user_repo: Arc<dyn nomifun_db::IUserRepository>) {
+        if let Ok(mut guard) = self.user_repo.write() {
+            *guard = Some(user_repo);
         }
     }
 
@@ -8363,6 +8381,25 @@ impl ConversationService {
         let turn_cancellation = turn_handle.turn_cancellation();
         let turn_token = turn_handle.cancellation_token();
 
+        // ── 经济闭环:余额预检 ──
+        // 在持久化用户消息、发起 turn 之前,若已注册 user_repo 且当前用户非安装拥有者,
+        // 要求其积分余额 > 0,否则拒绝本次发送(提示充值)。拥有者不限量;计费关闭时跳过。
+        if let Some(billing_repo) = self.user_repo.read().ok().and_then(|g| g.clone()) {
+            if user_id != self.authoritative_user_id.as_ref() {
+                match billing_repo.find_by_id(user_id).await {
+                    Ok(Some(u)) if u.credits <= 0 => {
+                        return Err(AppError::BadRequest(
+                            "账户积分不足,无法发起对话,请充值或联系管理员".into(),
+                        ));
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!(user_id, error = %ErrorChain(&e), "billing: 余额预检读取用户失败,放行");
+                    }
+                }
+            }
+        }
+
         // Store the user message. SQLite allocates the technical `id`; the
         // server-generated UUIDv7 `message_id` is the stable external key.
         let user_msg = nomifun_db::models::MessageRow {
@@ -8470,6 +8507,15 @@ impl ConversationService {
         let user_events = Arc::clone(&self.user_events);
         let cron_service = self.current_cron_service();
         let user_id_owned = user_id.to_owned();
+        // 经济闭环:捕获本会话计费用模型 (provider, model)。
+        // 必须在 runtime_options 被 move 进 owner task(见 8546) 之前克隆,
+        // 供下方 relay 构造处的 with_billing 使用。
+        let billing_model: Option<ProviderWithModel> = runtime_options.model.clone();
+        // 经济闭环:在 spawn 之前捕获 owner 计费所需的两个 owned 副本。
+        // owner task 是 'static 闭包,不能借用 &self,故此处克隆 user_repo 与拥有者 id。
+        let billing_user_repo: Option<Arc<dyn nomifun_db::IUserRepository>> =
+            self.user_repo.read().ok().and_then(|g| g.clone());
+        let authoritative_user_id_owned = Arc::clone(&self.authoritative_user_id);
         let service = self.clone();
         let runtime_registry = Arc::clone(runtime_registry);
         let durable_operation_id = durable_operation_id.map(str::to_owned);
@@ -8838,6 +8884,16 @@ impl ConversationService {
                 // the owning attempt after settle. No-op for every other conversation.
                 if let Some(state) = token_runtime_state.clone() {
                     relay = relay.with_runtime_state(state);
+                }
+
+                // 经济闭环:在 relay 上挂计费。owner 豁免;未注册 user_repo 或模型未知则跳过。
+                if let (Some(billing_repo), Some(m)) = (
+                    billing_user_repo.clone(),
+                    billing_model.clone(),
+                ) {
+                    if user_id_owned.as_str() != authoritative_user_id_owned.as_ref() {
+                        relay = relay.with_billing(billing_repo, m.provider_id, m.model);
+                    }
                 }
 
                 // 为 geekclaw 轮安装 pre-response 错误抑制器:既隐藏"将被换模型重试"的

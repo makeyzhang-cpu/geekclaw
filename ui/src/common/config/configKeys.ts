@@ -2,6 +2,7 @@ import type { AcpInitializeResult, AcpSessionConfigOption, AcpSessionModes } fro
 import type { SpeechToTextConfig } from '@/common/types/provider/speech';
 import type { ICssTheme } from '@/common/config/storage';
 import type { CompanionId, ProviderId } from '@/common/types/ids';
+import type { ICoAgentConfig } from '@/common/types/coAgent';
 
 // `headless` (default) and `external` are the two supported user policies;
 // `embedded` remains in the read type only so installations can migrate the
@@ -55,6 +56,7 @@ export type ConfigKeyMap = {
   'knowledge.autogenModel': { provider_id: ProviderId; model: string } | undefined;
   'tools.imageGenerationModel': { provider_id: ProviderId; model: string; switch?: boolean };
   'tools.speechToText': SpeechToTextConfig | undefined;
+  'tools.tts': TtsConfig | undefined;
   'workspace.pasteConfirm': boolean | undefined;
   'upload.saveToWorkspace': boolean | undefined;
   'guid.lastSelectedAgent': string | undefined;
@@ -139,6 +141,23 @@ export type ConfigKeyMap = {
     | undefined;
   'channels.wecom.companion_id': CompanionId | undefined;
   'skillsMarket.enabled': boolean | undefined;
+  // 协同共答（co-agent）：参与模式 + 协作者配置。前端拥有该开关，经
+  // POST /api/co-agent/run 下发，后端无 DB 迁移。空 = 默认（Auto）。
+  'coAgent.config': ICoAgentConfig | undefined;
 };
+
+/** Persisted text-to-speech configuration. Mirrors the shape of
+ *  `SpeechToTextConfig` so the two voice features stay consistent. */
+export interface TtsConfig {
+  enabled: boolean;
+  provider_id?: ProviderId;
+  model?: string;
+  /** Optional voice id — used for cloned/non-default voices. */
+  voice?: string;
+  /** Audio container format passed through to the provider (mp3/wav/opus). */
+  format?: string;
+  /** When true, finished assistant replies are read aloud automatically. */
+  autoPlay?: boolean;
+}
 
 export type ConfigKey = keyof ConfigKeyMap;

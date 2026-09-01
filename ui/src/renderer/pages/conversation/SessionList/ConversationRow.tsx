@@ -4,21 +4,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import { CapabilityIconCluster } from '@/renderer/components/capability/CapabilityIcon';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
-import { usePresetInfo } from '@/renderer/hooks/agent/usePresetInfo';
 import ConversationHoverCard from '@/renderer/pages/conversation/components/ConversationHoverCard';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import GeekClawLogo from '@/renderer/assets/logos/brand/geekclaw-claw.png';
 import { Checkbox, Dropdown, Menu, Popover, Spin, Tooltip } from '@arco-design/web-react';
-import { DeleteOne, EditOne, Export, MessageOne, MoreOne, Pushpin } from '@icon-park/react';
+import { DeleteOne, EditOne, Export, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ConversationRowProps } from './types';
-import { getBackendKeyFromConversation } from './utils/exportHelpers';
 import { isConversationPinned } from './utils/conversationPinned';
 import { buildSessionCapabilityItems, CAPABILITY_ICON_SIZE } from './utils/sessionCapabilityItems';
 import { formatSessionAgeLabel } from './utils/sessionAge';
@@ -53,7 +51,6 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     idmmState,
   } = props;
   const { t } = useTranslation();
-  const { info: presetInfo } = usePresetInfo(conversation);
   const isPinned = isConversationPinned(conversation);
   const cronStatus = getJobStatus(conversation.id);
   const siderTooltipProps = getSiderTooltipProps(tooltipEnabled);
@@ -71,40 +68,14 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     const pinnedHoverFade = isPinned ? 'group-hover:opacity-0 transition-opacity' : '';
     const composedClass = classNames(pinnedHoverFade);
 
-    if (presetInfo) {
-      if (presetInfo.isEmoji) {
-        return (
-          <span className={classNames('text-16px leading-none flex-shrink-0', composedClass)}>
-            {presetInfo.logo}
-          </span>
-        );
-      }
-      return (
-        <img
-          src={presetInfo.logo}
-          alt={presetInfo.name}
-          className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-        />
-      );
-    }
-
-    const backendKey = getBackendKeyFromConversation(conversation);
-    const logo = getAgentLogo(backendKey);
-    if (logo) {
-      return (
-        <img
-          src={logo}
-          alt={`${backendKey || 'agent'} logo`}
-          className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-        />
-      );
-    }
-
+    // Use the GeekClaw brand claw icon for every conversation row so the
+    // session list stays visually consistent with the product brand, instead of
+    // showing mismatched preset/agent avatars or default placeholder shapes.
     return (
-      <MessageOne
-        theme='outline'
-        size='16'
-        className={classNames('line-height-0 flex-shrink-0 text-t-secondary', composedClass)}
+      <img
+        src={GeekClawLogo}
+        alt='GeekClaw'
+        className={classNames('w-16px h-16px object-contain flex-shrink-0', composedClass)}
       />
     );
   };

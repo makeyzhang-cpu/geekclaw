@@ -292,6 +292,7 @@ mod tests {
             run_count: 0,
             retry_count: 0,
             max_retries: 3,
+            consensus_target: None,
         })
         .await
         .unwrap();

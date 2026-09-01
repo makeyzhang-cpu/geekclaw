@@ -1,0 +1,22 @@
+{
+  "title": "User",
+  "subtitle": "Cloud account",
+  "editProfile": "Edit profile",
+  "comingSoon": "coming soon",
+  "appearance": "Appearance",
+  "helpFeedback": "Help & Feedback",
+  "checkUpdate": "Check for Updates",
+  "systemSettings": "System Settings",
+  "buddyStation": "GeekClaw Station",
+  "checkInPoints": "Check-in for points",
+  "invite": "Invite Friends",
+  "inviteReward": "Up to 650 pts/friend",
+  "points": "Points Balance",
+  "growthPlan": "Growth Plan",
+  "growthReward": "GeekClaw Rewards",
+  "license": {
+    "trial": "Trial",
+    "pro": "PRO",
+    "upgrade": "Upgrade"
+  }
+}

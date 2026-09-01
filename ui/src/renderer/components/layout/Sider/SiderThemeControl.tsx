@@ -7,12 +7,10 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Message, Modal, Popover, Tooltip } from '@arco-design/web-react';
-import { CheckOne, EditTwo, Plus, Theme } from '@icon-park/react';
+import { Theme } from '@icon-park/react';
 import classNames from 'classnames';
-import { ThemeSwitcher } from '@renderer/components/settings/ThemeSwitcher';
-import FontSizeControl from '@renderer/components/settings/FontSizeControl';
+import AppearancePanel from '@renderer/components/settings/AppearancePanel';
 import CssThemeModal from '@renderer/pages/settings/DisplaySettings/CssThemeModal';
-import { getCssThemeDisplayName } from '@renderer/pages/settings/DisplaySettings/presets';
 import { useCssTheme } from '@renderer/hooks/ui/useCssTheme';
 import type { ICssTheme } from '@/common/config/storage';
 import type { SiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
@@ -22,16 +20,6 @@ interface SiderThemeControlProps {
   collapsed: boolean;
   siderTooltipProps: SiderTooltipProps;
 }
-
-/** Pull a representative accent color out of a preset's CSS for the swatch dot. */
-const pickAccent = (css: string): string | null => {
-  const match = css.match(/--(?:color-primary|primary-6)\s*:\s*([^;!}]+)/i);
-  if (!match) return null;
-  const value = match[1].trim().replace(/\s*!important\s*/i, '');
-  if (!value || /var\(/i.test(value)) return null;
-  if (/^\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}$/.test(value)) return `rgb(${value})`;
-  return value;
-};
 
 const footerButtonClass = (collapsed: boolean, isMobile: boolean, active: boolean) =>
   classNames(
@@ -44,16 +32,18 @@ const footerButtonClass = (collapsed: boolean, isMobile: boolean, active: boolea
 /**
  * SiderThemeControl — the footer theme entry that lives right next to 设置.
  *
- * Now the complete home for everything the former Display settings page covered:
- * a single always-visible button opens a popover with the light/dark axis
- * (ThemeSwitcher), interface scaling (FontSizeControl), and the CSS preset/skin
- * list (via the shared `useCssTheme` hook). Each preset gets a hover edit
- * affordance and a trailing "add CSS" entry, both opening the self-contained
- * `CssThemeModal` — so the dedicated Display page can be dissolved entirely.
+ * It is the complete home for everything the former Display settings page
+ * covered: a popover with the light/dark axis (ThemeSwitcher), interface
+ * scaling (FontSizeControl), and the CSS preset/skin list (via the shared
+ * `useCssTheme` hook). Each preset gets a hover edit affordance and a trailing
+ * "add CSS" entry, both opening the self-contained `CssThemeModal`.
+ *
+ * The modal is rendered as a sibling of the Popover (never inside its content)
+ * so it survives the popover unmounting when the user clicks into the editor.
  */
 const SiderThemeControl: React.FC<SiderThemeControlProps> = ({ isMobile, collapsed, siderTooltipProps }) => {
   const { t } = useTranslation();
-  const { themes, activeThemeId, selectTheme, saveUserTheme, deleteUserTheme } = useCssTheme();
+  const { saveUserTheme, deleteUserTheme } = useCssTheme();
   const [popupVisible, setPopupVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingTheme, setEditingTheme] = useState<ICssTheme | null>(null);
@@ -94,83 +84,6 @@ const SiderThemeControl: React.FC<SiderThemeControlProps> = ({ isMobile, collaps
     });
   };
 
-  const popoverContent = (
-    <div className='w-320px flex flex-col gap-12px py-4px'>
-      {/* 明暗 / Light–dark */}
-      <div className='flex flex-col gap-6px'>
-        <div className='text-12px font-500 text-t-tertiary px-2px'>{t('settings.theme')}</div>
-        <ThemeSwitcher />
-      </div>
-
-      {/* 界面缩放 / Interface scaling */}
-      <div className='flex flex-col gap-6px'>
-        <div className='text-12px font-500 text-t-tertiary px-2px'>{t('settings.fontSize')}</div>
-        <FontSizeControl />
-      </div>
-
-      {/* CSS 预设主题 / CSS preset themes */}
-      <div className='flex flex-col gap-6px'>
-        <div className='text-12px font-500 text-t-tertiary px-2px'>{t('settings.cssTheme.selectOrCustomize')}</div>
-        <div className='flex flex-col gap-2px max-h-300px overflow-y-auto -mx-4px px-4px'>
-          {themes.map((theme) => {
-            const active = activeThemeId === theme.id;
-            const accent = pickAccent(theme.css || '');
-            const displayName = getCssThemeDisplayName(theme, t);
-            return (
-              <div
-                key={theme.id}
-                className={classNames(
-                  'group flex items-center gap-8px h-32px px-8px rd-8px text-left transition-colors',
-                  active ? '!bg-primary-1' : 'hover:bg-fill-2'
-                )}
-              >
-                <button
-                  type='button'
-                  onClick={() => void selectTheme(theme)}
-                  className='flex-1 min-w-0 flex items-center gap-8px cursor-pointer border-none bg-transparent p-0 text-left'
-                >
-                  <span
-                    className='size-14px rd-full shrink-0 border border-solid border-[var(--color-border-2)]'
-                    style={accent ? { background: accent } : { background: 'var(--color-fill-3)' }}
-                  />
-                  <span
-                    className={classNames(
-                      'flex-1 min-w-0 truncate text-13px',
-                      active ? 'text-primary-6 font-500' : 'text-t-primary'
-                    )}
-                  >
-                    {displayName}
-                  </span>
-                </button>
-                {active && <CheckOne theme='filled' size='15' fill='rgb(var(--primary-6))' className='shrink-0' />}
-                <button
-                  type='button'
-                  onClick={() => openModal(theme)}
-                  aria-label={t('settings.cssTheme.editTheme')}
-                  className='shrink-0 opacity-0 group-hover:opacity-100 size-22px flex items-center justify-center rd-6px text-t-tertiary hover:text-primary-6 hover:bg-fill-3 cursor-pointer border-none bg-transparent transition-opacity'
-                >
-                  <EditTwo theme='outline' size='13' fill='currentColor' />
-                </button>
-              </div>
-            );
-          })}
-
-          {/* 手动添加 CSS 样式 / Manually add a CSS theme */}
-          <button
-            type='button'
-            onClick={() => openModal(null)}
-            className='flex items-center gap-8px h-32px px-8px rd-8px text-13px text-t-secondary hover:text-primary-6 hover:bg-fill-2 cursor-pointer border-none bg-transparent transition-colors'
-          >
-            <span className='size-14px shrink-0 flex items-center justify-center'>
-              <Plus theme='outline' size='14' fill='currentColor' />
-            </span>
-            <span className='flex-1 min-w-0 truncate text-left'>{t('settings.cssTheme.addManually')}</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <>
       <Popover
@@ -180,7 +93,7 @@ const SiderThemeControl: React.FC<SiderThemeControlProps> = ({ isMobile, collaps
         popupVisible={popupVisible}
         onVisibleChange={setPopupVisible}
         getPopupContainer={() => document.body}
-        content={popoverContent}
+        content={<AppearancePanel onEditTheme={openModal} />}
         unmountOnExit
       >
         <Tooltip {...siderTooltipProps} content={t('settings.theme')} position='right'>

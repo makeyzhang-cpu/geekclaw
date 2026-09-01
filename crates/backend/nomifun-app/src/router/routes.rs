@@ -10,9 +10,10 @@ use axum::routing::{get, post};
 use axum::{Router, middleware};
 use tower_http::cors::{Any, CorsLayer};
 
-use nomifun_ai_agent::{agent_routes, remote_agent_routes};
+use nomifun_ai_agent::{agent_routes, co_agent_routes, remote_agent_routes};
 use nomifun_assets::{AssetRouterState, asset_routes};
 use nomifun_preset::preset_routes;
+use nomifun_team::team_routes;
 use nomifun_auth::{
     AuthRouterState, AuthState, InstanceOwnerState, TrustState, auth_middleware, auth_routes,
     csrf_middleware, require_instance_owner_middleware, require_local_trust_middleware,
@@ -20,6 +21,7 @@ use nomifun_auth::{
 };
 use nomifun_channel::channel_routes;
 use nomifun_companion::{companion_public_routes, companion_routes};
+use crate::expert_market::expert_market_routes;
 use nomifun_customer_service::customer_service_routes;
 use nomifun_workshop::{workshop_public_routes, workshop_routes};
 use nomifun_creation::creation_routes;
@@ -49,6 +51,7 @@ use super::health::{
     register_knowledge_global_handler, register_knowledge_handler,
     unregister_knowledge_global_handler,
 };
+use super::license_routes::{license_routes, LicenseState};
 use super::model_failover::{ModelFailoverRouterState, model_failover_routes};
 use super::state::{ModuleStates, build_module_states, build_ws_state};
 use super::trace::with_access_log;
@@ -736,6 +739,15 @@ pub fn create_router_with_all_state(
         &instance_owner_state,
     );
 
+    // Collaborative co-agent ("协同共答") endpoint — additive, the main
+    // conversation turn is never touched. Protected by auth + owner like the
+    // other backend agent surfaces.
+    let co_agent_authenticated = protect_instance_owner(
+        co_agent_routes(states.co_agent),
+        &auth_mw_state,
+        &instance_owner_state,
+    );
+
     // Phase 3 (review #6/#12): global model-failover config GET/PUT, auth-gated.
     // Path string must match the frontend `agentModelFailover` exactly.
     let model_failover_authenticated = protect_instance_owner(
@@ -803,6 +815,11 @@ pub fn create_router_with_all_state(
     let cron_authenticated = cron_routes(states.cron)
         .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
+    // Offline license activation routes (local, no backend required). Protected
+    // by the same auth middleware so desktop local-trust and WebUI login both work.
+    let license_authenticated = license_routes(LicenseState::new(crate::cli::default_data_dir()))
+        .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
+
     // Requirements Platform routes protected by auth middleware
     let requirement_authenticated = protect_instance_owner(
         requirement_routes(states.requirement),
@@ -820,6 +837,13 @@ pub fn create_router_with_all_state(
     // Companion (geekclaw) routes protected by auth middleware
     let companion_authenticated = protect_instance_owner(
         companion_routes(states.companion.clone()),
+        &auth_mw_state,
+        &instance_owner_state,
+    );
+
+    // 专家数字分身市场（任务 F）：雇佣专家→数字分身 Companion，走积分经济闭环。
+    let expert_market_authenticated = protect_instance_owner(
+        expert_market_routes(states.expert_market.clone()),
         &auth_mw_state,
         &instance_owner_state,
     );
@@ -903,6 +927,13 @@ pub fn create_router_with_all_state(
     // Preset catalog and resolver routes protected by auth middleware.
     let preset_authenticated = protect_instance_owner(
         preset_routes(states.preset),
+        &auth_mw_state,
+        &instance_owner_state,
+    );
+
+    // Team Agent composer routes (GeekClaw #72), owner-scoped.
+    let team_authenticated = protect_instance_owner(
+        team_routes(states.team),
         &auth_mw_state,
         &instance_owner_state,
     );
@@ -1073,6 +1104,7 @@ pub fn create_router_with_all_state(
         .merge(skill_authenticated)
         .merge(channel_authenticated)
         .merge(cron_authenticated)
+        .merge(license_authenticated)
         .merge(requirement_authenticated)
         .merge(idmm_authenticated)
         .merge(companion_authenticated)
@@ -1086,7 +1118,10 @@ pub fn create_router_with_all_state(
         .merge(terminal_authenticated)
         .merge(office_authenticated)
         .merge(shell_authenticated)
-        .merge(preset_authenticated);
+        .merge(preset_authenticated)
+        .merge(team_authenticated)
+        .merge(expert_market_authenticated)
+        .merge(co_agent_authenticated);
 
     // Phase 2b: mount the login-browser routes (browser-use builds only).
     #[cfg(feature = "browser-use")]

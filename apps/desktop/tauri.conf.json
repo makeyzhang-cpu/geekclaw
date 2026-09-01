@@ -17,6 +17,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "app", "dmg", "appimage", "deb", "rpm"],
     "resources": {
       "../../ui/dist/": "webui-dist/"
@@ -30,8 +31,10 @@
     ],
     "windows": {
       "webviewInstallMode": {
-        "type": "downloadBootstrapper",
-        "silent": true
+        "type": "offlineInstaller"
+      },
+      "nsis": {
+        "template": "installer.nsi"
       }
     }
   },
@@ -43,9 +46,9 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/geekclaw/geekclaw-tauri/releases/latest/download/latest.json"
+        "https://github.com/makeyzhang-cpu/geekclaw/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzQUEyNzJFNjBBQTc5NTIKUldSU2VhcGdMaWVxODRRbUdXczZodEJZOE1Ja2Zta011eWUxUko2SG5XclVaSUdtaWNobXJNemEK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc5NjhFRkZGOTVBOTVDNjEKUldSaFhLbVYvKzlvZVVoVUpiQWZablB5YW9FUlZMSUp3c2hZYTk2SXJyY1JtdTN6R281YUM5WHEK"
     }
   }
 }

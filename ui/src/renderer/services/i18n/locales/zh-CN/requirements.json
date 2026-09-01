@@ -1,10 +1,154 @@
 {
-  "title": "需求平台",
-  "subtitle": "管理需求、扩展能力与数据源",
+  "title": "A2A跨境电商",
+  "subtitle": "AI 跨境导购 · 找货比价 · 一键下单",
   "section": {
-    "workspace": "需求",
+    "workspace": "A2A跨境电商平台",
+    "storefront": "A2A跨境电商独立站",
     "extensions": "扩展能力",
     "sources": "数据源"
+  },
+  "a2a": {
+    "platform": {
+      "title": "A2A跨境电商平台",
+      "subtitle": "自然语言找货 → AI 比价 → 一键下单 → 跨境直邮",
+      "hint": "告诉买家 Agent 你想买什么，例如「想买个降噪耳机，预算 800 以内」",
+      "placeholder": "例如：想买个降噪耳机，预算 800 以内",
+      "send": "发送",
+      "buy": "买这个",
+      "wechat": "微信支付",
+      "alipay": "支付宝",
+      "confirm": "确认下单",
+      "reset": "重新开始",
+      "orderId": "订单号",
+      "amount": "金额",
+      "origin": "产地/物流",
+      "shipDays": "直邮约 {{days}} 天",
+      "rating": "评分",
+      "stock": "库存",
+      "paid": "状态",
+      "paidOk": "支付成功",
+      "sourceCloud": "云端数据（管理后台）",
+      "sourceLocal": "本地演示",
+      "sourceLoading": "加载数据源…",
+      "barcode": "全球本土化大脑 · 11 种语言 · 多模型 AI 协同",
+      "featuredTitle": "AI 推荐",
+      "featuredHint": "由 AI 多模型协同引擎根据您的语言与偏好实时推荐",
+      "hero": {
+        "slogan": "所想即所得，万物皆可交易",
+        "subtitle": "告诉 GeekClaw 你的想法、需求或灵感，AI 多模型协同引擎会帮你发现可购买、可预订、可比较的选择，让想法更快变成真实交易。",
+        "placeholder": "+ 输入商品名称或上传灵感图…",
+        "poweredBy": "AI 多模型协同 · 全球本土化大脑 · 7×24 在线"
+      },
+      "chips": {
+        "recommend0": "推荐机场接送",
+        "recommend1": "推荐釜山天空胶囊",
+        "recommend2": "推荐庆州一日游",
+        "recommend3": "推荐个大巴尼摩",
+        "recommend4": "我要机场接送",
+        "recommend5": "推荐利伯维尔机场接机",
+        "japan0": "推荐昭和怀旧小物",
+        "japan1": "推荐京都和菓子",
+        "eu0": "Recommend a Berlin art gallery"
+      },
+      "product": {
+        "tagPicked": "UKEN 推荐",
+        "tagCraft": "匠心工艺",
+        "tagStyle": "风格精选",
+        "tagTravel": "适合旅行",
+        "detail": "详情",
+        "buy": "购买"
+      },
+      "analysis": {
+        "followupTitle": "推荐问题",
+        "q1": "What are the specs and materials of this product?（规格和材质？）",
+        "q2": "Compare it with other candidates.（和同类商品对比？）",
+        "q3": "Is this product good for gifting to family?（适合送家人吗？）"
+      },
+      "payment": {
+        "title": "选择支付方式",
+        "total": "合计",
+        "security": "支付安全由 GeekClaw Commerce™ 与持牌机构共同保障",
+        "wechat": "微信支付",
+        "wechatHint": "网贝康微信支付通道",
+        "alipay": "支付宝",
+        "alipayHint": "网贝康支付宝支付通道",
+        "stripe": "Stripe 信用卡",
+        "stripeHint": "Visa / Mastercard / Amex 全球受理",
+        "paypal": "PayPal",
+        "paypalHint": "全球账户余额 + 信用卡",
+        "local": "本地钱包",
+        "localHint": "当地支付方式（区域自动适配）"
+      },
+      "live": {
+        "label": "LIVE",
+        "title": "从需求到订单",
+        "subtitle": "AI 购物助手实时在线，全球本土化大脑已激活",
+        "model": "当前模型",
+        "locale": "当前语言",
+        "pkgTitle": "推荐套餐",
+        "pkg1Name": "智能旅行套餐",
+        "pkg1Desc": "最优匹配 4 站，全程 AI 编排",
+        "pkg1Price": "¥349"
+      },
+      "sidebar": {
+        "newChat": "新对话",
+        "agents": "智能体",
+        "search": "搜索对话",
+        "cart": "购物车",
+        "history": "最近对话"
+      },
+      "model": {
+        "imageGen": "图像生成",
+        "chat": "对话"
+      },
+      "ip": {
+        "title": "GeekClaw Commerce™ · 技术与知识产权壁垒",
+        "body": "A2A 智能体商谈™ · 本土化大脑™ · AI 多模型协同购物引擎™ · 商品多维解构算法 · 全球支付聚合路由 — 自主研发，助力中国中小型企业以 AI 原生方式出海到全球。"
+      }
+    },
+    "storefront": {
+      "title": "A2A跨境电商独立站",
+      "heroTitle": "面向全球买家的 AI 原生独立站",
+      "subtitle": "面向全球买家的 AI 原生独立站：商品由商家 Agent 上架与报价，买家 Agent 自动寻源、比价并完成交易闭环。",
+      "catalogTitle": "精选跨境好物",
+      "count": "共 {{count}} 款商品",
+      "merchantTitle": "商家 Agent 入驻",
+      "merchantDesc": "把您的商品上架到 A2A 独立站，由商家 Agent 7×24 自动接待全球买家 Agent：自动报价、库存同步、跨境履约。承接「极客出海 OPC 生态」，让您的商品被全球 AI Agent 主动发现和采购。",
+      "apply": "申请入驻",
+      "comingSoon": "入驻通道即将开放",
+      "roadmapTitle": "平台路线图",
+      "gate": {
+        "title": "独立站未开通",
+        "desc": "A2A 跨境电商独立站需在网页端管理后台开通授权后使用。请联系管理员完成开通。",
+        "goAdmin": "前往管理后台",
+        "goAdminHint": "由网页端管理后台（geekclaw.ai/admin）统一授权",
+        "checking": "正在检查开通状态…",
+        "notSignedIn": "请先登录云端账号",
+        "notSignedInDesc": "开通授权状态与您的云端账号绑定，登录后自动检查。",
+        "cloudUnavailable": "云端服务暂不可用",
+        "cloudUnavailableDesc": "暂时无法连接云端管理后台确认授权状态，请稍后重试或联系管理员。",
+        "retry": "重新检查",
+        "demoHint": "当前为本地演示模式，未走云端授权"
+      },
+      "roadmap": {
+        "agent": {
+          "title": "商家 Agent 入驻",
+          "desc": "Agent Card 商品上架/报价，7×24 自动接待全球买家 Agent"
+        },
+        "trust": {
+          "title": "信誉与仲裁",
+          "desc": "跨 Agent 协作 + 信誉体系 + 争议仲裁 + 资金托管"
+        },
+        "x402": {
+          "title": "x402 微支付",
+          "desc": "可选链上微支付，小额交易零摩擦"
+        },
+        "geo": {
+          "title": "OrbitAI 优化",
+          "desc": "GEO 优化让商品被 Agent 搜索与发现"
+        }
+      }
+    }
   },
   "newRequirement": "新建需求",
   "empty": "暂无需求",
@@ -104,7 +248,7 @@
     "disabledOk": "自动工作已关闭",
     "completedCount": "已完成：{{count}}",
     "emptyTitle": "还没有可用标签",
-    "emptyDescription": "标签会在创建需求后自动生成。先去需求平台添加一条带标签的需求。",
+    "emptyDescription": "标签会在创建需求后自动生成。先去 A2A跨境电商 添加一条带标签的需求。",
     "emptyCta": "新建需求",
     "loadingTags": "正在加载标签",
     "loadErrorTitle": "标签加载失败",

@@ -13,6 +13,7 @@ import LocalAgents from '@/renderer/pages/settings/AgentSettings/LocalAgents';
 import RemoteAgents from '@/renderer/pages/settings/AgentSettings/RemoteAgentManagement';
 import NomiScrollArea from '@/renderer/components/base/NomiScrollArea';
 import AgentRuntimeSettingsContent from './AgentRuntimeSettingsContent';
+import CoAgentSettingsContent from './CoAgentSettingsContent';
 
 const AgentModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -22,7 +23,7 @@ const AgentModalContent: React.FC = () => {
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam === 'remote' || tabParam === 'local' || tabParam === 'runtime') {
+    if (tabParam === 'remote' || tabParam === 'local' || tabParam === 'runtime' || tabParam === 'coAgent') {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
@@ -56,6 +57,9 @@ const AgentModalContent: React.FC = () => {
         </Tabs.TabPane>
         <Tabs.TabPane key='runtime' title={t('settings.executionEngineHub.runtimeTab')}>
           <AgentRuntimeSettingsContent />
+        </Tabs.TabPane>
+        <Tabs.TabPane key='coAgent' title={t('settings.coAgent.title')}>
+          <CoAgentSettingsContent />
         </Tabs.TabPane>
       </Tabs>
     </div>

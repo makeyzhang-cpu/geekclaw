@@ -15,6 +15,7 @@ pub use error::DbError;
 pub use id_schema_contract::{validate_id_data_contract, validate_id_schema_contract};
 pub use models::{
     AgentExecutionAttemptDetailRow, AgentExecutionAttemptRow, AgentExecutionDetailRows,
+    Invitation,
     AgentExecutionEventRow, AgentExecutionParticipantRow, AgentExecutionRow,
     AgentExecutionStepDependencyRow, AgentExecutionStepDetailRow, AgentExecutionStepRow,
     AgentExecutionTemplateDetailRows, AgentExecutionTemplateParticipantRow,
@@ -72,6 +73,14 @@ pub use repository::ssh_host::{
 };
 pub use repository::SqliteSshHostRepository;
 pub use models::SshHostRow;
+pub use repository::team::{CreateTeamParams, ITeamRepository, UpdateTeamParams};
+pub use repository::team_consensus::{
+    CreateMessageParams, CreateRunParams, ITeamConsensusRepository,
+};
+pub use repository::SqliteTeamRepository;
+pub use repository::SqliteTeamConsensusRepository;
+pub use models::{TeamMemberRow, TeamRow};
+pub use models::{ConsensusMessageRow, ConsensusRunRow};
 pub use repository::{
     AdoptAgentExecutionStepOutputParams, AgentExecutionAttemptRecoveryDisposition,
     AgentExecutionAttemptRecoveryResult, AgentExecutionLeaseToken, AgentExecutionTurnAuthority,

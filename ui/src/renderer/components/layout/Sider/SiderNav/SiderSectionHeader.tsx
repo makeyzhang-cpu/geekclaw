@@ -22,7 +22,7 @@ interface SiderSectionHeaderProps {
 
 /**
  * SiderSectionHeader — the small-text group label that segments the primary
- * navigation rail (常用 / 数据空间 / 自动化 / 增强工具 / 设置).
+ * navigation rail (常用 / 数据空间 / Work++工作平台 / 增强工具 / 设置).
  *
  * Mirrors the Settings sider group-header (`text-t-tertiary font-[500]`), sized
  * down to 12px to read as a quiet section divider. In the collapsed icon-only

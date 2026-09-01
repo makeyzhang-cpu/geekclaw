@@ -19,6 +19,7 @@ import GlobalModelConfig from './GlobalModelConfig';
 import CreationModelsContent from './CreationModelsContent';
 import FreeModelsContent from './FreeModelsContent';
 import SpeechToTextContent from './SpeechToTextContent';
+import TextToSpeechContent from './TextToSpeechContent';
 
 type Section = 'models' | 'free' | 'speech' | 'creation' | 'global';
 
@@ -112,7 +113,13 @@ const ModelHubPage: React.FC = () => {
     <>
       {section === 'models' && <ModelModalContent />}
       {section === 'free' && <FreeModelsContent />}
-      {section === 'speech' && <SpeechToTextContent />}
+      {section === 'speech' && (
+        <>
+          <SpeechToTextContent />
+          <div className='mt-16px' />
+          <TextToSpeechContent />
+        </>
+      )}
       {section === 'creation' && <CreationModelsContent />}
       {section === 'global' && <GlobalModelConfig />}
     </>

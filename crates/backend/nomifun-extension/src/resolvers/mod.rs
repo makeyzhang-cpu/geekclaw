@@ -15,6 +15,7 @@ pub mod model_provider;
 pub mod settings_tab;
 pub mod skill;
 pub mod theme;
+pub mod tool;
 pub mod webui;
 
 use std::path::Path;
@@ -82,6 +83,7 @@ pub fn resolve_extension_contributions(ext: &LoadedExtension) -> ResolvedContrib
         webui: webui::resolve_webui_contributions(&contributes.webui, ext_name, ext_dir),
         settings_tabs: settings_tab::resolve_settings_tabs(&contributes.settings_tabs, ext_name, ext_dir),
         model_providers: model_provider::resolve_model_providers(&contributes.model_providers, ext_name),
+        tools: tool::resolve_tools(&contributes.tools, ext_name),
         // i18n is resolved separately via resolve_i18n_for_locale()
         // because it requires a locale parameter at query time.
         i18n: std::collections::HashMap::new(),
@@ -131,6 +133,7 @@ fn merge_contributions(target: &mut ResolvedContributions, source: ResolvedContr
     target.webui.extend(source.webui);
     target.settings_tabs.extend(source.settings_tabs);
     target.model_providers.extend(source.model_providers);
+    target.tools.extend(source.tools);
     target.i18n.extend(source.i18n);
 }
 
@@ -229,6 +232,36 @@ mod tests {
         let result = resolve_extension_contributions(&ext);
         assert_eq!(result.model_providers.len(), 1);
         assert_eq!(result.model_providers[0].extension_name, "provider-ext");
+    }
+
+    #[test]
+    fn test_resolve_extension_with_tools() {
+        let contributes = ExtContributes {
+            tools: vec![ExtTool {
+                source_key: "order_query".into(),
+                name: "Order Query".into(),
+                description: Some("Read-only business query".into()),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": { "order_id": { "type": "string" } },
+                    "required": ["order_id"]
+                }),
+                bridge: ExtToolBridge::Builtin {
+                    builtin: "cs_order_query".into(),
+                },
+            }],
+            ..Default::default()
+        };
+
+        let ext = make_extension("tools-ext", true, Some(contributes));
+        let result = resolve_extension_contributions(&ext);
+        assert_eq!(result.tools.len(), 1);
+        assert_eq!(result.tools[0].extension_name, "tools-ext");
+        assert_eq!(result.tools[0].source_key, "tools-ext:order_query");
+        assert!(matches!(
+            result.tools[0].bridge,
+            ExtToolBridge::Builtin { ref builtin } if builtin == "cs_order_query"
+        ));
     }
 
     #[test]

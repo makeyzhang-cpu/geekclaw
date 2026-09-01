@@ -43,6 +43,11 @@ pub struct CronJobRow {
     pub run_count: i64,
     pub retry_count: i64,
     pub max_retries: i64,
+    /// Optional team-consensus trigger. JSON: {"team_id": "<uuidv7>", "topic": "..."}.
+    /// When present, a scheduled fire launches a team consensus run instead of a
+    /// conversation. Stored as free JSON (non-`_id` column) to stay outside the
+    /// v3 logical-reference contract.
+    pub consensus_target: Option<String>,
 }
 
 #[cfg(test)]
@@ -83,6 +88,7 @@ mod tests {
             run_count: 5,
             retry_count: 0,
             max_retries: 3,
+            consensus_target: None,
         };
         let json = serde_json::to_string(&row).expect("serialize");
         let restored: CronJobRow = serde_json::from_str(&json).expect("deserialize");
@@ -127,6 +133,7 @@ mod tests {
             run_count: 0,
             retry_count: 0,
             max_retries: 3,
+            consensus_target: None,
         };
         assert!(row.schedule_tz.is_none());
         assert!(row.agent_config.is_none());

@@ -18,11 +18,29 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Alert, Button, Form, Input, Modal, Result, Spin } from '@arco-design/web-react';
-import { Delete, EditTwo, LinkOne, Platte, Plus, Search } from '@icon-park/react';
+import {
+  Copy,
+  Creative,
+  Delete,
+  EditTwo,
+  LinkOne,
+  Platte,
+  Plus,
+  Search,
+  VideoTwo,
+  Movie,
+  User,
+  MagicWand,
+  Picture,
+  ArrowRight,
+} from '@icon-park/react';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { useArcoMessage } from '@renderer/utils/ui/useArcoMessage';
 import { HUB_PAGE_TITLE_CLASS } from '@/renderer/components/layout/HubPageShell';
-import { createCanvas, deleteCanvas, listCanvases, patchCanvas, resolveWorkshopUrl } from './api';
+import { createCanvas, deleteCanvas, listCanvases, patchCanvas, putCanvasDoc, resolveWorkshopUrl } from './api';
+import { CREATIVE_TEMPLATES, type CreativeTemplate } from './templates';
+import { INSPIRATION_TEMPLATES, type InspirationTemplate, buildInspirationCanvas } from './inspiration';
+import { AGENT_SCENES, MARKET_AGENTS, getAgentById, type MarketAgent } from './agents';
 import type { WorkshopCanvasMeta } from './types';
 
 // ─── Relative-time formatter (i18n-backed) ───────────────────────────────────
@@ -154,6 +172,60 @@ const CanvasCard: React.FC<CanvasCardProps> = ({ canvas, onOpen, onRename, onDel
   );
 };
 
+// ─── Market agent card (应用市场) ─────────────────────────────────────────────
+
+const MARKET_ICONS: Record<string, typeof Platte> = {
+  VideoTwo,
+  Movie,
+  User,
+  MagicWand,
+  Picture,
+  Creative,
+  EditTwo,
+};
+
+interface MarketCardProps {
+  agent: MarketAgent;
+  onOpen: (agent: MarketAgent) => void;
+}
+
+const MarketCard: React.FC<MarketCardProps> = ({ agent, onOpen }) => {
+  const { t } = useTranslation();
+  const IconC = MARKET_ICONS[agent.icon] ?? Platte;
+  return (
+    <button
+      type='button'
+      onClick={() => onOpen(agent)}
+      className={[
+        'group flex flex-col overflow-hidden rounded-16px border border-solid',
+        'border-[var(--color-border-2)] bg-[var(--color-bg-2)] box-border text-left',
+        'transition-all duration-160 hover:-translate-y-2px',
+        'hover:border-[var(--color-border-3)] hover:shadow-[0_14px_38px_rgba(0,0,0,0.15)]',
+      ].join(' ')}
+    >
+      {/* Cover */}
+      <div
+        className='relative flex h-118px w-full items-center justify-center overflow-hidden'
+        style={{ background: `linear-gradient(135deg, ${agent.accent} 0%, ${agent.accent}99 100%)` }}
+      >
+        <IconC theme='outline' size={40} fill='rgba(255,255,255,0.92)' className='block' style={{ lineHeight: 0 }} />
+        <span className='absolute left-10px top-10px rounded-full bg-[rgba(0,0,0,0.28)] px-8px py-2px text-11px font-600 text-white'>
+          {agent.scene}
+        </span>
+      </div>
+      {/* Body */}
+      <div className='flex flex-col gap-8px p-14px'>
+        <span className='truncate text-15px font-700 leading-[1.3] text-[var(--color-text-1)]'>{agent.title}</span>
+        <span className='line-clamp-2 text-13px leading-19px text-[var(--color-text-3)]'>{agent.desc}</span>
+        <span className='mt-2px inline-flex items-center gap-4px text-12px font-600' style={{ color: agent.accent }}>
+          {t('workshop.market.start', { defaultValue: '开始创作' })}
+          <ArrowRight theme='outline' size={13} fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+        </span>
+      </div>
+    </button>
+  );
+};
+
 // ─── Main page ──────────────────────────────────────────────────────────────
 
 const WorkshopListPage: React.FC = () => {
@@ -168,6 +240,8 @@ const WorkshopListPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [view, setView] = useState<'market' | 'canvases'>('market');
+  const [scene, setScene] = useState<string>('全部');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -301,7 +375,7 @@ const WorkshopListPage: React.FC = () => {
             </p>
           </div>
 
-          {!error && (canvases.length > 0 || loading) && (
+          {view === 'canvases' && !error && (canvases.length > 0 || loading) && (
             <div className='flex items-center gap-10px'>
               <div className='flex items-center gap-8px bg-[var(--color-fill-2)] border border-solid border-[var(--color-border-3)] rounded-10px px-12px py-8px w-200px'>
                 <Search theme='outline' size={14} className='text-[var(--color-text-3)] flex-none' />
@@ -322,17 +396,75 @@ const WorkshopListPage: React.FC = () => {
           )}
         </div>
 
-        {/* Beta / not-recommended notice — persistent while the workshop is in beta. */}
-        <Alert
-          type='warning'
-          showIcon
-          content={t('workshop.beta.notice', {
-            defaultValue: '创意工坊目前处于 Beta 阶段，功能尚不稳定、可能出错或调整，暂不建议正式使用。',
+        {/* Segmented switch: 智能体市场 / 我的画布 */}
+        <div className='flex items-center gap-4px rounded-12px bg-[var(--color-fill-2)] border border-solid border-[var(--color-border-3)] p-4px'>
+          {(
+            [
+              { key: 'market', label: t('workshop.tab.market', { defaultValue: '智能体市场' }) },
+              { key: 'canvases', label: t('workshop.tab.canvases', { defaultValue: '我的画布' }) },
+            ] satisfies { key: 'market' | 'canvases'; label: string }[]
+          ).map((tab) => {
+            const active = view === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type='button'
+                onClick={() => setView(tab.key)}
+                className={[
+                  'rounded-9px px-16px py-7px text-13px font-600 transition-colors',
+                  active
+                    ? 'bg-[var(--color-bg-1)] text-primary-6 shadow-[0_2px_8px_rgba(0,0,0,0.08)]'
+                    : 'text-[var(--color-text-3)] hover:text-[var(--color-text-1)]',
+                ].join(' ')}
+              >
+                {tab.label}
+              </button>
+            );
           })}
-        />
+        </div>
 
-        {/* Body states */}
-        {error ? (
+        {/* ─── 智能体市场 (app-market grid) ─────────────────────────────────── */}
+        {view === 'market' && (
+          <>
+            {/* Category filter chips */}
+            <div className='flex flex-wrap items-center gap-8px'>
+              {(['全部', ...AGENT_SCENES]).map((s) => {
+                const active = scene === s;
+                return (
+                  <button
+                    key={s}
+                    type='button'
+                    onClick={() => setScene(s)}
+                    className={[
+                      'rounded-full px-14px py-6px text-13px font-600 transition-colors',
+                      active
+                        ? 'bg-primary-6 text-white'
+                        : 'bg-[var(--color-fill-2)] text-[var(--color-text-2)] border border-solid border-[var(--color-border-3)] hover:text-primary-6',
+                    ].join(' ')}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              className='grid gap-16px'
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))' }}
+            >
+              {MARKET_AGENTS.filter((a) => scene === '全部' || a.scene === scene).map((agent) => (
+                <MarketCard
+                  key={agent.id}
+                  agent={agent}
+                  onOpen={(a) => navigate(`/workshop/agent/${a.id}`)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* ─── 我的画布 (canvas gallery) ────────────────────────────────────── */}
+        {view === 'canvases' ? (error ? (
           <Result
             status='error'
             title={t('workshop.list.loadError', { defaultValue: '加载失败' })}
@@ -422,7 +554,8 @@ const WorkshopListPage: React.FC = () => {
               </div>
             )}
           </>
-        )}
+        ) ) : null}
+
       </div>
 
       {/* Rename modal */}

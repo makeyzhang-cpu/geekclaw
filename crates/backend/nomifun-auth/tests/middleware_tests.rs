@@ -252,6 +252,8 @@ async fn authenticated_action_limit_uses_user_id_key() {
                     )
                     .unwrap(),
                     username: "admin".into(),
+                    role: "admin".to_string(),
+                    is_active: 1,
                 });
                 Ok::<_, std::convert::Infallible>(next.run(request).await)
             },

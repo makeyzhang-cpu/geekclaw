@@ -247,8 +247,10 @@ nomifun-public.workspace = true
 nomifun-webhook.workspace = true
 nomifun-terminal.workspace = true
 nomifun-preset.workspace = true
+nomifun-team.workspace = true
 nomifun-runtime.workspace = true
 nomifun-net.workspace = true
+sqlx.workspace = true
 axum.workspace = true
 dirs.workspace = true
 # OS-level advisory lock for the exclusive per-data-dir server lock

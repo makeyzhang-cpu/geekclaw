@@ -2327,6 +2327,7 @@ fn main() -> std::process::ExitCode {
             None::<Vec<&str>>,
         ))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let coordinator = app.state::<Arc<ExitCoordinator>>().inner().clone();

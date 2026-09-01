@@ -21,11 +21,12 @@ const ExtensionSettingsPage = React.lazy(() => import('@renderer/pages/settings/
 const LoginPage = React.lazy(() => import('@renderer/pages/login'));
 const ComponentsShowcase = React.lazy(() => import('@renderer/pages/TestShowcase'));
 const ScheduledTasksPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage'));
+const WorkCommunityPage = React.lazy(() => import('@renderer/pages/work-community'));
+const ForeignTradePage = React.lazy(() => import('@renderer/pages/foreign-trade'));
 const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage/TaskDetailPage'));
-const RequirementsLayout = React.lazy(() => import('@renderer/pages/requirements/RequirementsLayout'));
-const WorkspacePage = React.lazy(() => import('@renderer/pages/requirements/WorkspacePage'));
-const ExtensionsPage = React.lazy(() => import('@renderer/pages/requirements/ExtensionsPage'));
-const SourcesPage = React.lazy(() => import('@renderer/pages/requirements/SourcesPage'));
+const ComingSoon = React.lazy(() => import('@renderer/components/ComingSoon'));
+const ReferralPage = React.lazy(() => import('@renderer/pages/referral'));
+const LobsterPage = React.lazy(() => import('@renderer/pages/lobster'));
 const TerminalSessionPage = React.lazy(() => import('@renderer/pages/terminal/TerminalSessionPage'));
 const TerminalCreatePage = React.lazy(() => import('@renderer/pages/terminal/TerminalCreatePage'));
 const NomiConfigPage = React.lazy(() => import('@renderer/pages/geekclaw'));
@@ -33,11 +34,18 @@ const CustomerServiceRosterPage = React.lazy(() => import('@renderer/pages/custo
 const CustomerServiceDetailPage = React.lazy(() => import('@renderer/pages/customerService/CsAgentDetailPage'));
 const KnowledgeListPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeListPage'));
 const KnowledgeDetailPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeDetailPage'));
-const WorkshopListPage = React.lazy(() => import('@renderer/pages/workshop'));
-const WorkshopCanvasPage = React.lazy(() => import('@renderer/pages/workshop/CanvasPage'));
+// 创意工坊 / A2A 跨境电商 当前以 ComingSoon 占位，避免加载庞大的旧模块
+// Workshop / A2A are intentionally shown as "功能开发中" placeholders.
 const AssetLibraryPage = React.lazy(() => import('@renderer/pages/assets'));
 const CompanionPage = React.lazy(() => import('@renderer/pages/companion'));
 const ConversationShell = React.lazy(() => import('@renderer/pages/conversation/components/ConversationShell'));
+const ExpertAgentsPage = React.lazy(() => import('@renderer/pages/expert-agents'));
+const ExpertMarketPage = React.lazy(() => import('@renderer/pages/expert-market'));
+const RegisterPage = React.lazy(() => import('@renderer/pages/register'));
+const ActivatePage = React.lazy(() => import('@renderer/pages/activate'));
+const UserManagementPage = React.lazy(() => import('@renderer/pages/userManagement'));
+const BillingPage = React.lazy(() => import('@renderer/pages/billing'));
+const PricingPage = React.lazy(() => import('@renderer/pages/pricing'));
 
 const RouteFallback: React.FC<{ Component: React.LazyExoticComponent<React.ComponentType> }> = ({ Component }) => {
   const location = useLocation();
@@ -191,6 +199,10 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           path='/login'
           element={status === 'authenticated' ? <Navigate to='/guid' replace /> : withRouteFallback(LoginPage)}
         />
+        <Route
+          path='/register'
+          element={status === 'authenticated' ? <Navigate to='/guid' replace /> : withRouteFallback(RegisterPage)}
+        />
         {/* The desktop-companion window route: fullscreen transparent, no app layout/sidebar. */}
         <Route path='/companion' element={withRouteFallback(CompanionPage)} />
         <Route element={<ProtectedLayout layout={layout} />}>
@@ -201,6 +213,10 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/mcp' element={withRouteFallback(McpPage)} />
           <Route path='/open-capabilities' element={withRouteFallback(OpenCapabilitiesPage)} />
           <Route path='/browser' element={withRouteFallback(BrowserPage)} />
+          {/* Offline license activation / upgrade entry */}
+          <Route path='/activate' element={withRouteFallback(ActivatePage)} />
+          <Route path='/expert-agents' element={withRouteFallback(ExpertAgentsPage)} />
+          <Route path='/expert-market' element={withRouteFallback(ExpertMarketPage)} />
           <Route path='/presets' element={withRouteFallback(PresetSettings)} />
           <Route path='/skills' element={withRouteFallback(SkillsSettingsPage)} />
           {/* Session section — the secondary sidebar (ContentSider) persists across these routes */}
@@ -224,20 +240,19 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/agent-runtime' element={<Navigate to='/settings/execution-engines?tab=runtime' replace />} />
           <Route path='/settings/browser-use' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/computer-use' element={withRouteFallback(SystemSettings)} />
-          <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/ext/:tabId' element={withRouteFallback(ExtensionSettingsPage)} />
           <Route path='/settings/webhook' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />
           <Route path='/settings' element={<Navigate to='/settings/system' replace />} />
           <Route path='/test/components' element={withRouteFallback(ComponentsShowcase)} />
+          <Route path='/work-community' element={withRouteFallback(WorkCommunityPage)} />
+          <Route path='/foreign-trade' element={withRouteFallback(ForeignTradePage)} />
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/scheduled/:cron_job_id' element={withRouteFallback(TaskDetailPage)} />
-          {/* Requirements platform — nested shell (ContentSider persists across sections) */}
-          <Route path='/requirements' element={withRouteFallback(RequirementsLayout)}>
-            <Route index element={withRouteFallback(WorkspacePage)} />
-            <Route path='extensions' element={withRouteFallback(ExtensionsPage)} />
-            <Route path='sources' element={withRouteFallback(SourcesPage)} />
-          </Route>
+          {/* A2A 跨境电商 — 暂时以占位页呈现，后续接入正式能力 */}
+          <Route path='/requirements' element={withRouteFallback(ComingSoon)} />
           {/* Legacy requirement routes → fold into the new shell (preserve deep links) */}
+          <Route path='/requirements/extensions' element={<Navigate to='/requirements' replace />} />
+          <Route path='/requirements/sources' element={<Navigate to='/requirements' replace />} />
           <Route path='/requirements/kanban' element={<Navigate to='/requirements?view=board' replace />} />
           <Route path='/requirements/new' element={<Navigate to='/requirements?new=1' replace />} />
           <Route path='/requirements/:id/edit' element={<RequirementEditRedirect />} />
@@ -246,6 +261,12 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           {/* Webhook config relocated into 扩展能力 */}
           <Route path='/other' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />
           <Route path='/geekclaw' element={withRouteFallback(NomiConfigPage)} />
+          {/* 用户管理 (User Management) — admin-only; guarded inside the page too. */}
+          <Route path='/user-management' element={withRouteFallback(UserManagementPage)} />
+          {/* 我的积分 / 计费 (Billing) — wallet + ledger; admin-only management panel inside. */}
+          <Route path='/billing' element={withRouteFallback(BillingPage)} />
+          {/* 套餐与定价 (Pricing) — public marketing tiers; CTA routes to /activate. */}
+          <Route path='/pricing' element={withRouteFallback(PricingPage)} />
           {/* 客服 (Customer Service) — a first-class domain separate from desktop companions. */}
           <Route path='/customer-service' element={withRouteFallback(CustomerServiceRosterPage)} />
           <Route path='/customer-service/:cs_agent_id' element={withRouteFallback(CustomerServiceDetailPage)} />
@@ -253,9 +274,12 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/knowledge/:id' element={withRouteFallback(KnowledgeDetailPage)} />
           {/* 资产库 (Asset Library) — platform-level management of workshop assets. */}
           <Route path='/assets' element={withRouteFallback(AssetLibraryPage)} />
-          {/* 创意工坊 (Creative Workshop) — infinite-canvas AI visual creation. */}
-          <Route path='/workshop' element={withRouteFallback(WorkshopListPage)} />
-          <Route path='/workshop/:id' element={withRouteFallback(WorkshopCanvasPage)} />
+          {/* 创意工坊 (Creative Workshop) — 暂时以占位页呈现 */}
+          <Route path='/workshop/*' element={withRouteFallback(ComingSoon)} />
+          {/* 分享邀约有奖分销 (Referral / affiliate) */}
+          <Route path='/referral' element={withRouteFallback(ReferralPage)} />
+          {/* 龙虾盒子 (Lobster Box) */}
+          <Route path='/lobster' element={withRouteFallback(LobsterPage)} />
         </Route>
         <Route path='*' element={<Navigate to={status === 'authenticated' ? '/guid' : '/login'} replace />} />
       </Routes>

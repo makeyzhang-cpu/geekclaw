@@ -76,8 +76,12 @@ pub fn resolve_models(
                 .find(|p| p.provider_id == provider.provider_id && &p.model == model);
 
             let included = match profile {
-                Some(p) => matches(&p.tasks, &p.traits, task, required_traits),
-                None => {
+                // An empty capability list means the user never declared what the
+                // model does (e.g. added it without picking a modality). Treat that
+                // as "unspecified" and fall back to the name/platform heuristic
+                // rather than hiding the model from every task selector.
+                Some(p) if !p.tasks.is_empty() => matches(&p.tasks, &p.traits, task, required_traits),
+                Some(_) | None => {
                     let (tasks, traits) = derive_tasks_and_traits(&provider.platform, model);
                     matches(&tasks, &traits, task, required_traits)
                 }
@@ -169,6 +173,19 @@ mod tests {
         let img = resolve_models(&providers, &[], ModelTask::ImageGeneration, &[]);
         assert_eq!(img.len(), 1);
         assert_eq!(img[0].model, "dall-e-3");
+    }
+
+    #[test]
+    fn empty_tasks_profile_falls_back_to_heuristic() {
+        // Regression: a user-added model whose profile has empty tasks (the
+        // user never picked a modality) must NOT vanish from the chat selector.
+        // It should fall back to the name/platform heuristic, which classifies
+        // deepseek-v4-flash as a chat model.
+        let providers = vec![provider(PROVIDER_ID, "deepseek", &["deepseek-v4-flash"])];
+        let profiles = vec![profile(PROVIDER_ID, "deepseek-v4-flash", vec![], vec![])];
+        let chat = resolve_models(&providers, &profiles, ModelTask::Chat, &[]);
+        assert_eq!(chat.len(), 1);
+        assert_eq!(chat[0].model, "deepseek-v4-flash");
     }
 
     #[test]

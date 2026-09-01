@@ -12,7 +12,6 @@ use nomifun_api_types::{
 use nomifun_auth::CurrentUser;
 use nomifun_common::AppError;
 
-use crate::service::CronService;
 use crate::state::CronRouterState;
 
 pub fn cron_routes(state: CronRouterState) -> Router {
@@ -43,7 +42,7 @@ async fn create_job(
 ) -> Result<(StatusCode, Json<ApiResponse<CronJobResponse>>), AppError> {
     let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
     let job = state.cron_service.add_job(&user.id, req).await?;
-    let resp = CronService::to_response(&job);
+    let resp = state.cron_service.to_response(&job).await;
     Ok((StatusCode::CREATED, Json(ApiResponse::ok(resp))))
 }
 
@@ -53,7 +52,10 @@ async fn list_jobs(
     Query(query): Query<ListCronJobsQuery>,
 ) -> Result<Json<ApiResponse<Vec<CronJobResponse>>>, AppError> {
     let jobs = state.cron_service.list_jobs(&user.id, &query).await?;
-    let items: Vec<CronJobResponse> = jobs.iter().map(CronService::to_response).collect();
+    let mut items: Vec<CronJobResponse> = Vec::with_capacity(jobs.len());
+    for j in &jobs {
+        items.push(state.cron_service.to_response(j).await);
+    }
     Ok(Json(ApiResponse::ok(items)))
 }
 
@@ -63,7 +65,7 @@ async fn get_job(
     Path(cron_job_id): Path<String>,
 ) -> Result<Json<ApiResponse<CronJobResponse>>, AppError> {
     let job = state.cron_service.get_job(&user.id, &cron_job_id).await?;
-    Ok(Json(ApiResponse::ok(CronService::to_response(&job))))
+    Ok(Json(ApiResponse::ok(state.cron_service.to_response(&job).await)))
 }
 
 async fn update_job(
@@ -77,7 +79,7 @@ async fn update_job(
         .cron_service
         .update_job(&user.id, &cron_job_id, req)
         .await?;
-    Ok(Json(ApiResponse::ok(CronService::to_response(&job))))
+    Ok(Json(ApiResponse::ok(state.cron_service.to_response(&job).await)))
 }
 
 async fn delete_job(

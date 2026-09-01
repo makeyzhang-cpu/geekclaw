@@ -13,6 +13,7 @@
  */
 
 import type { ConfirmationCorrelationId, IConfirmation } from '@/common/chat/chatLib';
+import type { ICoAgentResult, IRunCoAgentRequest } from '@/common/types/coAgent';
 import { bridge } from '@/platform';
 import type { McpConnectionTestRequest } from './mcpRequest';
 import {
@@ -78,6 +79,7 @@ import {
   parsePresetReference,
   parsePresetTagKey,
 } from '../types/agent/presetTypes';
+import type { ConsensusRun, ConsensusState, CreateTeamRequest, StartConsensusRequest, Team, UpdateTeamRequest } from '../types/agent/teamTypes';
 import type { PreviewHistoryTarget, PreviewSnapshotInfo, PreviewUrlResponse } from '../types/office/preview';
 import { parsePresetTagId, parsePreviewSnapshotId } from '../types/ids';
 import type { AcpModelInfo } from '../types/platform/acpTypes';
@@ -384,6 +386,51 @@ export const presetTags = {
   ), fromApiPresetTag),
   delete: httpDelete<void, { preset_tag_id: PresetTag['preset_tag_id'] }>(
     (p) => `/api/preset-tags/${encodeURIComponent(p.preset_tag_id)}`
+  ),
+};
+
+// ---------------------------------------------------------------------------
+// Teams — Team Agent composer persistence (GeekClaw #72)
+// ---------------------------------------------------------------------------
+
+export const teams = {
+  list: httpGet<Team[], void>('/api/teams'),
+  get: httpGet<Team, { team_id: string }>((p) => `/api/teams/${encodeURIComponent(p.team_id)}`),
+  create: httpPost<Team, CreateTeamRequest>('/api/teams'),
+  update: httpPut<Team, { team_id: string } & UpdateTeamRequest>(
+    (p) => `/api/teams/${encodeURIComponent(p.team_id)}`,
+    (p) => {
+      const { team_id: _teamId, ...body } = p;
+      return body;
+    }
+  ),
+  delete: httpDelete<void, { team_id: string }>((p) => `/api/teams/${encodeURIComponent(p.team_id)}`),
+};
+
+// ---------------------------------------------------------------------------
+// Team consensus — #73 consensus engine
+// ---------------------------------------------------------------------------
+
+export const teamConsensus = {
+  start: httpPost<ConsensusRun, { team_id: string } & StartConsensusRequest>(
+    (p) => `/api/teams/${encodeURIComponent(p.team_id)}/consensus`,
+    (p) => {
+      const { team_id: _teamId, ...body } = p;
+      return body;
+    }
+  ),
+  get: httpGet<ConsensusState, { team_id: string }>(
+    (p) => `/api/teams/${encodeURIComponent(p.team_id)}/consensus`
+  ),
+  cancel: httpPost<void, { team_id: string }>(
+    (p) => `/api/teams/${encodeURIComponent(p.team_id)}/consensus/cancel`
+  ),
+  listRuns: httpGet<ConsensusRun[], { team_id: string }>(
+    (p) => `/api/teams/${encodeURIComponent(p.team_id)}/consensus/runs`
+  ),
+  getRun: httpGet<ConsensusState, { team_id: string; run_id: string }>(
+    (p) =>
+      `/api/teams/${encodeURIComponent(p.team_id)}/consensus/runs/${encodeURIComponent(p.run_id)}`
   ),
 };
 
@@ -1083,7 +1130,8 @@ export type SkillMarketSource =
   | 'skillhub_mcp'
   | 'mcpworld'
   | 'clawhub_plugins'
-  | 'skillhub_packages';
+  | 'skillhub_packages'
+  | 'geekclaw_featured';
 
 export interface ISkillMarketItem {
   id: string;
@@ -2578,6 +2626,12 @@ export interface ICronJob {
     retry_count: number;
     max_retries: number;
   };
+  /**
+   * #74: optional team-consensus trigger. Raw JSON `{"team_id": "...", "topic": "..."}`.
+   * Present when the scheduled job launches a team consensus run instead of a
+   * conversation. Echoed from the backend so the UI can show the binding.
+   */
+  consensus_target?: string | null;
 }
 
 export interface ICronJobRun {
@@ -2616,6 +2670,12 @@ export interface ICreateCronJobParams {
   created_by: 'user' | 'agent';
   execution_mode?: 'existing' | 'new_conversation';
   agent_config?: ICronAgentConfig;
+  /**
+   * #74: optional team-consensus trigger. Raw JSON `{"team_id": "...", "topic": "..."}`.
+   * When set, the scheduled job launches a team consensus run instead of a
+   * conversation at trigger time.
+   */
+  consensus_target?: string;
 }
 
 /**
@@ -3514,7 +3574,7 @@ export const hub = {
   }>('hub.state-changed'),
 };
 
-// ── Requirements Platform (需求平台) ─────────────────────────────────
+// ── Requirements Platform (A2A跨境电商) ─────────────────────────────────
 
 export type RequirementStatus = 'pending' | 'in_progress' | 'done' | 'failed' | 'cancelled' | 'needs_review';
 
@@ -5696,6 +5756,17 @@ export interface IKnowledgeConsumer {
 // Routed to /api/customer-service (hand-defined against the pinned backend contract).
 // ---------------------------------------------------------------------------
 
+/** 只读业务查询端点：客服可调用其 HTTPS GET 接口查询实时业务数据（订单/物流/库存等）。
+ * host 由管理员钉死为白名单，模型仅可填充 `{placeholder}` 参数（仅字母数字及 _ . - @ +）。 */
+export interface IBusinessEndpoint {
+  /** 端点名称，用于生成工具名 biz_*（仅字母数字与下划线）。 */
+  name: string;
+  /** 仅 https，可含 {placeholder} 占位符，host 被固定不可被模型篡改。 */
+  url_template: string;
+  /** 该查询返回什么的描述，展示给模型以帮助其正确调用。 */
+  description: string;
+}
+
 /** One customer-service agent (客服员工). */
 export interface ICsAgent {
   cs_agent_id: CsAgentId;
@@ -5710,6 +5781,8 @@ export interface ICsAgent {
   model: string | null;
   /** Platform knowledge-base ids this agent may retrieve from. */
   knowledge_base_ids: KnowledgeBaseId[];
+  /** 可选只读业务查询端点（订单/物流/库存等），让客服能答实时业务问题。 */
+  business_endpoints: IBusinessEndpoint[];
   enabled: boolean;
   /** Per-agent concurrent turn ceiling (1..=64). */
   max_concurrent: number;
@@ -5727,6 +5800,7 @@ export type ICsAgentPatch = Partial<{
   provider_id: ProviderId | null;
   model: string | null;
   knowledge_base_ids: KnowledgeBaseId[];
+  business_endpoints: IBusinessEndpoint[];
   enabled: boolean;
   max_concurrent: number;
   audit_retention_days: number;
@@ -5786,6 +5860,8 @@ const fromApiCsAgent = (raw: unknown): ICsAgent => {
     cs_agent_id: parseCsAgentId(agent.cs_agent_id),
     provider_id: agent.provider_id == null ? null : parseProviderId(agent.provider_id),
     knowledge_base_ids: kbIds,
+    business_endpoints: (agent as { business_endpoints?: IBusinessEndpoint[] })
+      .business_endpoints ?? [],
   };
 };
 
@@ -6145,4 +6221,28 @@ export const knowledge = {
     '/api/knowledge/inbox/discard-all',
     (p) => ({ kbId: p.kbId, scope: p.scope })
   ),
+};
+
+/**
+ * 协同共答（co-agent）。
+ *
+ * `run` 调 `POST /api/co-agent/run`：前端拥有梯度开关配置（mode / keywords /
+ * name / 可选 provider/model），随请求体下发；后端按梯度开关决定是否执行、
+ * 复用系统已配置的 provider/key。返回 `null` 表示本轮回合被关闭（未消耗
+ * token）。
+ */
+export const coAgent = {
+  run: httpPost<ICoAgentResult | null, IRunCoAgentRequest>('/api/co-agent/run', (req) => ({
+    config: {
+      mode: req.config.mode,
+      keywords: req.config.keywords ?? [],
+      system_prompt: req.config.system_prompt,
+      provider_id: req.config.provider_id ?? '',
+      model: req.config.model ?? '',
+      name: req.config.name,
+      history_window: req.config.history_window ?? 0,
+    },
+    message: req.message,
+    history: req.history ?? [],
+  })),
 };

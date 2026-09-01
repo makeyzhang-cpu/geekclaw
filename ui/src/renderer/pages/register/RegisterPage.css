@@ -1,0 +1,22 @@
+.register-page__back-to-login {
+  text-align: center;
+  margin-top: 16px;
+}
+
+.register-page__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-3, #86909c);
+}
+
+.register-page__back-to-login a {
+  color: var(--color-text-2, #4e5969);
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.register-page__back-to-login a:hover {
+  color: var(--color-text-1, #1d2129);
+}

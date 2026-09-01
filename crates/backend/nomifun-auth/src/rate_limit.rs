@@ -36,9 +36,12 @@ impl RateLimiter {
         }
     }
 
-    /// Auth rate limiter: 5 failed attempts per 15-minute window.
+    /// Auth rate limiter: 10 failed attempts per 15-minute window.
+    /// (Raised from 5 so a normal user's repeated typo / password-reset trials
+    /// don't lock their whole IP out for a quarter hour; 10/15min still blocks
+    /// credential-guessing at a practical rate.)
     pub fn auth() -> Self {
-        Self::new(5, Duration::from_secs(15 * 60))
+        Self::new(10, Duration::from_secs(15 * 60))
     }
 
     /// API rate limiter: 60 requests per 1-minute window.
@@ -46,9 +49,11 @@ impl RateLimiter {
         Self::new(60, Duration::from_secs(60))
     }
 
-    /// Authenticated action limiter: 20 requests per 1-minute window.
+    /// Authenticated action limiter: 60 requests per 1-minute window.
+    /// (Raised from 20 to comfortably allow the storefront's 5s payment-poll
+    /// plus other authenticated actions from the same session/IP.)
     pub fn authenticated_action() -> Self {
-        Self::new(20, Duration::from_secs(60))
+        Self::new(60, Duration::from_secs(60))
     }
 
     /// Check if the key is rate limited without modifying state.
@@ -191,7 +196,7 @@ fn is_private_or_loopback(ip: std::net::IpAddr) -> bool {
     }
 }
 
-/// Auth rate limit middleware: 5 failed attempts per 15 minutes per IP.
+/// Auth rate limit middleware: 10 failed attempts per 15 minutes per IP.
 ///
 /// Pre-checks the limit; records failures only for definitive credential
 /// rejections (401/403). Other non-success statuses must not consume the
@@ -337,9 +342,9 @@ mod tests {
     }
 
     #[test]
-    fn factory_auth_limit_is_five() {
+    fn factory_auth_limit_is_ten() {
         let limiter = RateLimiter::auth();
-        for _ in 0..5 {
+        for _ in 0..10 {
             assert!(limiter.check_and_increment("ip").is_ok());
         }
         assert!(limiter.check_and_increment("ip").is_err());

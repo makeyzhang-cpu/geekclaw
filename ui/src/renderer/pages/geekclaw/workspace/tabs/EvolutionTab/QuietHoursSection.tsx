@@ -41,7 +41,7 @@ const QuietHoursSection: React.FC<Props> = ({ profile, patchCompanion }) => {
           title={t('geekclaw.evolution.quietRange', { defaultValue: '休眠时段' })}
           description={t('geekclaw.evolution.quietRangeDesc', {
             defaultValue:
-              '时段内桌面伙伴不再弹气泡打扰你，未读提醒仍会累计到它的角标上；定时学习和技能生成也会跳过，等睡醒再继续。收到消息仍会正常回复。留空表示全天都可以打扰。',
+              '时段内数字分身伙伴不再弹气泡打扰你，未读提醒仍会累计到它的角标上；定时学习和技能生成也会跳过，等睡醒再继续。收到消息仍会正常回复。留空表示全天都可以打扰。',
           })}
           controls={
             <TimePicker.RangePicker

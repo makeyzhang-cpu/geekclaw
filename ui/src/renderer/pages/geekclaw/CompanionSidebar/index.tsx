@@ -12,7 +12,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import type { DragEndEvent } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import classNames from 'classnames';
-import { Delete, Drag, Pic, Plus } from '@icon-park/react';
+import { Delete, Drag, Pic, Plus, Shop } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import ContentSider from '@/renderer/components/layout/ContentSider';
 import InstantHoverTooltip from '@/renderer/components/base/InstantHoverTooltip';
@@ -143,6 +143,8 @@ export interface CompanionSidebarProps {
   onSelect: (id: CompanionId) => void;
   onOpenFigures: () => void;
   onCreate: () => void;
+  /** 打开「专家数字分身市场」页（雇佣行业专家为可对话的数字分身伙伴）。 */
+  onOpenExpertMarket: () => void;
   onRequestDelete: (companion: ICompanionWithStatus) => void;
   /** New full order, first to last. */
   onReorder: (orderedIds: CompanionId[]) => void;
@@ -164,6 +166,7 @@ const CompanionSidebar: React.FC<CompanionSidebarProps> = ({
   onSelect,
   onOpenFigures,
   onCreate,
+  onOpenExpertMarket,
   onRequestDelete,
   onReorder,
   resizeHandle,
@@ -222,7 +225,24 @@ const CompanionSidebar: React.FC<CompanionSidebarProps> = ({
       ariaLabel={t('geekclaw.title')}
       resizeHandle={resizeHandle}
       header={
-        <div className='px-8px pt-12px pb-8px'>
+        <div className='px-8px pt-12px pb-8px flex flex-col gap-8px'>
+          {/* 专家数字分身市场 — 雇佣行业专家为可对话的数字分身伙伴。
+              与「新建伙伴」保持一致的椭圆形长条外框。 */}
+          <div
+            role='button'
+            tabIndex={0}
+            onClick={onOpenExpertMarket}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpenExpertMarket();
+              }
+            }}
+            className='flex items-center justify-center gap-6px h-36px rd-full px-14px cursor-pointer font-700 text-13px text-[var(--color-text-1)] bg-[rgba(var(--primary-6),0.12)] hover:bg-[rgba(var(--primary-6),0.18)] shadow-[0_6px_18px_rgba(var(--primary-6),0.14)] transition-colors box-border outline-none'
+          >
+            <Shop theme='outline' size='15' fill='currentColor' strokeWidth={3} />
+            <span className='truncate'>{t('expertMarket.title', { defaultValue: '专家数字分身市场' })}</span>
+          </div>
           {/* The soft primary CTA (12% tint, not a saturated fill) is the app's
               most elegant call to action — see KnowledgeListPage. */}
           <div

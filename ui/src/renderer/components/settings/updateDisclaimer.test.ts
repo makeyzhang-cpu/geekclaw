@@ -18,11 +18,10 @@ describe('update disclaimer', () => {
     );
   });
 
-  test('renders the disclaimer once in the update modal bottom chrome', () => {
+  test('does not render the disclaimer in the update modal chrome', () => {
     const updateModalSource = readSource(new URL('./UpdateModal.tsx', import.meta.url));
-    const renderDisclaimerCalls = updateModalSource.match(/renderDisclaimer\(/g) ?? [];
 
-    expect(renderDisclaimerCalls).toHaveLength(1);
-    expect(/renderDisclaimer\(\s*'shrink-0 border-t/.test(updateModalSource)).toBe(true);
+    expect(updateModalSource.includes('renderDisclaimer')).toBe(false);
+    expect(updateModalSource.includes("update.disclaimer")).toBe(false);
   });
 });

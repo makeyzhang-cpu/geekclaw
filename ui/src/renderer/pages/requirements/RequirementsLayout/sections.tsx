@@ -6,10 +6,10 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Components, DatabaseConfig, ListView } from '@icon-park/react';
+import { Shop, ShoppingBag } from '@icon-park/react';
 
-/** The three top-level sections of the requirements platform shell. */
-export type RequirementsSection = 'workspace' | 'extensions' | 'sources';
+/** The two top-level sections of the A2A cross-border e-commerce shell. */
+export type RequirementsSection = 'workspace' | 'storefront';
 
 export interface RequirementsSectionDef {
   key: RequirementsSection;
@@ -22,7 +22,7 @@ export interface RequirementsSectionDef {
 }
 
 /**
- * The requirements-platform section definitions, in rail order.
+ * The A2A cross-border e-commerce section definitions, in rail order.
  *
  * Each section is a real nested route under `/requirements`, so `path` is an
  * absolute pathname (the shell rail navigates to it and derives the active
@@ -35,20 +35,14 @@ export const useRequirementsSections = (): RequirementsSectionDef[] => {
     {
       key: 'workspace',
       label: t('requirements.section.workspace'),
-      icon: <ListView theme='outline' size='16' strokeWidth={3} />,
+      icon: <ShoppingBag theme='outline' size='16' strokeWidth={3} />,
       path: '/requirements',
     },
     {
-      key: 'extensions',
-      label: t('requirements.section.extensions'),
-      icon: <Components theme='outline' size='16' strokeWidth={3} />,
-      path: '/requirements/extensions',
-    },
-    {
-      key: 'sources',
-      label: t('requirements.section.sources'),
-      icon: <DatabaseConfig theme='outline' size='16' strokeWidth={3} />,
-      path: '/requirements/sources',
+      key: 'storefront',
+      label: t('requirements.section.storefront'),
+      icon: <Shop theme='outline' size='16' strokeWidth={3} />,
+      path: '/requirements/storefront',
     },
   ];
 };

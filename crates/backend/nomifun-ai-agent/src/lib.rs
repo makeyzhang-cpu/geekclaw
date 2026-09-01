@@ -13,6 +13,7 @@ pub mod cc_switch;
 pub mod factory;
 pub(crate) mod idle_scanner;
 pub mod knowledge_completer;
+pub mod co_agent;
 pub mod knowledge_retrieval;
 pub mod knowledge_writeback;
 pub mod manager;
@@ -90,6 +91,10 @@ pub use protocol::events::{
 pub use protocol::send_error::AgentSendError;
 pub use registry::{AgentRegistry, UnavailableReason};
 pub use routes::{AgentRouterState, RemoteAgentRouterState, agent_routes, remote_agent_routes};
+pub use co_agent::{
+    CoAgentConfig, CoAgentLlm, CoAgentMode, CoAgentOrchestrator, CoAgentResult, SystemProviderCoAgent,
+};
+pub use routes::{CoAgentRouterState, co_agent_routes};
 pub use services::AgentService;
 pub use services::RemoteAgentService;
 pub use runtime_registry::{AgentRuntimeRegistry, InMemoryAgentRuntimeRegistry};

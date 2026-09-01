@@ -140,6 +140,10 @@ const NomiWorkspacePage: React.FC = () => {
     );
   }, [setSearchParams]);
 
+  const openExpertMarket = useCallback(() => {
+    navigate('/expert-market');
+  }, [navigate]);
+
   const handleCreated = useCallback(
     async (profile: ICompanionProfile) => {
       await refresh();
@@ -375,7 +379,7 @@ const NomiWorkspacePage: React.FC = () => {
         <AddOne theme='outline' size='30' fill='currentColor' strokeWidth={3} />
       </span>
       <span className='text-16px font-500 text-t-primary'>
-        {t('geekclaw.companions.emptyTitle', { defaultValue: '还没有桌面伙伴' })}
+        {t('geekclaw.companions.emptyTitle', { defaultValue: '还没有数字分身伙伴' })}
       </span>
       <span className='max-w-360px text-13px leading-20px text-t-tertiary'>
         {t('geekclaw.companions.emptyHint', {
@@ -414,6 +418,7 @@ const NomiWorkspacePage: React.FC = () => {
               onSelect={selectCompanion}
               onOpenFigures={openFigures}
               onCreate={() => setCreateOpen(true)}
+              onOpenExpertMarket={openExpertMarket}
               onRequestDelete={requestDelete}
               onReorder={handleReorder}
               resizeHandle={resize.createDragHandle({ className: 'right-0' })}

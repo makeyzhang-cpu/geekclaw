@@ -79,7 +79,7 @@ const AppearanceSection: React.FC<AppearanceSectionProps> = ({
       <NomiSettingList>
         <NomiSettingRow
           title={t('geekclaw.settings.name', { defaultValue: '名字' })}
-          description={t('geekclaw.settings.nameHint', { defaultValue: '伙伴的称呼，会出现在聊天与桌面伙伴里' })}
+          description={t('geekclaw.settings.nameHint', { defaultValue: '伙伴的称呼，会出现在聊天与数字分身伙伴里' })}
           controls={
             <NomiInput
               contentFit
@@ -98,7 +98,7 @@ const AppearanceSection: React.FC<AppearanceSectionProps> = ({
         />
 
         <NomiSettingRow
-          title={t('geekclaw.settings.character', { defaultValue: '桌面形象' })}
+          title={t('geekclaw.settings.character', { defaultValue: '数字分身形象' })}
           description={t('geekclaw.overview.figureCurrent', { defaultValue: '当前：{{look}}', look: lookName })}
           controls={
             <>
@@ -123,7 +123,7 @@ const AppearanceSection: React.FC<AppearanceSectionProps> = ({
         <NomiSettingRow
           title={t('geekclaw.overview.deskVisible', { defaultValue: '桌面显示' })}
           description={t('geekclaw.settings.companionEnabledHint', {
-            defaultValue: '在桌面显示你的桌面伙伴（透明置顶小窗，仅桌面端）',
+            defaultValue: '在桌面显示你的数字分身伙伴（透明置顶小窗，仅桌面端）',
           })}
           controls={
             <>

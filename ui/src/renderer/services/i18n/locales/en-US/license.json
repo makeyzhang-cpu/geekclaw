@@ -1,0 +1,32 @@
+{
+  "brand": "GeekClaw Activation",
+  "upgradeEntry": "Upgrade / Activate",
+  "statusActiveShort": "Activated",
+  "subtitle": "Enter an offline license to activate Pro and unlock premium agent capabilities.",
+  "subtitleActive": "Pro is activated. All premium capabilities are unlocked.",
+  "statusActive": "Pro Active",
+  "edition": "Edition",
+  "activatedAt": "Activated at",
+  "expiresAt": "Expires at",
+  "never": "Never (perpetual)",
+  "unlocked": "Unlocked: premium agent subscriptions and team-consensus enhancements are now available.",
+  "activate": "Activate",
+  "activating": "Activating…",
+  "activated": "Activated. Pro capabilities are now unlocked.",
+  "deactivate": "Deactivate",
+  "deactivating": "Working…",
+  "deactivated": "Deactivated. Pro capabilities are now locked.",
+  "enterKey": "License key",
+  "keyPlaceholder": "Paste a GEEK*... offline license key",
+  "hint": "Offline licenses are verified by a local signature — no network needed. Obtain a key through authorized channels.",
+  "back": "Back",
+  "pro": "Pro",
+  "lockedHint": "This is a Pro-only feature. Activate to unlock it.",
+  "unlockCta": "Activate to unlock",
+  "errors": {
+    "keyRequired": "Please enter a license key.",
+    "invalidKey": "Invalid key or signature mismatch. Check and try again.",
+    "expired": "This license has expired.",
+    "activateFailed": "Activation failed. Please try again."
+  }
+}

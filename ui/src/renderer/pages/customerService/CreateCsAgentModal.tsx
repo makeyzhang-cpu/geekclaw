@@ -50,6 +50,7 @@ const CreateCsAgentModal: React.FC<Props> = ({ visible, onClose, onCreated, crea
         provider_id: (values.provider_id as ProviderId | undefined) ?? null,
         model: (values.model as string | undefined) ?? null,
         knowledge_base_ids: ((values.knowledge_base_ids as KnowledgeBaseId[] | undefined) ?? []),
+        business_endpoints: [],
         max_concurrent: (values.max_concurrent as number | undefined) ?? 8,
       });
       Message.success(t('customerService.create.done', { defaultValue: '客服已创建' }));

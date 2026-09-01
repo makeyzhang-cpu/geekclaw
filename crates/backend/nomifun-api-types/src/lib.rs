@@ -35,6 +35,7 @@ mod serde_util;
 mod shell;
 mod skill;
 mod system;
+mod team;
 mod mcp_bridge;
 mod terminal;
 mod webhook;
@@ -85,10 +86,15 @@ pub use preset::{
     SetPresetStateRequest, SkillBinding, UpdatePresetRequest, UpdatePresetTagRequest,
 };
 pub use auth::{
-    AuthStatusResponse, ChangePasswordRequest, ChangeUsernameRequest, ChangeUsernameResponse, LoginRequest,
-    LoginResponse, PublicUser, QrLoginRequest, RefreshResponse, RefreshTokenRequest, UserInfoResponse,
+    AdjustCreditsRequest, AuthStatusResponse, BillingBalance, ChangePasswordRequest,
+    ChangeUsernameRequest, ChangeUsernameResponse, CreateInvitationRequest, CreateInvitationResponse,
+    CreditTransactionInfo, InvitationInfo, InvitationListResponse, ListUsersResponse, LoginRequest,
+    LoginResponse, ModelPriceInfo, ModelPriceListResponse, PublicUser, QrLoginRequest,
+    RefreshResponse, RefreshTokenRequest, RegisterRequest, SetPlanRequest, SetRoleRequest,
+    UpsertPricingRequest, UserListItem, UserInfoResponse,
     WebuiChangePasswordRequest, WebuiChangeUsernameRequest, WebuiChangeUsernameResponse,
     WebuiGenerateQrTokenResponse, WebuiResetPasswordResponse, WsTokenResponse,
+    SendSmsRequest, PhoneRegisterRequest, PhoneLoginRequest, ResetPasswordPhoneRequest,
 };
 pub use channel::{
     ApprovePairingRequest, BridgeResponse, CHANNEL_OWNER_DOMAIN_COMPANION,
@@ -225,6 +231,10 @@ pub use skill::{
 pub use system::{
     ClientPreferencesResponse, SystemSettingsResponse, UpdateClientPreferencesRequest,
     UpdateSettingsRequest,
+};
+pub use team::{
+    ConsensusMessageResponse, ConsensusRunResponse, ConsensusStateResponse, CreateTeamRequest,
+    MemberPromptOverride, StartConsensusRequest, TeamMemberResponse, TeamResponse, UpdateTeamRequest,
 };
 pub use mcp_bridge::{
     BROWSER_CAPABILITY_DOMAIN, BROWSER_MCP_TOOL_NAMES, BrowserCapabilityClaims,

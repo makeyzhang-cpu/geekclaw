@@ -485,10 +485,14 @@ const AddPlatformModal = ModalHOC<{
         setIsSaving(true);
         await onSubmit(provider);
         if (values.model) {
-          const selectedTraits = tasks.includes('chat') && visionInput ? (['vision_input'] as const) : [];
+          // 未声明任何模态能力时，默认按聊天模型处理（绝大多数 OpenAI 兼容
+          // 供应商添加的模型即聊天模型），避免写入空 tasks 导致模型从会话/
+          // 协作选择器消失。
+          const effectiveTasks: ModelTask[] = tasks.length > 0 ? tasks : ['chat'];
+          const selectedTraits = effectiveTasks.includes('chat') && visionInput ? (['vision_input'] as const) : [];
           try {
             await ipcBridge.modelProfile.upsert.invoke({
-              ...buildModelProfileUpsertRequest(provider.id, values.model, tasks, [...selectedTraits]),
+              ...buildModelProfileUpsertRequest(provider.id, values.model, effectiveTasks, [...selectedTraits]),
             });
             void mutateSWR(MODEL_PROFILES_SWR_KEY);
           } catch (error) {

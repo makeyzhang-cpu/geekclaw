@@ -109,6 +109,7 @@ impl CronSink for CronServiceSink {
             created_by: "agent".to_string(),
             execution_mode: None, // -> Existing
             agent_config: None,
+            consensus_target: None,
         };
         let job = self
             .service

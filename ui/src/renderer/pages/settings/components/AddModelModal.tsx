@@ -80,9 +80,12 @@ const AddModelModal = ModalHOC<{ data?: IProvider; onSubmit: (model: IProvider) 
       // Persist the authoritative capability profile for the new model so probing
       // and dispatch pick the correct endpoint (source=user = authoritative).
       try {
-        const selectedTraits = tasks.includes('chat') && visionInput ? (['vision_input'] as const) : [];
+        // 未声明任何模态能力时，默认按聊天模型处理，避免写入空 tasks 导致
+        // 模型从会话/协作选择器消失。
+        const effectiveTasks: ModelTask[] = tasks.length > 0 ? tasks : ['chat'];
+        const selectedTraits = effectiveTasks.includes('chat') && visionInput ? (['vision_input'] as const) : [];
         await ipcBridge.modelProfile.upsert.invoke({
-          ...buildModelProfileUpsertRequest(data.id, model, tasks, [...selectedTraits]),
+          ...buildModelProfileUpsertRequest(data.id, model, effectiveTasks, [...selectedTraits]),
         });
         void mutateSWR(MODEL_PROFILES_SWR_KEY);
       } catch (e) {

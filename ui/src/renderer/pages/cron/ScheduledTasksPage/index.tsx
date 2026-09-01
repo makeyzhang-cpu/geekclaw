@@ -8,11 +8,14 @@ import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Button, Switch, Message, Empty, Pagination, Spin, Tooltip, Input } from '@arco-design/web-react';
+import { Button, Switch, Message, Empty, Pagination, Spin, Tooltip, Input, Tag } from '@arco-design/web-react';
+import useSWR from 'swr';
+import { ipcBridge } from '@/common';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { useAllCronJobs } from '@renderer/pages/cron/useCronJobs';
 import { formatSchedule, formatNextRun } from '@renderer/pages/cron/cronUtils';
 import { type ICronJob } from '@/common/adapter/ipcBridge';
+import type { Team } from '@/common/types/agent/teamTypes';
 import { HUB_PAGE_TITLE_CLASS } from '@/renderer/components/layout/HubPageShell';
 import type { ConversationId } from '@/common/types/ids';
 import { useKeepAwake } from '@renderer/hooks/ui/useKeepAwake';
@@ -36,6 +39,8 @@ const ScheduledTasksPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { jobs, loading, pauseJob, resumeJob, deleteJob } = useAllCronJobs();
   const { cliAgents } = useConversationAgents();
+  // #74: teams used to resolve the team-consensus target label on each card.
+  const { data: teams } = useSWR<Team[]>('all-teams', () => ipcBridge.teams.list.invoke());
   const [createDialogVisible, setCreateDialogVisible] = useState(false);
   const [lockedCreateConversationId, setLockedCreateConversationId] = useState<ConversationId | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
@@ -264,6 +269,21 @@ const ScheduledTasksPage: React.FC = () => {
                     ? t('cron.page.form.newConversation')
                     : t('cron.page.form.existingConversation');
 
+                // #74: resolve the team-consensus target label (if any).
+                const isTeamJob = Boolean(job.consensus_target);
+                const teamTagPrefix = t('cron.page.tag.teamConsensus', { defaultValue: '团队共识' });
+                let consensusTeamName: string | undefined;
+                if (isTeamJob && job.consensus_target) {
+                  try {
+                    const parsed = JSON.parse(job.consensus_target) as { team_id?: string };
+                    if (parsed.team_id) {
+                      consensusTeamName = teams?.find((tm) => tm.team_id === parsed.team_id)?.name;
+                    }
+                  } catch {
+                    /* malformed consensus_target — fall back to the bare prefix */
+                  }
+                }
+
                 return (
                   <div
                     key={job.cron_job_id}
@@ -281,8 +301,13 @@ const ScheduledTasksPage: React.FC = () => {
                           {shortSessionId(job.cron_job_id)}
                         </span>
                       </span>
-                      <div className='shrink-0 md:[grid-column:3] md:[grid-row:1] md:justify-self-start'>
+                      <div className='shrink-0 md:[grid-column:3] md:[grid-row:1] md:justify-self-start flex items-center gap-6px'>
                         <CronStatusTag job={job} />
+                        {isTeamJob && (
+                          <Tag size='small' color='arcoblue'>
+                            {consensusTeamName ? `${teamTagPrefix}：${consensusTeamName}` : teamTagPrefix}
+                          </Tag>
+                        )}
                       </div>
                     </div>
 
@@ -313,26 +338,34 @@ const ScheduledTasksPage: React.FC = () => {
 
                     <div className='mt-10px flex items-center justify-between gap-10px md:mt-0 md:contents'>
                       <div className='flex min-w-0 items-center gap-6px text-12px leading-18px text-t-secondary md:[grid-column:4] md:[grid-row:1] md:text-13px md:leading-20px'>
-                        {agentMeta.name ? (
-                          <Tooltip content={agentMeta.name}>
-                            <div className='flex h-16px w-16px shrink-0 items-center justify-center text-t-secondary md:h-18px md:w-18px'>
-                              {agentMeta.logo ? (
-                                <img
-                                  src={agentMeta.logo}
-                                  alt={agentMeta.name}
-                                  className='h-16px w-16px shrink-0 rounded-50% md:h-18px md:w-18px'
-                                />
-                              ) : (
-                                <span className='flex h-16px w-16px items-center justify-center rounded-50% text-10px font-medium text-t-secondary md:h-18px md:w-18px'>
-                                  {agentMeta.name.slice(0, 1)}
-                                </span>
-                              )}
-                            </div>
-                          </Tooltip>
-                        ) : null}
-                        <span className='min-w-0 truncate' title={executionModeLabel}>
-                          {executionModeLabel}
-                        </span>
+                        {isTeamJob ? (
+                          <span className='min-w-0 truncate' title={consensusTeamName ?? teamTagPrefix}>
+                            {consensusTeamName ? `${teamTagPrefix}：${consensusTeamName}` : teamTagPrefix}
+                          </span>
+                        ) : (
+                          <>
+                            {agentMeta.name ? (
+                              <Tooltip content={agentMeta.name}>
+                                <div className='flex h-16px w-16px shrink-0 items-center justify-center text-t-secondary md:h-18px md:w-18px'>
+                                  {agentMeta.logo ? (
+                                    <img
+                                      src={agentMeta.logo}
+                                      alt={agentMeta.name}
+                                      className='h-16px w-16px shrink-0 rounded-50% md:h-18px md:w-18px'
+                                    />
+                                  ) : (
+                                    <span className='flex h-16px w-16px items-center justify-center rounded-50% text-10px font-medium text-t-secondary md:h-18px md:w-18px'>
+                                      {agentMeta.name.slice(0, 1)}
+                                    </span>
+                                  )}
+                                </div>
+                              </Tooltip>
+                            ) : null}
+                            <span className='min-w-0 truncate' title={executionModeLabel}>
+                              {executionModeLabel}
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       <div className='shrink-0 md:hidden' onClick={(event) => event.stopPropagation()}>

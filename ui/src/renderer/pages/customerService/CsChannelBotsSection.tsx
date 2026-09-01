@@ -178,7 +178,7 @@ const CsChannelBotsSection: React.FC<{ csAgentId: CsAgentId }> = ({ csAgentId })
       <div className='flex items-center justify-between gap-12px'>
         <span className='text-12px text-t-tertiary'>
           {t('customerService.bindings.domainHint', {
-            defaultValue: '客服使用自己的渠道机器人，与桌面伙伴的渠道相互独立。',
+            defaultValue: '客服使用自己的渠道机器人，与数字分身伙伴的渠道相互独立。',
           })}
         </span>
         <Button size='small' type='primary' onClick={() => setPickerOpen(true)}>

@@ -34,32 +34,33 @@ pub fn validate_password(password: &str) -> Result<(), AuthError> {
 /// Validate username format.
 ///
 /// Rules:
-/// - Length: 3-32 characters
-/// - Allowed characters: `[a-zA-Z0-9_-]`
+/// - Length: 3-32 Unicode characters (CJK names are supported)
+/// - Allowed characters: Unicode letters/digits, ASCII `_`, and `-`
 /// - Must not start or end with `-` or `_`
 pub fn validate_username(username: &str) -> Result<(), AuthError> {
-    if username.len() < MIN_USERNAME_LENGTH {
+    let char_count = username.chars().count();
+    if char_count < MIN_USERNAME_LENGTH {
         return Err(AuthError::InvalidUsername(format!(
             "Username must be at least {MIN_USERNAME_LENGTH} characters"
         )));
     }
-    if username.len() > MAX_USERNAME_LENGTH {
+    if char_count > MAX_USERNAME_LENGTH {
         return Err(AuthError::InvalidUsername(format!(
             "Username must not exceed {MAX_USERNAME_LENGTH} characters"
         )));
     }
     if !username
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
         return Err(AuthError::InvalidUsername(
-            "Username may only contain letters, digits, underscores, and hyphens".into(),
+            "Username may only contain letters, digits, underscores, hyphens, or CJK characters".into(),
         ));
     }
-    // Safe to index: length >= 3, all ASCII
-    let first = username.as_bytes()[0];
-    let last = username.as_bytes()[username.len() - 1];
-    if matches!(first, b'-' | b'_') || matches!(last, b'-' | b'_') {
+    // Length >= 3, so first and last chars are guaranteed to exist.
+    let first = username.chars().next().unwrap();
+    let last = username.chars().last().unwrap();
+    if matches!(first, '-' | '_') || matches!(last, '-' | '_') {
         return Err(AuthError::InvalidUsername(
             "Username must not start or end with a hyphen or underscore".into(),
         ));
@@ -118,6 +119,12 @@ mod tests {
     #[test]
     fn valid_username() {
         assert!(validate_username("test_user-1").is_ok());
+    }
+
+    #[test]
+    fn valid_username_cjk() {
+        assert!(validate_username("极客张军波").is_ok());
+        assert!(validate_username("测试用户A-1").is_ok());
     }
 
     #[test]

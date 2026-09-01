@@ -6,12 +6,14 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Button, Message, Popconfirm, Spin, Empty } from '@arco-design/web-react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import { Button, Message, Popconfirm, Spin, Empty, Tag } from '@arco-design/web-react';
 import { Left, Delete, Write, Attention, Robot, PlayOne, PauseOne } from '@icon-park/react';
 import classNames from 'classnames';
+import useSWR from 'swr';
 import { ipcBridge } from '@/common';
 import type { ICronJob, ICronJobRunStatus } from '@/common/adapter/ipcBridge';
+import type { Team } from '@/common/types/agent/teamTypes';
 import type { TChatConversation } from '@/common/config/storage';
 import { useConversationAgents } from '@renderer/pages/conversation/hooks/useConversationAgents';
 import CronStatusTag from './CronStatusTag';
@@ -49,6 +51,9 @@ const TaskDetailPage: React.FC = () => {
   const [editDialogVisible, setEditDialogVisible] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
   const [toggling, setToggling] = useState(false);
+
+  // #74: resolve the bound team for team-consensus cron jobs.
+  const { data: teams } = useSWR<Team[]>('all-teams', () => ipcBridge.teams.list.invoke());
 
   const isNewConversationMode = job?.execution_mode === 'new_conversation';
   const isManualOnly = job?.schedule.kind === 'cron' && !job.schedule.expr;
@@ -214,6 +219,23 @@ const TaskDetailPage: React.FC = () => {
     ? t('cron.detail.executionModeDescriptionNew')
     : t('cron.detail.executionModeDescriptionExisting');
 
+  // #74: team-consensus target resolution.
+  const isTeamJob = Boolean(job?.consensus_target);
+  const teamTagPrefix = t('cron.page.tag.teamConsensus', { defaultValue: '团队共识' });
+  let consensusTeamName: string | undefined;
+  let consensusTeamId: string | undefined;
+  if (isTeamJob && job?.consensus_target) {
+    try {
+      const parsed = JSON.parse(job.consensus_target) as { team_id?: string };
+      if (parsed.team_id) {
+        consensusTeamId = parsed.team_id;
+        consensusTeamName = teams?.find((tm) => tm.team_id === parsed.team_id)?.name;
+      }
+    } catch {
+      /* malformed consensus_target — fall back to the bare prefix */
+    }
+  }
+
   return (
     <div className='w-full min-h-full box-border overflow-y-auto px-14px pt-28px pb-24px md:px-40px md:pt-52px md:pb-42px'>
       <div className='mx-auto flex w-full max-w-800px flex-col gap-28px box-border'>
@@ -285,6 +307,11 @@ const TaskDetailPage: React.FC = () => {
           </div>
           <div className='flex flex-wrap items-center gap-10px md:gap-12px'>
             <CronStatusTag job={job} />
+            {isTeamJob && (
+              <Tag size='small' color='arcoblue'>
+                {consensusTeamName ? `${teamTagPrefix}：${consensusTeamName}` : teamTagPrefix}
+              </Tag>
+            )}
             {job.state.next_run_at_ms && (
               <span className='text-14px text-t-secondary'>
                 {t('cron.nextRun')} {formatNextRun(job.state.next_run_at_ms)}
@@ -348,25 +375,51 @@ const TaskDetailPage: React.FC = () => {
               </div>
             </section>
 
-            {job.metadata.agent_type && (
+            {isTeamJob ? (
               <section className='flex flex-col gap-10px'>
-                <h2 className='m-0 text-13px font-medium text-t-secondary'>{t('cron.detail.agent')}</h2>
+                <h2 className='m-0 text-13px font-medium text-t-secondary'>{teamTagPrefix}</h2>
                 <div className='flex items-center gap-10px'>
-                  {(() => {
-                    const { name: displayName, logo } = getJobAgentMeta(job, cliAgents);
-                    return (
-                      <>
-                        {logo ? (
-                          <img src={logo} alt={displayName} className='h-28px w-28px rounded-50%' />
-                        ) : (
-                          <Robot size='28' className='shrink-0 text-t-secondary' />
-                        )}
-                        <span className='min-w-0 text-14px font-medium text-t-primary'>{displayName}</span>
-                      </>
-                    );
-                  })()}
+                  <Robot size='28' className='shrink-0 text-t-secondary' />
+                  {consensusTeamId ? (
+                    <Link
+                      to={`/team/${consensusTeamId}`}
+                      className='min-w-0 text-14px font-medium text-t-primary hover:underline'
+                    >
+                      {consensusTeamName ?? teamTagPrefix}
+                    </Link>
+                  ) : (
+                    <span className='min-w-0 text-14px font-medium text-t-primary'>
+                      {consensusTeamName ?? teamTagPrefix}
+                    </span>
+                  )}
                 </div>
+                <p className='m-0 text-12px leading-18px text-t-secondary'>
+                  {t('cron.detail.teamConsensusHint', {
+                    defaultValue: '触发时将以任务指令作为议题，启动该团队的共识循环（多专家多轮研讨），不执行普通会话。',
+                  })}
+                </p>
               </section>
+            ) : (
+              job.metadata.agent_type && (
+                <section className='flex flex-col gap-10px'>
+                  <h2 className='m-0 text-13px font-medium text-t-secondary'>{t('cron.detail.agent')}</h2>
+                  <div className='flex items-center gap-10px'>
+                    {(() => {
+                      const { name: displayName, logo } = getJobAgentMeta(job, cliAgents);
+                      return (
+                        <>
+                          {logo ? (
+                            <img src={logo} alt={displayName} className='h-28px w-28px rounded-50%' />
+                          ) : (
+                            <Robot size='28' className='shrink-0 text-t-secondary' />
+                          )}
+                          <span className='min-w-0 text-14px font-medium text-t-primary'>{displayName}</span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </section>
+              )
             )}
 
             <section className='flex flex-col gap-10px'>
@@ -376,6 +429,7 @@ const TaskDetailPage: React.FC = () => {
               </div>
             </section>
 
+            {!isTeamJob && (
             <section className='flex flex-col gap-10px'>
               <h2 className='m-0 text-13px font-medium text-t-secondary'>{t('cron.page.form.executionMode')}</h2>
               <div className='inline-flex items-center gap-4px'>
@@ -399,6 +453,7 @@ const TaskDetailPage: React.FC = () => {
                 </div>
               )}
             </section>
+            )}
 
             {job.metadata.agent_config?.model && (
               <section className='flex flex-col gap-10px'>

@@ -1,8 +1,25 @@
-use sqlx::SqlitePool;
+use sqlx::{FromRow, Row, SqlitePool};
+
+use nomifun_common::{TimestampMs, now_ms};
+use rand::Rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::error::DbError;
-use crate::models::User;
+use crate::models::{CreditTransaction, Invitation, ModelPricing, Order, SubscriptionPlan, User};
 use crate::repository::IUserRepository;
+
+/// True if the sqlx error is a SQLite UNIQUE-constraint violation
+/// (`SQLITE_CONSTRAINT_UNIQUE` = 2067). Used to retry `ensure_invite_code` on the
+/// rare collision rather than bubbling the error up as a 500.
+fn is_sqlite_unique_violation(e: &sqlx::Error) -> bool {
+    match e {
+        sqlx::Error::Database(db) => {
+            db.is_unique_violation() || db.code() == Some(std::borrow::Cow::Borrowed("2067"))
+        }
+        _ => false,
+    }
+}
 
 /// SQLite-backed implementation of [`IUserRepository`].
 #[derive(Clone, Debug)]
@@ -82,7 +99,7 @@ impl IUserRepository for SqliteUserRepository {
         // concurrent first-run callers cannot both match — the second sees the
         // already-populated hash and updates 0 rows.
         let result = sqlx::query(
-            "UPDATE users SET username = ?, password_hash = ?, updated_at = ? \
+            "UPDATE users SET username = ?, password_hash = ?, \"role\" = 'admin', updated_at = ? \
              WHERE user_id = (SELECT owner_user_id FROM installation_identity \
                               WHERE singleton_key = 'installation') \
                AND (password_hash = '' OR password_hash IS NULL)",
@@ -126,8 +143,8 @@ impl IUserRepository for SqliteUserRepository {
         let now = nomifun_common::now_ms();
 
         let row_id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (user_id, username, password_hash, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?) RETURNING id",
+            "INSERT INTO users (user_id, username, password_hash, created_at, updated_at, \"role\", is_active, plan, credits) \
+             VALUES (?, ?, ?, ?, ?, 'user', 1, 'free', 0) RETURNING id",
         )
         .bind(id.as_str())
         .bind(username)
@@ -154,7 +171,196 @@ impl IUserRepository for SqliteUserRepository {
             created_at: now,
             updated_at: now,
             last_login: None,
+            phone: None,
+            role: "user".to_string(),
+            is_active: 1,
+            plan: "free".to_string(),
+            credits: 0,
+            invite_code: None,
+            invited_by: None,
         })
+    }
+
+    async fn create_user_with_phone(&self, username: &str, password_hash: &str, phone: &str) -> Result<User, DbError> {
+        let id = nomifun_common::UserId::new();
+        let now = nomifun_common::now_ms();
+        let row_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (user_id, username, password_hash, phone, created_at, updated_at, \"role\", is_active, plan, credits) \
+             VALUES (?, ?, ?, ?, ?, ?, 'user', 1, 'free', 0) RETURNING id",
+        )
+        .bind(id.as_str())
+        .bind(username)
+        .bind(password_hash)
+        .bind(phone)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db_err) if is_unique_violation(db_err.as_ref()) => {
+                DbError::Conflict(format!("Username '{username}' already exists"))
+            }
+            _ => DbError::Query(e),
+        })?;
+        Ok(User {
+            id: row_id,
+            user_id: id,
+            username: username.to_string(),
+            email: None,
+            password_hash: password_hash.to_string(),
+            avatar_path: None,
+            jwt_secret: None,
+            created_at: now,
+            updated_at: now,
+            last_login: None,
+            phone: Some(phone.to_string()),
+            role: "user".to_string(),
+            is_active: 1,
+            plan: "free".to_string(),
+            credits: 0,
+            invite_code: None,
+            invited_by: None,
+        })
+    }
+
+    async fn find_by_phone(&self, phone: &str) -> Result<Option<User>, DbError> {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE phone = ?")
+            .bind(phone)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(user)
+    }
+
+    async fn create_sms_code(&self, phone: &str, code: &str, purpose: &str, expires_at: TimestampMs) -> Result<(), DbError> {
+        let now = nomifun_common::now_ms();
+        sqlx::query(
+            "INSERT INTO sms_verification_codes (phone, code, purpose, expires_at, created_at, used) VALUES (?, ?, ?, ?, ?, 0)",
+        )
+        .bind(phone)
+        .bind(code)
+        .bind(purpose)
+        .bind(expires_at)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_latest_valid_sms_code(&self, phone: &str, purpose: &str, now: TimestampMs) -> Result<Option<(i64, String)>, DbError> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT id, code FROM sms_verification_codes WHERE phone = ? AND purpose = ? AND used = 0 AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(phone)
+        .bind(purpose)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn mark_sms_code_used(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("UPDATE sms_verification_codes SET used = 1 WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ── Referral / affiliate ("分享邀约有奖分销") ───────────────────────────
+
+    async fn ensure_invite_code(&self, user_id: &str) -> Result<String, DbError> {
+        // Return the existing code if already assigned.
+        if let Some(code) = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT invite_code FROM users WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten()
+        {
+            if !code.is_empty() {
+                return Ok(code);
+            }
+        }
+        // Generate + persist a unique personal referral code. The code is drawn
+        // from a CSPRNG (not from a timestamp-derived value) so that codes minted
+        // seconds apart never collide, and we retry on the rare UNIQUE collision
+        // instead of propagating it.
+        let mut rng = StdRng::from_entropy();
+        loop {
+            let code: String = (0..8)
+                .map(|_| rng.sample(rand::distributions::Alphanumeric) as char)
+                .collect::<String>()
+                .to_ascii_uppercase();
+            match sqlx::query(
+                "UPDATE users SET invite_code = ? WHERE user_id = ? AND (invite_code IS NULL OR invite_code = '')",
+            )
+            .bind(&code)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            {
+                Ok(res) if res.rows_affected() > 0 => return Ok(code),
+                Ok(_) => {
+                    // 0 rows affected means a concurrent call already stamped the
+                    // code; re-read and reuse it.
+                    if let Some(existing) = sqlx::query_scalar::<_, Option<String>>(
+                        "SELECT invite_code FROM users WHERE user_id = ?",
+                    )
+                    .bind(user_id)
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .flatten()
+                    {
+                        if !existing.is_empty() {
+                            return Ok(existing);
+                        }
+                    }
+                }
+                Err(e) if is_sqlite_unique_violation(&e) => {
+                    // Collision with another user's code; generate a new one.
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    async fn get_user_by_invite_code(&self, code: &str) -> Result<Option<User>, DbError> {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE invite_code = ?")
+            .bind(code)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(user)
+    }
+
+    async fn set_invited_by(&self, user_id: &str, invited_by: &str) -> Result<(), DbError> {
+        sqlx::query("UPDATE users SET invited_by = ?, updated_at = ? WHERE user_id = ?")
+            .bind(invited_by)
+            .bind(nomifun_common::now_ms())
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn count_invited_by(&self, user_id: &str) -> Result<i64, DbError> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE invited_by = ?")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    async fn sum_credit_tx_by_type(&self, user_id: &str, tx_type: &str) -> Result<i64, DbError> {
+        let row: (Option<i64>,) = sqlx::query_as(
+            "SELECT SUM(amount) FROM credit_transactions WHERE user_id = ? AND tx_type = ?",
+        )
+        .bind(user_id)
+        .bind(tx_type)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0.unwrap_or(0))
     }
 
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, DbError> {
@@ -259,6 +465,490 @@ impl IUserRepository for SqliteUserRepository {
         }
 
         Ok(())
+    }
+
+    async fn set_user_role(&self, user_id: &str, role: &str) -> Result<(), DbError> {
+        let now = nomifun_common::now_ms();
+        let result = sqlx::query("UPDATE users SET \"role\" = ?, updated_at = ? WHERE user_id = ?")
+            .bind(role)
+            .bind(now)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+        Ok(())
+    }
+
+    async fn set_user_active(&self, user_id: &str, active: bool) -> Result<(), DbError> {
+        let now = nomifun_common::now_ms();
+        let result = sqlx::query("UPDATE users SET is_active = ?, updated_at = ? WHERE user_id = ?")
+            .bind(if active { 1i64 } else { 0i64 })
+            .bind(now)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+        Ok(())
+    }
+
+    async fn count_active_admins(&self) -> Result<i64, DbError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM users WHERE \"role\" = 'admin' AND is_active = 1",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    async fn create_invitation(
+        &self,
+        created_by: &str,
+        expires_at: TimestampMs,
+        plan: Option<&str>,
+        credits_grant: i64,
+        reward_to_inviter: i64,
+    ) -> Result<Invitation, DbError> {
+        let code = uuid::Uuid::now_v7().simple().to_string();
+        let now = nomifun_common::now_ms();
+        let row_id: i64 = sqlx::query_scalar(
+            "INSERT INTO invitations (code, created_by, created_at, expires_at, plan, credits_grant, reward_to_inviter) \
+             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        )
+        .bind(&code)
+        .bind(created_by)
+        .bind(now)
+        .bind(expires_at)
+        .bind(plan)
+        .bind(credits_grant)
+        .bind(reward_to_inviter)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db_err) if is_unique_violation(db_err.as_ref()) => {
+                DbError::Conflict("Invitation code collision; retry".to_string())
+            }
+            _ => DbError::Query(e),
+        })?;
+
+        Ok(Invitation {
+            id: row_id,
+            code,
+            created_by: created_by.to_string(),
+            created_at: now,
+            expires_at,
+            used_by: None,
+            used_at: None,
+            plan: plan.map(|p| p.to_string()),
+            credits_grant,
+            reward_to_inviter,
+        })
+    }
+
+    async fn list_invitations(&self) -> Result<Vec<Invitation>, DbError> {
+        let invitations = sqlx::query_as::<_, Invitation>(
+            "SELECT * FROM invitations ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(invitations)
+    }
+
+    async fn get_invitation(&self, code: &str) -> Result<Option<Invitation>, DbError> {
+        let invitation = sqlx::query_as::<_, Invitation>("SELECT * FROM invitations WHERE code = ?")
+            .bind(code)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(invitation)
+    }
+
+    async fn consume_invitation(&self, code: &str, used_by: &str) -> Result<bool, DbError> {
+        let now = nomifun_common::now_ms();
+        // Only consume if the code exists, is unused, and is not expired. The
+        // WHERE clause is the single atomic gate; 0 rows affected means the
+        // code was missing/expired/already used.
+        let result = sqlx::query(
+            "UPDATE invitations SET used_by = ?, used_at = ? \
+             WHERE code = ? AND used_by IS NULL AND expires_at > ?",
+        )
+        .bind(used_by)
+        .bind(now)
+        .bind(code)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_user(&self, user_id: &str) -> Result<(), DbError> {
+        let result = sqlx::query("DELETE FROM users WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+        Ok(())
+    }
+
+    async fn revoke_invitation(&self, code: &str) -> Result<bool, DbError> {
+        // Only unused codes can be revoked; a consumed code must remain for the
+        // audit trail, so the gate returns false instead of deleting it.
+        let result = sqlx::query("DELETE FROM invitations WHERE code = ? AND used_by IS NULL")
+            .bind(code)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn add_credits(
+        &self,
+        user_id: &str,
+        delta: i64,
+        tx_type: &str,
+        ref_type: Option<&str>,
+        ref_value: Option<&str>,
+        note: Option<&str>,
+    ) -> Result<i64, DbError> {
+        let now = now_ms();
+        let mut tx = self.pool.begin().await.map_err(DbError::Query)?;
+
+        let result = sqlx::query(
+            "UPDATE users SET credits = credits + ?, updated_at = ? WHERE user_id = ?",
+        )
+        .bind(delta)
+        .bind(now)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        if result.rows_affected() == 0 {
+            let _ = tx.rollback().await;
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+
+        let balance_after: i64 =
+            sqlx::query_scalar("SELECT credits FROM users WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(DbError::Query)?;
+
+        sqlx::query(
+            "INSERT INTO credit_transactions \
+             (user_id, tx_type, amount, balance_after, ref_type, ref_value, note, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(tx_type)
+        .bind(delta)
+        .bind(balance_after)
+        .bind(ref_type)
+        .bind(ref_value)
+        .bind(note)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        tx.commit().await.map_err(DbError::Query)?;
+        Ok(balance_after)
+    }
+
+    async fn set_plan(&self, user_id: &str, plan: &str) -> Result<(), DbError> {
+        let now = now_ms();
+        let result = sqlx::query("UPDATE users SET plan = ?, updated_at = ? WHERE user_id = ?")
+            .bind(plan)
+            .bind(now)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+        Ok(())
+    }
+
+    async fn create_order(&self, order: &Order) -> Result<Order, DbError> {
+        let now = now_ms();
+        let result = sqlx::query(
+            "INSERT INTO orders \
+             (user_id, plan, period, amount_fen, credits, status, reqsn, qr_payinfo, created_at) \
+             VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?)",
+        )
+        .bind(&order.user_id)
+        .bind(&order.plan)
+        .bind(&order.period)
+        .bind(order.amount_fen)
+        .bind(order.credits)
+        .bind(&order.reqsn)
+        .bind(&order.qr_payinfo)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::Internal("Failed to insert order".into()));
+        }
+
+        self.get_order_by_reqsn(&order.reqsn)
+            .await?
+            .ok_or_else(|| DbError::Internal(format!("Order '{}' not found after insert", order.reqsn)))
+    }
+
+    async fn get_order_by_reqsn(&self, reqsn: &str) -> Result<Option<Order>, DbError> {
+        let row = sqlx::query_as::<_, Order>("SELECT * FROM orders WHERE reqsn = ?")
+            .bind(reqsn)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        Ok(row)
+    }
+
+    async fn list_orders(&self) -> Result<Vec<(Order, Option<String>)>, DbError> {
+        let rows = sqlx::query(
+            "SELECT o.*, u.username FROM orders o LEFT JOIN users u ON u.user_id = o.user_id ORDER BY o.created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let order = Order::from_row(&row).map_err(DbError::Query)?;
+            let username: Option<String> = row.try_get("username").ok().flatten();
+            out.push((order, username));
+        }
+        Ok(out)
+    }
+
+    async fn mark_order_paid(&self, reqsn: &str, trxid: &str) -> Result<bool, DbError> {
+        let now = now_ms();
+        let result = sqlx::query(
+            "UPDATE orders SET status = 'paid', trxid = ?, paid_at = ? WHERE reqsn = ? AND status != 'paid'",
+        )
+        .bind(trxid)
+        .bind(now)
+        .bind(reqsn)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn mark_order_failed(&self, reqsn: &str, reason: &str) -> Result<bool, DbError> {
+        // Only an unpaid (`created`) order can transition to `failed`; a `paid`
+        // order (grant already applied) and an already `failed` order stay put.
+        let result = sqlx::query(
+            "UPDATE orders SET status = 'failed' WHERE reqsn = ? AND status = 'created'",
+        )
+        .bind(reqsn)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        // `reason` is consumed by the caller's log line; keep the schema stable
+        // (no new column) so deployed migrations don't need to change.
+        let _ = reason;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_subscription_plans(
+        &self,
+        include_disabled: bool,
+    ) -> Result<Vec<SubscriptionPlan>, DbError> {
+        let sql = if include_disabled {
+            "SELECT * FROM subscription_plans ORDER BY sort_order ASC, id ASC"
+        } else {
+            "SELECT * FROM subscription_plans WHERE enabled = 1 ORDER BY sort_order ASC, id ASC"
+        };
+        let rows = sqlx::query_as::<_, SubscriptionPlan>(sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        Ok(rows)
+    }
+
+    async fn get_subscription_plan_by_plan_id(
+        &self,
+        plan_id: &str,
+    ) -> Result<Option<SubscriptionPlan>, DbError> {
+        let row = sqlx::query_as::<_, SubscriptionPlan>(
+            "SELECT * FROM subscription_plans WHERE plan_id = ?",
+        )
+        .bind(plan_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(row)
+    }
+
+    async fn create_subscription_plan(
+        &self,
+        plan: &SubscriptionPlan,
+    ) -> Result<SubscriptionPlan, DbError> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO subscription_plans \
+             (plan_id, name, backend_plan, price_fen, credits, description, sort_order, enabled, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&plan.plan_id)
+        .bind(&plan.name)
+        .bind(&plan.backend_plan)
+        .bind(plan.price_fen)
+        .bind(plan.credits)
+        .bind(&plan.description)
+        .bind(plan.sort_order)
+        .bind(plan.enabled)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+
+        self.get_subscription_plan_by_plan_id(&plan.plan_id)
+            .await?
+            .ok_or_else(|| DbError::Internal(format!("Plan '{}' not found after insert", plan.plan_id)))
+    }
+
+    async fn update_subscription_plan(
+        &self,
+        plan: &SubscriptionPlan,
+    ) -> Result<bool, DbError> {
+        let now = now_ms();
+        let result = sqlx::query(
+            "UPDATE subscription_plans SET \
+             name = ?, backend_plan = ?, price_fen = ?, credits = ?, description = ?, \
+             sort_order = ?, enabled = ?, updated_at = ? \
+             WHERE plan_id = ?",
+        )
+        .bind(&plan.name)
+        .bind(&plan.backend_plan)
+        .bind(plan.price_fen)
+        .bind(plan.credits)
+        .bind(&plan.description)
+        .bind(plan.sort_order)
+        .bind(plan.enabled)
+        .bind(now)
+        .bind(&plan.plan_id)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_subscription_plan(&self, plan_id: &str) -> Result<bool, DbError> {
+        let result = sqlx::query("DELETE FROM subscription_plans WHERE plan_id = ?")
+            .bind(plan_id)
+            .execute(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn get_kv(&self, key: &str) -> Result<Option<String>, DbError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM system_kv WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        Ok(row.map(|r| r.0))
+    }
+
+    async fn set_kv(&self, key: &str, value: &str) -> Result<(), DbError> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO system_kv (key, value, updated_at) VALUES (?, ?, ?) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        )
+        .bind(key)
+        .bind(value)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(())
+    }
+
+    async fn list_model_pricing(&self) -> Result<Vec<ModelPricing>, DbError> {
+        let rows = sqlx::query_as::<_, ModelPricing>(
+            "SELECT * FROM model_pricing ORDER BY provider, model, task",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(rows)
+    }
+
+    async fn upsert_model_pricing(&self, pricing: &ModelPricing) -> Result<(), DbError> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO model_pricing \
+             (provider, model, task, input_credits_per_1k, output_credits_per_1k, cache_read_credits_per_1k, currency, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(provider, model, task) DO UPDATE SET \
+             input_credits_per_1k = excluded.input_credits_per_1k, \
+             output_credits_per_1k = excluded.output_credits_per_1k, \
+             cache_read_credits_per_1k = excluded.cache_read_credits_per_1k, \
+             currency = excluded.currency, \
+             updated_at = excluded.updated_at",
+        )
+        .bind(&pricing.provider)
+        .bind(&pricing.model)
+        .bind(&pricing.task)
+        .bind(pricing.input_credits_per_1k)
+        .bind(pricing.output_credits_per_1k)
+        .bind(pricing.cache_read_credits_per_1k)
+        .bind(&pricing.currency)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(())
+    }
+
+    async fn get_model_pricing(
+        &self,
+        provider: &str,
+        model: &str,
+        task: &str,
+    ) -> Result<Option<ModelPricing>, DbError> {
+        let row = sqlx::query_as::<_, ModelPricing>(
+            "SELECT * FROM model_pricing WHERE provider = ? AND model = ? AND task = ?",
+        )
+        .bind(provider)
+        .bind(model)
+        .bind(task)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(row)
+    }
+
+    async fn list_credit_transactions(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<CreditTransaction>, DbError> {
+        let limit = if limit <= 0 { 50 } else { limit };
+        let rows = sqlx::query_as::<_, CreditTransaction>(
+            "SELECT * FROM credit_transactions WHERE user_id = ? \
+             ORDER BY created_at DESC, id DESC LIMIT ?",
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(rows)
     }
 }
 
@@ -557,5 +1247,78 @@ mod tests {
         let user = repo.get_system_user().await.unwrap().unwrap();
         assert_eq!(user.password_hash, "provisioned_hash", "existing password must be kept");
         assert_eq!(user.username, "bob");
+    }
+
+    // -- Invitation + role/active closed-loop tests (user management) --
+
+    #[tokio::test]
+    async fn create_and_list_invitation() {
+        let (repo, _db) = setup().await;
+        let inv = repo.create_invitation("owner", nomifun_common::now_ms() + 86_400_000, None, 0, 0).await.unwrap();
+        assert!(!inv.code.is_empty());
+        let list = repo.list_invitations().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].code, inv.code);
+    }
+
+    #[tokio::test]
+    async fn consume_invitation_marks_used_and_is_idempotent() {
+        let (repo, _db) = setup().await;
+        let inv = repo.create_invitation("owner", nomifun_common::now_ms() + 86_400_000, None, 0, 0).await.unwrap();
+        let consumed = repo.consume_invitation(&inv.code, "user-1").await.unwrap();
+        assert!(consumed);
+        let fetched = repo.get_invitation(&inv.code).await.unwrap().unwrap();
+        assert_eq!(fetched.used_by.as_deref(), Some("user-1"));
+        // A second consume must fail (already used).
+        let again = repo.consume_invitation(&inv.code, "user-2").await.unwrap();
+        assert!(!again);
+    }
+
+    #[tokio::test]
+    async fn consume_invitation_expired_returns_false() {
+        let (repo, _db) = setup().await;
+        let inv = repo.create_invitation("owner", nomifun_common::now_ms() - 1000, None, 0, 0).await.unwrap();
+        let consumed = repo.consume_invitation(&inv.code, "user-1").await.unwrap();
+        assert!(!consumed);
+    }
+
+    #[tokio::test]
+    async fn revoke_invitation_unused_succeeds_used_fails() {
+        let (repo, _db) = setup().await;
+        let inv = repo.create_invitation("owner", nomifun_common::now_ms() + 86_400_000, None, 0, 0).await.unwrap();
+        let revoked = repo.revoke_invitation(&inv.code).await.unwrap();
+        assert!(revoked);
+        assert_eq!(repo.list_invitations().await.unwrap().len(), 0);
+
+        // A used code must not be revocable (kept for the audit trail).
+        let inv2 = repo.create_invitation("owner", nomifun_common::now_ms() + 86_400_000, None, 0, 0).await.unwrap();
+        repo.consume_invitation(&inv2.code, "user-1").await.unwrap();
+        let revoked2 = repo.revoke_invitation(&inv2.code).await.unwrap();
+        assert!(!revoked2);
+        assert_eq!(repo.list_invitations().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn set_user_role_and_count_active_admins() {
+        let (repo, _db) = setup().await;
+        let before = repo.count_active_admins().await.unwrap();
+        assert!(before >= 1, "system owner should be an active admin");
+        let user = repo.create_user("promote", "h").await.unwrap();
+        repo.set_user_role(user.user_id.as_str(), "admin").await.unwrap();
+        assert_eq!(repo.count_active_admins().await.unwrap(), before + 1);
+        repo.set_user_role(user.user_id.as_str(), "user").await.unwrap();
+        assert_eq!(repo.count_active_admins().await.unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn set_user_active_toggles_flag() {
+        let (repo, _db) = setup().await;
+        let user = repo.create_user("toggle", "h").await.unwrap();
+        repo.set_user_active(user.user_id.as_str(), false).await.unwrap();
+        let fetched = repo.find_by_id(user.user_id.as_str()).await.unwrap().unwrap();
+        assert_eq!(fetched.is_active, 0);
+        repo.set_user_active(user.user_id.as_str(), true).await.unwrap();
+        let fetched2 = repo.find_by_id(user.user_id.as_str()).await.unwrap().unwrap();
+        assert_eq!(fetched2.is_active, 1);
     }
 }

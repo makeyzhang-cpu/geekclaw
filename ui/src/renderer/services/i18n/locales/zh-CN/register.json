@@ -1,0 +1,25 @@
+{
+  "brand": "GeekClaw",
+  "subtitle": "使用邀请码注册新账户",
+  "inviteCode": "邀请码",
+  "inviteCodePlaceholder": "请输入邀请码",
+  "username": "用户名",
+  "usernamePlaceholder": "请输入用户名",
+  "password": "密码",
+  "passwordPlaceholder": "请设置密码（至少8位）",
+  "passwordHint": "8-128 位，请勿使用过于常见的密码（如 12345678、password）",
+  "submit": "注册",
+  "registering": "注册中...",
+  "success": "注册成功！正在跳转...",
+  "backToLogin": "已有账号？返回登录",
+  "errors": {
+    "allFieldsRequired": "请填写所有字段",
+    "passwordTooShort": "密码至少需要8个字符",
+    "passwordTooCommon": "密码过于常见，请更换更复杂的密码（避免 12345678、password 等）",
+    "invalidInviteCode": "邀请码无效或已过期",
+    "tooManyAttempts": "操作过于频繁，请稍后再试",
+    "networkError": "连接失败，请稍后重试",
+    "serverError": "服务器开小差了，请稍后重试",
+    "unknown": "注册失败，请稍后重试"
+  }
+}

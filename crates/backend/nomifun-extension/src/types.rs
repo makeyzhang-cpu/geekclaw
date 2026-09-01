@@ -366,6 +366,36 @@ pub struct ExtModelProvider {
     pub models: Vec<String>,
 }
 
+/// How a contributed tool is executed. Tools never embed code: they bridge to
+/// an already-vetted executor, keeping the extension system safe by construction
+/// (no arbitrary code execution from an extension manifest).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtToolBridge {
+    /// Map to an already-registered builtin Rust tool implementation (curated).
+    /// `builtin` is the product tool id (e.g. a customer-service read-only
+    /// query tool). Extensions can *expose* a builtin as a first-class plugin
+    /// but cannot execute arbitrary code.
+    Builtin { builtin: String },
+    /// Delegate execution to a contributed MCP server, referenced by its
+    /// `source_key`. The tool schema/execution is served by that MCP server.
+    McpServer { mcp_server: String },
+}
+
+/// Backend tool contributed by an extension ("everything is a plugin").
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ExtTool {
+    /// Extension-local catalog identity (not a product tool id).
+    pub source_key: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// JSON Schema describing the tool's input.
+    pub input_schema: serde_json::Value,
+    pub bridge: ExtToolBridge,
+}
+
 /// All contributions declared by an extension.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -390,6 +420,8 @@ pub struct ExtContributes {
     pub settings_tabs: Vec<ExtSettingsTab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub model_providers: Vec<ExtModelProvider>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ExtTool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +779,19 @@ pub struct ResolvedModelProvider {
     pub models: Vec<String>,
 }
 
+/// Resolved backend tool (after source_key resolution).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResolvedTool {
+    pub extension_name: String,
+    /// Global catalog identity in `<extension-name>:<local-key>` form.
+    pub source_key: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub input_schema: serde_json::Value,
+    pub bridge: ExtToolBridge,
+}
+
 // ---------------------------------------------------------------------------
 // H. Resolved contributions container
 // ---------------------------------------------------------------------------
@@ -764,6 +809,8 @@ pub struct ResolvedContributions {
     pub webui: Vec<WebuiContribution>,
     pub settings_tabs: Vec<ResolvedSettingsTab>,
     pub model_providers: Vec<ResolvedModelProvider>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ResolvedTool>,
     /// i18n data keyed by extension name, then by message key.
     pub i18n: HashMap<String, HashMap<String, String>>,
 }

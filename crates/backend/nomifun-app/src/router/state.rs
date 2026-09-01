@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nomifun_ai_agent::{
-    AgentRouterState, AgentRuntimeRegistry, AgentService, RemoteAgentRouterState,
+    AgentRouterState, AgentRuntimeRegistry, AgentService, CoAgentRouterState, RemoteAgentRouterState,
     RemoteAgentService,
 };
 use nomifun_api_types::TerminalExitEvent;
@@ -30,6 +30,8 @@ use nomifun_db::{
     SqliteIdmmInterventionRepository, SqliteProviderRepository, SqliteRemoteAgentRepository, SqliteSettingsRepository,
     MAX_UNSETTLED_TURN_ADMISSION_PAGE_SIZE,
 };
+use nomifun_db::{ITeamConsensusRepository, ITeamRepository, SqliteTeamConsensusRepository, SqliteTeamRepository};
+use nomifun_team::{TeamConsensusService, TeamRouterState, TeamService};
 use nomifun_extension::{
     PresetRuleDispatcher, ExtensionRegistry, ExtensionRouterState, ExtensionStateStore, ExternalPathsManager,
     HubIndexManager, HubInstaller, HubRouterState, SkillRouterState, resolve_install_target_dir_for_data_dir,
@@ -73,6 +75,8 @@ pub struct ModuleStates {
     pub remote_agent: RemoteAgentRouterState,
     pub ssh_host: nomifun_ssh::SshHostRouterState,
     pub agent: AgentRouterState,
+    /// 协同共答 (co-agent) 端点状态 — 复用系统已配置 provider/key。
+    pub co_agent: CoAgentRouterState,
 
     pub connection_test: ConnectionTestRouterState,
     pub file: FileRouterState,
@@ -99,6 +103,10 @@ pub struct ModuleStates {
     pub office: OfficeRouterState,
     pub shell: ShellRouterState,
     pub preset: PresetRouterState,
+    /// Team Agent composer persistence (GeekClaw #72).
+    pub team: TeamRouterState,
+    /// 专家数字分身市场（GeekClaw 任务 F）。
+    pub expert_market: crate::expert_market::ExpertMarketRouterState,
 }
 
 fn default_allowed_roots(work_dir: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
@@ -487,8 +495,15 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
     );
 
     let preset = build_preset_state(services, ext_state.registry.clone());
+    let team = build_team_state(services);
+    if let Err(error) = team.consensus.startup_cleanup().await {
+        tracing::warn!(error = %error, "team consensus startup cleanup failed");
+    }
     let cron = build_cron_state(services, preset.service.clone());
     cron.cron_service.with_preset_service(preset.service.clone());
+    // #74: wire the team-consensus engine into the cron service so scheduled
+    // jobs carrying a `consensus_target` can launch a team consensus run.
+    cron.cron_service.with_consensus_service(team.consensus.clone());
 
     // Construct the route ConversationService before any producer starts, then
     // synchronously classify every unsettled generation while the exact
@@ -540,7 +555,7 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
         elapsed_ms = boot.elapsed().as_millis(),
         "startup: module states bundle started"
     );
-    let (requirement_state, idmm_state) = build_requirement_state(services);
+    let (requirement_state, idmm_state) = build_requirement_state(services, team.consensus.clone());
     let companion_state = build_companion_state(
         services,
         channel_components.manager.clone(),
@@ -563,6 +578,12 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
         agent: AgentRouterState {
             agent_registry: services.agent_registry.clone(),
             service: agent_service,
+        },
+        co_agent: CoAgentRouterState {
+            provider_repo: services.provider_repo.clone(),
+            provider_model_repo: services.provider_model_repo.clone(),
+            encryption_key: services.encryption_key,
+            data_dir: services.data_dir.clone(),
         },
         connection_test: build_connection_test_state(),
         file: build_file_state(services),
@@ -596,6 +617,13 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
         office: build_office_state(services),
         shell: build_shell_state(services),
         preset,
+        team,
+        expert_market: crate::expert_market::ExpertMarketRouterState {
+            pool: services.database.pool().clone(),
+            user_repo: services.user_repo.clone(),
+            companion_service: services.companion_service.clone(),
+            owner_user_id: services.authoritative_user_id.clone(),
+        },
     };
 
     tracing::info!(
@@ -630,6 +658,24 @@ pub fn build_preset_state(services: &AppServices, extension_registry: ExtensionR
         services.data_dir.clone(),
     ));
     PresetRouterState { service }
+}
+
+/// Build the process-wide Team Agent composer + #73 consensus engine singletons.
+pub fn build_team_state(services: &AppServices) -> TeamRouterState {
+    let pool = services.database.pool().clone();
+    let repo: Arc<dyn ITeamRepository> = Arc::new(SqliteTeamRepository::new(pool.clone()));
+    let service = Arc::new(TeamService::new(repo.clone()));
+    // #73: consensus engine shares the database pool and the one-shot LLM deps.
+    let consensus_repo: Arc<dyn ITeamConsensusRepository> =
+        Arc::new(SqliteTeamConsensusRepository::new(pool));
+    let one_shot = nomifun_ai_agent::OneShotDeps {
+        provider_repo: services.provider_repo.clone(),
+        provider_model_repo: services.provider_model_repo.clone(),
+        encryption_key: services.encryption_key,
+        workspace: services.data_dir.clone(),
+    };
+    let consensus = Arc::new(TeamConsensusService::new(repo, consensus_repo, one_shot));
+    TeamRouterState::new(service, consensus)
 }
 
 /// Build the default `SystemRouterState` from application services.
@@ -725,6 +771,8 @@ pub fn build_conversation_state(
         Arc::new(nomifun_db::SqliteProviderModelRepository::new(services.database.pool().clone())),
         Arc::new(SqliteClientPreferenceRepository::new(services.database.pool().clone())),
     );
+    // 经济闭环:把 user_repo 注入 conversation service,启用按 token 扣积分计费。
+    conversation_service.with_user_repo(services.user_repo.clone());
     // Drop the conversation's knowledge binding when the conversation goes away.
     conversation_service.with_delete_hook(services.knowledge_service.clone());
     // Clear the conversation-domain owner of any requirement this conversation
@@ -1086,6 +1134,8 @@ pub async fn build_channel_state(
         Arc::new(nomifun_db::SqliteProviderModelRepository::new(services.database.pool().clone())),
         Arc::new(SqliteClientPreferenceRepository::new(services.database.pool().clone())),
     );
+    // 经济闭环:把 user_repo 注入 conversation service,启用按 token 扣积分计费。
+    conversation_svc.with_user_repo(services.user_repo.clone());
     if let Some(hook) = services.runtime_registry_delete_hook.clone() {
         conversation_svc.with_delete_hook(hook);
     }
@@ -1249,7 +1299,10 @@ pub fn build_terminal_state(services: &AppServices) -> TerminalRouterState {
 /// clone for AutoWork config persistence, builds the AutoWork runner, and
 /// constructs the IDMM supervisor sharing the same live-session collaborators
 /// (threaded back into the runner as its `IdmmHandle`).
-pub fn build_requirement_state(services: &AppServices) -> (RequirementRouterState, IdmmRouterState) {
+pub fn build_requirement_state(
+    services: &AppServices,
+    consensus: Arc<TeamConsensusService>,
+) -> (RequirementRouterState, IdmmRouterState) {
     let pool = services.database.pool().clone();
 
     // Build a ConversationService exactly like build_cron_state does, for
@@ -1287,6 +1340,8 @@ pub fn build_requirement_state(services: &AppServices) -> (RequirementRouterStat
         Arc::new(nomifun_db::SqliteProviderModelRepository::new(pool.clone())),
         Arc::new(SqliteClientPreferenceRepository::new(pool.clone())),
     );
+    // 经济闭环:把 user_repo 注入 conversation service,启用按 token 扣积分计费。
+    conv_service.with_user_repo(services.user_repo.clone());
 
     // Router-state service: the singleton plus conversation service + repo for
     // AutoWork config, plus the terminal driver for terminal-target AutoWork. The
@@ -1304,7 +1359,8 @@ pub fn build_requirement_state(services: &AppServices) -> (RequirementRouterStat
             .with_conversation_service(conv_service.clone(), conv_repo.clone())
             .with_terminal_driver(terminal_driver.clone())
             .with_terminal_repo(terminal_repo)
-            .with_autowork_waker(autowork_waker.clone()),
+            .with_autowork_waker(autowork_waker.clone())
+            .with_consensus_service(consensus.clone()),
     );
 
     // -- IDMM: build the supervisor manager + service, sharing the same
@@ -1339,6 +1395,9 @@ pub fn build_requirement_state(services: &AppServices) -> (RequirementRouterStat
         // ACP sessions expose the requirement declaration tools only when the
         // requirement MCP server started + was plumbed into the agent factory.
         requirement_mcp_enabled: services.requirement_mcp_config.is_some(),
+        // #74: let AutoWork launch a team consensus run for team-bound
+        // requirements (extra.team_id).
+        consensus: Some(consensus.clone()),
     });
     let auto_work_runner = Arc::new(nomifun_requirement::AutoWorkRunner::new(deps));
     // Start the periodic lease sweeper (re-pends stale claims from dead sessions).
@@ -1557,6 +1616,8 @@ pub fn build_companion_state(
         Arc::new(nomifun_db::SqliteProviderModelRepository::new(services.database.pool().clone())),
         Arc::new(SqliteClientPreferenceRepository::new(services.database.pool().clone())),
     );
+    // 经济闭环:把 user_repo 注入 conversation service,启用按 token 扣积分计费。
+    conv_service.with_user_repo(services.user_repo.clone());
     if let Some(hook) = services.runtime_registry_delete_hook.clone() {
         conv_service.with_delete_hook(hook);
     }
@@ -1942,6 +2003,8 @@ pub fn build_cron_state(
         Arc::new(nomifun_db::SqliteProviderModelRepository::new(services.database.pool().clone())),
         Arc::new(SqliteClientPreferenceRepository::new(services.database.pool().clone())),
     );
+    // 经济闭环:把 user_repo 注入 conversation service,启用按 token 扣积分计费。
+    conv_service.with_user_repo(services.user_repo.clone());
 
     let busy_guard = Arc::new(nomifun_cron::busy_guard::CronBusyGuard::new());
     let executor = Arc::new(nomifun_cron::executor::JobExecutor::new(

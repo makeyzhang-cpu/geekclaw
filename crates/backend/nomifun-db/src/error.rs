@@ -18,6 +18,11 @@ pub enum DbError {
     #[error("Database initialization failed: {0}")]
     Init(String),
 
+    /// Unexpected internal failure not tied to a specific query/record
+    /// (e.g. an insert succeeded but the row could not be read back).
+    #[error("Database internal error: {0}")]
+    Internal(String),
+
     /// A pre-migration recovery snapshot could not be created or proven safe.
     /// This is deliberately distinct from source-database corruption: startup
     /// must preserve the healthy source file in place and fail closed.
@@ -33,6 +38,7 @@ impl From<DbError> for AppError {
             DbError::Query(e) => AppError::Internal(format!("Database error: {e}")),
             DbError::Migration(e) => AppError::Internal(format!("Migration error: {e}")),
             DbError::Init(msg) => AppError::Internal(format!("Database init error: {msg}")),
+            DbError::Internal(msg) => AppError::Internal(msg),
             DbError::SafetyBackup(msg) => {
                 AppError::Internal(format!("Database safety backup error: {msg}"))
             }

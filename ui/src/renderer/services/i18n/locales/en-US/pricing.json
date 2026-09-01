@@ -1,0 +1,60 @@
+{
+  "menuEntry": "Plans & Pricing",
+  "title": "Choose the plan that fits you",
+  "subtitle": "Free to download, one-click install. Personal, team, or enterprise — there's a tier for everyone. Credits are billed by actual token usage; pay only for what you use.",
+  "monthly": "Monthly",
+  "yearly": "Yearly",
+  "yearlySave": "Save 25%",
+  "perMonth": "/ mo",
+  "perYear": "/ yr",
+  "forever": "/ forever",
+  "currentPlan": "Current plan",
+  "upgrade": "Upgrade",
+  "getStarted": "Get started",
+  "tier": {
+    "free": "Free",
+    "pro": "Pro",
+    "team": "Team"
+  },
+  "recommended": "Recommended",
+  "creditsQuota": "Includes {{count}} credits",
+  "syncedFromCloud": "Plan data synced live from the GeekClaw admin console",
+  "quota": {
+    "free": "500 credits / mo · personal use",
+    "pro": "2,990 credits / mo · high-speed quota",
+    "team": "8,679 credits / mo · team credit pool"
+  },
+  "feature": {
+    "free1": "Basic LLM model calls",
+    "free2": "Expert avatars / collaborative office",
+    "free3": "Team Agent basic capabilities",
+    "pro1": "All Free features",
+    "pro2": "Advanced image / video models",
+    "pro3": "Priority compute & longer context",
+    "pro4": "Recorded tutorials + online Q&A",
+    "team1": "All Pro features",
+    "team2": "Multi-seat team workspace",
+    "team3": "Shared knowledge base + credit pool",
+    "team4": "Usage leaderboard / member management"
+  },
+  "models": {
+    "title": "Pay-as-you-go models (credits / 1K tokens)",
+    "empty": "No model pricing yet. Ask an admin to configure it.",
+    "per1k": "credits / 1K"
+  },
+  "faq": {
+    "title": "Frequently asked questions",
+    "q1": "What's the difference between Free and paid?",
+    "a1": "Free includes basic models and expert-avatar features for light personal use. Paid tiers (Pro / Team) unlock advanced image / video models, priority compute, longer context, and higher credit quotas.",
+    "q2": "How are credits deducted?",
+    "a2": "Each conversation deducts credits based on actual input / output tokens (priced per 1K tokens). You only pay for what you use; if your balance hits zero, new conversations are blocked.",
+    "q3": "How do I upgrade to Pro / Team?",
+    "a3": "Click the tier's Upgrade button, sign in to your GeekClaw cloud account, then scan the WeChat or Alipay QR code to complete the purchase. The plan and credits are applied immediately after payment.",
+    "q4": "Are team credits shared?",
+    "a4": "Team provides a separate team credit pool shared by all members, independent from personal credits. Removed members revert to their personal quota."
+  },
+  "errors": {
+    "loadFailed": "Failed to load plan info",
+    "modelsFailed": "Failed to load model pricing"
+  }
+}

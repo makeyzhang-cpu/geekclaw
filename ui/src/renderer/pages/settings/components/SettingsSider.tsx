@@ -7,7 +7,6 @@ import {
   Computer,
   Cpu,
   Earth,
-  Info,
   Puzzle,
   Server,
   System,
@@ -27,7 +26,6 @@ export const BUILTIN_TAB_IDS = [
   'ssh-hosts',
   'browser-use',
   'computer-use',
-  'about',
 ] as const;
 
 /**
@@ -37,7 +35,6 @@ export const BUILTIN_TAB_IDS = [
  */
 const GROUP_HEADER_BEFORE: Record<string, string> = {
   system: 'settings.groupApp',
-  about: 'settings.groupAbout',
 };
 
 type SiderItem = {
@@ -88,7 +85,6 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         icon: <Computer />,
         path: 'computer-use',
       },
-      about: { id: 'about', label: t('settings.about'), icon: <Info />, path: 'about' },
     };
 
     // Start with ordered builtin IDs

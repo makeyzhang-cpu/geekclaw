@@ -5,3 +5,11 @@
 /icons_backup
 /.workbuddy
 *.zip
+
+# --- GeekClaw dev build residuals (do NOT commit) ---
+ui/node_modules/
+ui/dist/
+ui/dist.bak.*/
+*.bak
+.cargo/config.toml.tmp
+apps/desktop/updater/latest.json.bak.*

@@ -20,6 +20,8 @@ use nomifun_db::{
     FinalizeCronRunOutcome, FinalizeCronRunParams, ReserveCronRunParams, UpdateCronJobParams,
     models::CronJobRow,
 };
+use nomifun_api_types::StartConsensusRequest;
+use nomifun_team::TeamConsensusService;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, info, warn};
 
@@ -87,6 +89,9 @@ pub struct CronService {
     preset_service: Arc<RwLock<Option<Arc<nomifun_preset::PresetService>>>>,
     job_gates: Arc<DashMap<String, Weak<AsyncMutex<()>>>>,
     active_scheduled_runs: Arc<DashMap<String, ()>>,
+    /// #74: optional team-consensus trigger service. Lazily injected so the
+    /// constructor signature stays stable across callers and tests.
+    consensus: Arc<RwLock<Option<Arc<TeamConsensusService>>>>,
 }
 
 #[derive(Debug, Default)]
@@ -129,6 +134,7 @@ impl CronService {
             preset_service: Arc::new(RwLock::new(None)),
             job_gates: Arc::new(DashMap::new()),
             active_scheduled_runs: Arc::new(DashMap::new()),
+            consensus: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -187,14 +193,82 @@ impl CronService {
         }
     }
 
+    /// #74: attach the team-consensus service so scheduled cron jobs can launch
+    /// a team consensus run. Optional; jobs without a consensus target never
+    /// touch it.
+    pub fn with_consensus_service(&self, service: Arc<TeamConsensusService>) {
+        if let Ok(mut guard) = self.consensus.write() {
+            *guard = Some(service);
+        }
+    }
+
+    /// #74 cron→consensus bridge. If `consensus_target` names a team, launch a
+    /// team consensus run and return the resulting cron-run status plus an
+    /// optional error message. Returns `None` when the job carries no consensus
+    /// target, so the caller proceeds with the normal conversation path.
+    async fn maybe_trigger_consensus(
+        &self,
+        user_id: &str,
+        consensus_target: &Option<String>,
+        fallback_topic: &str,
+        fallback_message: &str,
+    ) -> Option<(String, Option<String>)> {
+        let target = consensus_target.as_ref()?;
+        let service = self.consensus.read().ok().and_then(|guard| guard.clone())?;
+        let (team_id, topic) = match serde_json::from_str::<serde_json::Value>(target) {
+            Ok(value) => (
+                value
+                    .get("team_id")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_owned()),
+                value
+                    .get("topic")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_owned()),
+            ),
+            Err(_) => (None, None),
+        };
+        let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) else {
+            return Some((
+                "error".to_owned(),
+                Some("consensus_target missing team_id".to_owned()),
+            ));
+        };
+        let topic = match topic {
+            Some(topic) if !topic.trim().is_empty() => topic,
+            _ => {
+                if fallback_topic.trim().is_empty() {
+                    fallback_message.to_owned()
+                } else {
+                    fallback_topic.to_owned()
+                }
+            }
+        };
+        let request = StartConsensusRequest {
+            topic,
+            max_rounds: None,
+            provider_id: None,
+            model: None,
+            chairman_prompt: None,
+            member_prompts: None,
+        };
+        match service.start(user_id, &team_id, request).await {
+            Ok(_) => Some(("ok".to_owned(), None)),
+            Err(error) => Some((
+                "error".to_owned(),
+                Some(format!("consensus start failed: {error}")),
+            )),
+        }
+    }
+
     async fn emit_job_created_for(&self, job: &CronJob) {
-        self.emitter
-            .emit_job_created(&job.user_id, &cron_job_to_response(job));
+        let resp = self.to_response(job).await;
+        self.emitter.emit_job_created(&job.user_id, &resp);
     }
 
     async fn emit_job_updated_for(&self, job: &CronJob) {
-        self.emitter
-            .emit_job_updated(&job.user_id, &cron_job_to_response(job));
+        let resp = self.to_response(job).await;
+        self.emitter.emit_job_updated(&job.user_id, &resp);
     }
 
     /// Execution updates are persisted in several repository writes (status,
@@ -288,6 +362,7 @@ impl CronService {
         mut req: CreateCronJobRequest,
     ) -> Result<CronJob, CronError> {
         let user_id = validate_cron_user_id(user_id)?;
+        let consensus_target = req.consensus_target.take();
         let execution_mode = parse_execution_mode(req.execution_mode.as_deref())?;
         if matches!(execution_mode, ExecutionMode::NewConversation) && req.conversation_id.is_some() {
             return Err(CronError::App(AppError::BadRequest(
@@ -340,21 +415,26 @@ impl CronService {
         // `agent_config` may legitimately be absent (the desktop "指定会话"
         // flow omits it). Only NewConversation / lazy-bind jobs require
         // `agent_config.provider_id` and `agent_config.model`.
-        self.validate_nomi_job_model(
-            &req.agent_type,
-            execution_mode,
-            conversation_id.as_deref(),
-            req.agent_config
-                .as_ref()
-                .and_then(|config| config.backend.as_deref()),
-            req.agent_config
-                .as_ref()
-                .and_then(|config| config.provider_id.as_deref()),
-            req.agent_config
-                .as_ref()
-                .and_then(|config| config.model.as_deref()),
-        )
-        .await?;
+        // #74: a team-consensus-bound job never executes a conversation (the
+        // tick launches a consensus run instead), so it skips model/agent
+        // validation entirely — `agent_config` is intentionally absent.
+        if consensus_target.is_none() {
+            self.validate_nomi_job_model(
+                &req.agent_type,
+                execution_mode,
+                conversation_id.as_deref(),
+                req.agent_config
+                    .as_ref()
+                    .and_then(|config| config.backend.as_deref()),
+                req.agent_config
+                    .as_ref()
+                    .and_then(|config| config.provider_id.as_deref()),
+                req.agent_config
+                    .as_ref()
+                    .and_then(|config| config.model.as_deref()),
+            )
+            .await?;
+        }
 
         let created_by = CreatedBy::from_str(&req.created_by)?;
         let message = req.message.or(req.prompt).unwrap_or_default();
@@ -405,15 +485,32 @@ impl CronService {
             max_retries: 3,
         };
 
-        if controls_host && job.conversation_id.is_none() {
-            self.executor
-                .canonicalize_new_conversation_agent(&mut job)
-                .await?;
+        // #74: team-consensus-bound jobs skip conversation/workspace setup
+        // (they trigger a consensus run, not a conversation).
+        if consensus_target.is_none() {
+            if controls_host && job.conversation_id.is_none() {
+                self.executor
+                    .canonicalize_new_conversation_agent(&mut job)
+                    .await?;
+            }
+            self.validate_job_workspace(&job).await?;
         }
-        self.validate_job_workspace(&job).await?;
 
         let row = cron_job_to_row(&job)?;
         self.repo.insert(&row).await?;
+        if let Some(target) = consensus_target.as_deref() {
+            if let Err(set_error) = self
+                .repo
+                .set_consensus_target(&job.cron_job_id, Some(target))
+                .await
+            {
+                let _ = self.repo.delete(user_id, &job.cron_job_id).await;
+                return Err(CronError::Scheduler(format!(
+                    "failed to persist consensus target for cron job {}: {set_error}",
+                    job.cron_job_id
+                )));
+            }
+        }
         if let Err(bind_error) = self.bind_existing_conversation_if_needed(&job).await {
             if let Err(compensation_error) =
                 self.repo.delete(user_id, &job.cron_job_id).await
@@ -1362,6 +1459,7 @@ impl CronService {
             return;
         }
 
+        let consensus_target = row.consensus_target.clone();
         let job = match cron_job_from_row(row) {
             Ok(j) => j,
             Err(e) => {
@@ -1528,6 +1626,24 @@ impl CronService {
             return;
         };
         drop(job_guard);
+        // #74 cron→consensus bridge: a job carrying a team-consensus target
+        // launches a team consensus run instead of a conversation.
+        if let Some((status, error)) = self
+            .maybe_trigger_consensus(&job.user_id, &consensus_target, &job.name, &job.message)
+            .await
+        {
+            self.finalize_run_once(
+                &job,
+                &reservation.cron_job_run_id,
+                &status,
+                job.conversation_id.as_deref(),
+                error.as_deref(),
+                CronJobRunProjection::default(),
+            )
+            .await;
+            return;
+        }
+
         // Resolve (and, for new-conversation jobs, create) the exact target
         // before model execution, then durably attach it to this occurrence.
         // Boot recovery must never guess a Conversation from mutable job state:
@@ -2016,8 +2132,16 @@ impl CronService {
     // Helpers
     // -----------------------------------------------------------------------
 
-    pub fn to_response(job: &CronJob) -> CronJobResponse {
-        cron_job_to_response(job)
+    /// Build the API response for a job, echoing its team-consensus target
+    /// (#74) by reading the row's `consensus_target` column.
+    pub async fn to_response(&self, job: &CronJob) -> CronJobResponse {
+        let consensus_target = self
+            .repo
+            .get_consensus_target(&job.cron_job_id)
+            .await
+            .ok()
+            .flatten();
+        cron_job_to_response(job, consensus_target.as_deref())
     }
 
     /// Reinstall only the row that is currently authoritative in SQLite after
@@ -2751,6 +2875,7 @@ impl nomifun_conversation::response_middleware::ICronService for CronService {
             created_by: "agent".to_owned(),
             execution_mode: Some("existing".to_owned()),
             agent_config,
+            consensus_target: None,
         };
 
         match self.add_job(user_id, req).await {

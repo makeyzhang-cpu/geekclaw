@@ -11,7 +11,7 @@ use crate::repository::customer_service::{
 };
 
 const AGENT_COLUMNS: &str = "cs_agent_id, name, greeting, persona, service_policy, provider_id, \
-     model, knowledge_base_ids, enabled, max_concurrent, audit_retention_days, created_at, updated_at";
+     model, knowledge_base_ids, business_endpoints, enabled, max_concurrent, audit_retention_days, created_at, updated_at";
 const DIALOGUE_COLUMNS: &str = "cs_dialogue_id, cs_agent_id, channel_plugin_id, channel_user_id, \
      chat_id, state, created_at, last_activity";
 const MESSAGE_COLUMNS: &str = "cs_message_id, cs_dialogue_id, role, content, created_at";
@@ -42,7 +42,7 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         canonical_id("cs_agent_id", &row.cs_agent_id)?;
         let sql = format!(
             "INSERT INTO cs_agents ({AGENT_COLUMNS}) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              RETURNING {AGENT_COLUMNS}"
         );
         let inserted = sqlx::query_as::<_, CsAgentRow>(&sql)
@@ -54,6 +54,7 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(&row.provider_id)
             .bind(&row.model)
             .bind(&row.knowledge_base_ids)
+            .bind(&row.business_endpoints)
             .bind(row.enabled)
             .bind(row.max_concurrent)
             .bind(row.audit_retention_days)
@@ -97,6 +98,7 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
                 provider_id = CASE WHEN ? THEN ? ELSE provider_id END, \
                 model = CASE WHEN ? THEN ? ELSE model END, \
                 knowledge_base_ids = COALESCE(?, knowledge_base_ids), \
+                business_endpoints = COALESCE(?, business_endpoints), \
                 enabled = COALESCE(?, enabled), \
                 max_concurrent = COALESCE(?, max_concurrent), \
                 audit_retention_days = COALESCE(?, audit_retention_days), \
@@ -114,6 +116,7 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(params.model.is_some())
             .bind(params.model.clone().flatten())
             .bind(&params.knowledge_base_ids)
+            .bind(&params.business_endpoints)
             .bind(params.enabled)
             .bind(params.max_concurrent)
             .bind(params.audit_retention_days)

@@ -1,6 +1,7 @@
 mod acp_session;
 mod agent_metadata;
 mod agent_execution;
+mod billing;
 mod agent_execution_template;
 mod attachment;
 mod channel;
@@ -16,6 +17,8 @@ mod knowledge;
 mod mcp_server;
 mod message;
 mod oauth_token;
+mod order;
+mod subscription_plan;
 mod provider;
 mod provider_connection;
 mod provider_model;
@@ -24,6 +27,8 @@ mod remote_agent;
 mod requirement;
 mod skill_tag;
 mod ssh_host;
+mod team;
+mod team_consensus;
 mod system_settings;
 mod tag_setting;
 mod terminal_session;
@@ -51,8 +56,8 @@ pub use conversation_artifact::ConversationArtifactRow;
 pub use cron_job::CronJobRow;
 pub use cron_job_run::{CronJobRunRow, CronRunReservationRow};
 pub use customer_service::{
-    CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
-    NewCsAgentRow,
+    BusinessEndpoint, CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow,
+    CsMessageRow, CsNoteRow, NewCsAgentRow,
 };
 pub use idmm_intervention::{
     IdmmActionReservationRow, IdmmInterventionRow, NewIdmmInterventionRow,
@@ -72,10 +77,15 @@ pub use remote_agent::RemoteAgentRow;
 pub use requirement::{NewRequirementRow, RequirementRow, RequirementRowUpdate, RequirementTagRow};
 pub use skill_tag::{SkillTagRow, UpsertSkillTagParams};
 pub use ssh_host::SshHostRow;
+pub use team::{TeamMemberRow, TeamRow};
+pub use team_consensus::{ConsensusMessageRow, ConsensusRunRow};
 pub use system_settings::SystemSettings;
 pub use tag_setting::TagSettingRow;
 pub use terminal_session::TerminalSessionRow;
 pub use terminal_turn::TerminalTurnAdmissionRow;
-pub use user::User;
+pub use user::{Invitation, User};
+pub use billing::{CreditTransaction, ModelPricing};
+pub use order::Order;
+pub use subscription_plan::SubscriptionPlan;
 pub use webhook::WebhookRow;
 pub use workshop::{CreationTaskRow, WorkshopAssetRow, WorkshopCanvasRow};

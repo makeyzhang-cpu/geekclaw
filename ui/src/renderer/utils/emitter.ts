@@ -59,6 +59,10 @@ interface EventTypes {
   // GET-poll fallback confirms the runtime is idle, so the transcript
   // reloads even when every WebSocket frame was lost.
   'conversation.turn.settled': [ConversationId];
+  // 协同共答触发事件：用户消息成功发出后由发送框发出，携带会话 id 与消息文本；
+  // CollaboratorPanel 订阅后调用 /api/co-agent/run 并渲染「协作者」块。
+  // Co-agent trigger: emitted by the send box after a user message is sent.
+  'co-agent.turn': [{ conversation_id: ConversationId; message: string }];
   // 预览面板事件 / Preview panel events
   'preview.open': [
     { content: string; contentType: PreviewContentType; metadata?: { title?: string; file_name?: string } },

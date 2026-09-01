@@ -141,6 +141,7 @@ impl CustomerServiceService {
             provider_id: normalize_optional(input.provider_id),
             model: normalize_optional(input.model),
             knowledge_base_ids: CsAgentRow::encode_knowledge_base_ids(&input.knowledge_base_ids),
+            business_endpoints: "[]".to_string(),
             enabled: true,
             max_concurrent,
             audit_retention_days,
@@ -191,6 +192,7 @@ impl CustomerServiceService {
             knowledge_base_ids: input
                 .knowledge_base_ids
                 .map(|ids| CsAgentRow::encode_knowledge_base_ids(&ids)),
+            business_endpoints: None,
             enabled: input.enabled,
             max_concurrent: input.max_concurrent,
             audit_retention_days: input.audit_retention_days,

@@ -24,11 +24,8 @@ const REQUIREMENTS_SIDER_STORAGE_KEY = 'geekclaw:requirements-sider-width';
  * from greedily winning over `/requirements/extensions` etc.
  */
 const activeSectionForPath = (pathname: string): RequirementsSection => {
-  if (pathname === '/requirements/extensions' || pathname.startsWith('/requirements/extensions/')) {
-    return 'extensions';
-  }
-  if (pathname === '/requirements/sources' || pathname.startsWith('/requirements/sources/')) {
-    return 'sources';
+  if (pathname === '/requirements/storefront' || pathname.startsWith('/requirements/storefront/')) {
+    return 'storefront';
   }
   return 'workspace';
 };

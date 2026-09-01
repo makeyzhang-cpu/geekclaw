@@ -1,0 +1,32 @@
+{
+  "brand": "GeekClaw 激活",
+  "upgradeEntry": "升级 / 激活",
+  "statusActiveShort": "已激活",
+  "subtitle": "输入离线 License 激活 Pro 版本，解锁高级智能体能力。",
+  "subtitleActive": "已激活 Pro 版本，所有高级能力已解锁。",
+  "statusActive": "Pro 已激活",
+  "edition": "版本",
+  "activatedAt": "激活时间",
+  "expiresAt": "到期时间",
+  "never": "永久有效",
+  "unlocked": "已解锁：高级智能体订阅、团队共识增强等 Pro 能力现已可用。",
+  "activate": "激活",
+  "activating": "激活中…",
+  "activated": "激活成功，Pro 能力已解锁。",
+  "deactivate": "取消激活",
+  "deactivating": "处理中…",
+  "deactivated": "已取消激活，Pro 能力已锁定。",
+  "enterKey": "License 密钥",
+  "keyPlaceholder": "粘贴 GEEK*... 离线 License 密钥",
+  "hint": "离线 License 由本地签名校验，无需联网。如需密钥，请通过授权渠道获取。",
+  "back": "返回",
+  "pro": "专业版",
+  "lockedHint": "该功能为 Pro 专属，激活后解锁。",
+  "unlockCta": "激活解锁",
+  "errors": {
+    "keyRequired": "请输入 License 密钥。",
+    "invalidKey": "密钥无效或签名不匹配，请检查后重试。",
+    "expired": "该 License 已过期。",
+    "activateFailed": "激活失败，请稍后重试。"
+  }
+}

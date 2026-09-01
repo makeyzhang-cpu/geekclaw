@@ -16,7 +16,7 @@ import { conversationTarget } from '@/common/types/ids';
 import { sessionStorageKey } from '@/common/utils/browserStorageKey';
 import { uuidv7 } from '@/common/utils/uuidv7';
 
-export interface NomiQuickStartOptions {
+export interface GeekClawQuickStartOptions {
   /** Conversation title. */
   name: string;
   /** Initial user content, either sent automatically or restored as a draft. */
@@ -38,7 +38,7 @@ export const useGeekClawQuickStart = () => {
   const { current_model } = useGuidModelSelection('geekclaw');
 
   const start = useCallback(
-    async ({ name, prompt, send = true }: NomiQuickStartOptions): Promise<boolean> => {
+    async ({ name, prompt, send = true }: GeekClawQuickStartOptions): Promise<boolean> => {
       if (!current_model) {
         Message.warning(t('conversation.noModelConfigured'));
         return false;

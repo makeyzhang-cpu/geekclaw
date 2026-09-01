@@ -1,0 +1,25 @@
+{
+  "brand": "GeekClaw",
+  "subtitle": "Register a new account with an invite code",
+  "inviteCode": "Invite Code",
+  "inviteCodePlaceholder": "Enter your invite code",
+  "username": "Username",
+  "usernamePlaceholder": "Enter a username",
+  "password": "Password",
+  "passwordPlaceholder": "Set a password (at least 8 characters)",
+  "passwordHint": "8-128 characters; avoid common passwords (e.g. 12345678, password)",
+  "submit": "Register",
+  "registering": "Registering...",
+  "success": "Registration successful! Redirecting...",
+  "backToLogin": "Already have an account? Sign in",
+  "errors": {
+    "allFieldsRequired": "Please fill in all fields",
+    "passwordTooShort": "Password must be at least 8 characters",
+    "passwordTooCommon": "Password is too common. Please choose a stronger one (avoid 12345678, password, etc.)",
+    "invalidInviteCode": "Invalid or expired invite code",
+    "tooManyAttempts": "Too many attempts, please try again later",
+    "networkError": "Connection failed, please try again",
+    "serverError": "Server error, please try again later",
+    "unknown": "Registration failed, please try again"
+  }
+}

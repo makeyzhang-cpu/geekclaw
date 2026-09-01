@@ -17,6 +17,7 @@ import { createRoot } from 'react-dom/client';
 
 // Context providers
 import { AuthProvider } from './hooks/context/AuthContext';
+import { CloudAuthProvider } from './hooks/context/CloudAuthContext';
 import { FeedbackProvider } from './hooks/context/FeedbackContext';
 import { ThemeProvider } from './hooks/context/ThemeContext';
 
@@ -59,7 +60,11 @@ import Layout from './components/layout/Layout';
 import RouteErrorBoundary from './components/layout/RouteErrorBoundary';
 import Router from './components/layout/Router';
 import Sider from './components/layout/Sider';
+import CloudLoginWall from './components/layout/CloudLoginWall';
 import { useAuth } from './hooks/context/AuthContext';
+import { useCloudAuth } from './hooks/context/CloudAuthContext';
+import { isDesktopShell } from '@renderer/utils/platform';
+import { LicenseProvider } from './hooks/context/LicenseContext';
 import { ConversationHistoryProvider } from './hooks/context/ConversationHistoryContext';
 import HOC from './utils/ui/HOC';
 
@@ -72,7 +77,19 @@ const AppProviders: React.FC<PropsWithChildren> = ({ children }) =>
   React.createElement(
     AuthProvider,
     null,
-    React.createElement(ThemeProvider, null, React.createElement(FeedbackProvider, null, children))
+    React.createElement(
+      LicenseProvider,
+      null,
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(
+          FeedbackProvider,
+          null,
+          React.createElement(CloudAuthProvider, null, children)
+        )
+      )
+    )
   );
 
 const Config: React.FC<PropsWithChildren> = ({ children }) => {
@@ -86,6 +103,7 @@ const Config: React.FC<PropsWithChildren> = ({ children }) => {
 
 const Main = () => {
   const { ready, status } = useAuth();
+  const cloud = useCloudAuth();
   const [configReady, setConfigReady] = useState(false);
   const [configError, setConfigError] = useState<Error | null>(null);
 
@@ -157,6 +175,18 @@ const Main = () => {
 
   if (!ready) {
     return <AppLoader />;
+  }
+
+  // Desktop: enforce a cloud-account login wall before the main UI is reachable.
+  // The cloud token is persisted in the local backend, so a returning user who
+  // already signed in stays signed in across launches.
+  if (isDesktopShell()) {
+    if (!cloud.ready) {
+      return <AppLoader />;
+    }
+    if (!cloud.state.authenticated) {
+      return <CloudLoginWall />;
+    }
   }
 
   // The login route is intentionally independent from authenticated startup

@@ -3,7 +3,7 @@
     "common": "常用",
     "services": "服务",
     "data": "数据空间",
-    "automation": "自动化",
+    "automation": "Work++工作平台",
     "tools": "增强工具",
     "settings": "设置"
   },
@@ -115,9 +115,37 @@
   "processing": "处理中...",
   "optional": "（可选）",
   "clear": "清除",
+  "workCommunity": {
+    "title": "AI品牌营销",
+    "subtitle": "AI 获客与数字资产沉淀，全球多语种 AI 独立站+AI SEO+AI GEO，企业出海一定做海外GEO，让全球精准买家在问AI的时候，看见你、相信你、找到你。",
+    "domesticTitle": "国内GEO AI营销",
+    "domesticDesc": "面向国内市场的 AI 搜索引擎优化（GEO）——让品牌在 DeepSeek、Kimi、豆包等 AI 助手回答问题时被看见、被信任、被找到。",
+    "domesticBadge": "国内",
+    "internationalTitle": "国际GEO AI营销",
+    "internationalDesc": "多语种 AI 独立站 + AI SEO + AI GEO——企业出海必做海外 GEO，让全球精准买家在问 AI 的时候看见你、相信你、找到你。",
+    "internationalBadge": "出海",
+    "enter": "进入平台",
+    "back": "返回"
+  },
+  "foreignTrade": {
+    "title": "AI外贸工作台",
+    "subtitle": "GeekFlow AI 外贸工作台——一站式跨境电商 AI 运营：智能选品、Listing 优化、多平台店铺管理与自动化营销，让外贸生意更高效。",
+    "badge": "外贸",
+    "cardTitle": "GeekFlow 外贸工作台",
+    "cardDesc": "AI 驱动的跨境电商运营中枢，覆盖选品、Listing、店铺与营销自动化。",
+    "enter": "进入平台",
+    "back": "返回",
+    "openExternal": "在浏览器中打开"
+  },
   "unit": {
     "hour_short": "时",
     "minute_short": "分",
     "second_short": "秒"
+  },
+  "cloudLoginWall": {
+    "subtitle": "企业级AI办公桌面系统",
+    "cta": "登录 / 注册",
+    "waiting": "现在就把AI团队装进电脑",
+    "hint": "你的专属Agent  创造无限可能"
   }
 }

@@ -27,6 +27,8 @@ pub struct UpdateCsAgentParams {
     pub model: Option<Option<String>>,
     /// JSON array string (`CsAgentRow::encode_knowledge_base_ids`).
     pub knowledge_base_ids: Option<String>,
+    /// JSON array string (`CsAgentRow::encode_business_endpoints`).
+    pub business_endpoints: Option<String>,
     pub enabled: Option<bool>,
     pub max_concurrent: Option<i64>,
     pub audit_retention_days: Option<i64>,

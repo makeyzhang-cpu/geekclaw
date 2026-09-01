@@ -24,6 +24,12 @@ pub struct CurrentUser {
     pub id: UserId,
     /// Username.
     pub username: String,
+    /// Role (`admin` / `user`). Drives access to the user-management control
+    /// plane without re-reading the database in every admin handler.
+    pub role: String,
+    /// Account enabled flag (1 = active, 0 = disabled). Mirrors `users.is_active`
+    /// so handlers can reflect the current user's status without a second query.
+    pub is_active: i64,
 }
 
 /// Shared state for the authentication middleware.
@@ -126,6 +132,8 @@ pub async fn auth_middleware(
     request.extensions_mut().insert(CurrentUser {
         id: user.user_id,
         username: user.username,
+        role: user.role,
+        is_active: user.is_active,
     });
 
     let mut response = next.run(request).await;

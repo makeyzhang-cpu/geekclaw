@@ -42,6 +42,12 @@ import workshopGeneration from './workshopGeneration.json';
 import workshopAgent from './workshopAgent.json';
 import browser from './browser.json';
 import ssh from './ssh.json';
+import register from './register.json';
+import userManagement from './userManagement.json';
+import license from './license.json';
+import userMenu from './userMenu.json';
+import billing from './billing.json';
+import pricing from './pricing.json';
 
 export default {
   common,
@@ -83,4 +89,10 @@ export default {
   workshopAgent,
   browser,
   ssh,
+  register,
+  userManagement,
+  license,
+  userMenu,
+  billing,
+  pricing,
 };

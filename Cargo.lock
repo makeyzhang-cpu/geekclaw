@@ -3516,6 +3516,411 @@ dependencies = [
 ]
 
 [[package]]
+name = "geekclaw-a11y"
+version = "0.4.1"
+dependencies = [
+ "atspi",
+ "core-foundation 0.10.1",
+ "core-graphics",
+ "geekclaw-types",
+ "image",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-vision",
+ "serde",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "uiautomation",
+ "windows 0.61.3",
+ "zbus",
+]
+
+[[package]]
+name = "geekclaw-agent"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "crossterm",
+ "futures",
+ "geekclaw-browser",
+ "geekclaw-compact",
+ "geekclaw-computer",
+ "geekclaw-config",
+ "geekclaw-mcp",
+ "geekclaw-memory",
+ "geekclaw-process-runtime",
+ "geekclaw-protocol",
+ "geekclaw-providers",
+ "geekclaw-redact",
+ "geekclaw-skills",
+ "geekclaw-tools",
+ "geekclaw-types",
+ "glob",
+ "is-terminal",
+ "mockall",
+ "nomifun-common",
+ "rstest",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
+name = "geekclaw-browser"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "geekclaw-browser-engine",
+ "geekclaw-config",
+ "geekclaw-protocol",
+ "geekclaw-tools",
+ "geekclaw-types",
+ "image",
+ "nomifun-browser-platform",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "geekclaw-browser-engine"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chromiumoxide",
+ "core-graphics",
+ "dunce",
+ "fs2",
+ "futures-util",
+ "geekclaw-process-runtime",
+ "geekclaw-redact",
+ "getrandom 0.2.17",
+ "hex",
+ "insta",
+ "libc",
+ "nomifun-common",
+ "nomifun-net",
+ "psl",
+ "regex",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tokio-util",
+ "tracing",
+ "url",
+ "windows 0.61.3",
+ "windows-sys 0.61.2",
+ "zip 2.4.2",
+]
+
+[[package]]
+name = "geekclaw-cli"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "geekclaw-agent",
+ "geekclaw-compact",
+ "geekclaw-config",
+ "geekclaw-mcp",
+ "geekclaw-process-runtime",
+ "geekclaw-protocol",
+ "geekclaw-skills",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "geekclaw-compact"
+version = "0.4.1"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "geekclaw-computer"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "core-foundation 0.10.1",
+ "dispatch2",
+ "enigo",
+ "geekclaw-a11y",
+ "geekclaw-config",
+ "geekclaw-protocol",
+ "geekclaw-tools",
+ "geekclaw-types",
+ "image",
+ "open",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "windows 0.61.3",
+ "xcap",
+]
+
+[[package]]
+name = "geekclaw-config"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "geekclaw-compact",
+ "geekclaw-process-runtime",
+ "geekclaw-types",
+ "glob",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-test",
+ "toml 1.1.2+spec-1.1.0",
+ "toml_edit 0.25.12+spec-1.1.0",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "geekclaw-desktop"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gtk",
+ "junction",
+ "keepawake",
+ "nomifun-app",
+ "nomifun-common",
+ "nomifun-runtime",
+ "objc2",
+ "objc2-app-kit",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "windows 0.61.3",
+]
+
+[[package]]
+name = "geekclaw-mcp"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "futures",
+ "geekclaw-config",
+ "geekclaw-process-runtime",
+ "geekclaw-protocol",
+ "geekclaw-tools",
+ "geekclaw-types",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "geekclaw-memory"
+version = "0.4.1"
+dependencies = [
+ "chrono",
+ "geekclaw-config",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tracing",
+]
+
+[[package]]
+name = "geekclaw-process-runtime"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "libc",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "which 7.0.3",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "geekclaw-protocol"
+version = "0.4.1"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "geekclaw-providers"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sigv4",
+ "base64 0.22.1",
+ "crc32fast",
+ "dirs 6.0.0",
+ "futures",
+ "geekclaw-config",
+ "geekclaw-types",
+ "http 1.4.1",
+ "jsonwebtoken 10.4.0",
+ "nomifun-net",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "geekclaw-redact"
+version = "0.4.1"
+dependencies = [
+ "regex",
+]
+
+[[package]]
+name = "geekclaw-skills"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "dirs 6.0.0",
+ "futures",
+ "geekclaw-config",
+ "geekclaw-mcp",
+ "geekclaw-types",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "unicode-width",
+]
+
+[[package]]
+name = "geekclaw-ssh"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "regex",
+ "russh",
+ "russh-sftp",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "geekclaw-tools"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "geekclaw-config",
+ "geekclaw-process-runtime",
+ "geekclaw-protocol",
+ "geekclaw-types",
+ "glob",
+ "jsonschema",
+ "libc",
+ "lru",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "which 7.0.3",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "geekclaw-types"
+version = "0.4.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5498,379 +5903,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nomi-a11y"
-version = "0.4.1"
-dependencies = [
- "atspi",
- "core-foundation 0.10.1",
- "core-graphics",
- "image",
- "nomi-types",
- "objc2",
- "objc2-core-foundation",
- "objc2-foundation",
- "objc2-vision",
- "serde",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "uiautomation",
- "windows 0.61.3",
- "zbus",
-]
-
-[[package]]
-name = "nomi-agent"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "crossterm",
- "futures",
- "glob",
- "is-terminal",
- "mockall",
- "nomi-browser",
- "nomi-compact",
- "nomi-computer",
- "nomi-config",
- "nomi-mcp",
- "nomi-memory",
- "nomi-process-runtime",
- "nomi-protocol",
- "nomi-providers",
- "nomi-redact",
- "nomi-skills",
- "nomi-tools",
- "nomi-types",
- "nomifun-common",
- "rstest",
- "schemars 1.2.1",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tokio-test",
- "tracing",
- "wiremock",
-]
-
-[[package]]
-name = "nomi-browser"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "image",
- "nomi-browser-engine",
- "nomi-config",
- "nomi-protocol",
- "nomi-tools",
- "nomi-types",
- "nomifun-browser-platform",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "nomi-browser-engine"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chromiumoxide",
- "core-graphics",
- "dunce",
- "fs2",
- "futures-util",
- "getrandom 0.2.17",
- "hex",
- "insta",
- "libc",
- "nomi-process-runtime",
- "nomi-redact",
- "nomifun-common",
- "nomifun-net",
- "psl",
- "regex",
- "serde",
- "serde_json",
- "sysinfo",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tokio-tungstenite 0.26.2",
- "tokio-util",
- "tracing",
- "url",
- "windows 0.61.3",
- "windows-sys 0.61.2",
- "zip 2.4.2",
-]
-
-[[package]]
-name = "nomi-cli"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "clap",
- "nomi-agent",
- "nomi-compact",
- "nomi-config",
- "nomi-mcp",
- "nomi-process-runtime",
- "nomi-protocol",
- "nomi-skills",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "nomi-compact"
-version = "0.4.1"
-dependencies = [
- "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nomi-computer"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "core-foundation 0.10.1",
- "dispatch2",
- "enigo",
- "image",
- "nomi-a11y",
- "nomi-config",
- "nomi-protocol",
- "nomi-tools",
- "nomi-types",
- "open",
- "serde_json",
- "tokio",
- "tracing",
- "windows 0.61.3",
- "xcap",
-]
-
-[[package]]
-name = "nomi-config"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "dirs 6.0.0",
- "glob",
- "nomi-compact",
- "nomi-process-runtime",
- "nomi-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tokio-test",
- "toml 1.1.2+spec-1.1.0",
- "toml_edit 0.25.12+spec-1.1.0",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "nomi-mcp"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "futures",
- "nomi-config",
- "nomi-process-runtime",
- "nomi-protocol",
- "nomi-tools",
- "nomi-types",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.19",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "nomi-memory"
-version = "0.4.1"
-dependencies = [
- "chrono",
- "nomi-config",
- "rstest",
- "serde",
- "serde_json",
- "serde_yaml",
- "serial_test",
- "tempfile",
- "thiserror 2.0.19",
- "tracing",
-]
-
-[[package]]
-name = "nomi-process-runtime"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "libc",
- "portable-pty",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "which 7.0.3",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nomi-protocol"
-version = "0.4.1"
-dependencies = [
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nomi-providers"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-credential-types",
- "aws-sigv4",
- "base64 0.22.1",
- "crc32fast",
- "dirs 6.0.0",
- "futures",
- "http 1.4.1",
- "jsonwebtoken 10.4.0",
- "nomi-config",
- "nomi-types",
- "nomifun-net",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "tokio-test",
- "tracing",
- "uuid",
- "wiremock",
-]
-
-[[package]]
-name = "nomi-redact"
-version = "0.4.1"
-dependencies = [
- "regex",
-]
-
-[[package]]
-name = "nomi-skills"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "dirs 6.0.0",
- "futures",
- "nomi-config",
- "nomi-mcp",
- "nomi-types",
- "regex",
- "rstest",
- "serde",
- "serde_json",
- "serde_yaml",
- "serial_test",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "unicode-width",
-]
-
-[[package]]
-name = "nomi-ssh"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "regex",
- "russh",
- "russh-sftp",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "nomi-tools"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "glob",
- "jsonschema",
- "libc",
- "lru",
- "nomi-config",
- "nomi-process-runtime",
- "nomi-protocol",
- "nomi-types",
- "portable-pty",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "which 7.0.3",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nomi-types"
-version = "0.4.1"
-dependencies = [
- "async-trait",
- "chrono",
- "schemars 1.2.1",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "nomifun-agent-execution"
 version = "0.4.1"
 dependencies = [
@@ -5911,28 +5943,28 @@ dependencies = [
  "flate2",
  "futures",
  "futures-util",
+ "geekclaw-agent",
+ "geekclaw-browser",
+ "geekclaw-config",
+ "geekclaw-mcp",
+ "geekclaw-memory",
+ "geekclaw-process-runtime",
+ "geekclaw-protocol",
+ "geekclaw-providers",
+ "geekclaw-redact",
+ "geekclaw-tools",
+ "geekclaw-types",
  "getrandom 0.2.17",
  "hex",
  "image",
  "libc",
- "nomi-agent",
- "nomi-browser",
- "nomi-config",
- "nomi-mcp",
- "nomi-memory",
- "nomi-process-runtime",
- "nomi-protocol",
- "nomi-providers",
- "nomi-redact",
- "nomi-tools",
- "nomi-types",
  "nomifun-api-types",
  "nomifun-auth",
  "nomifun-browser-platform",
  "nomifun-common",
  "nomifun-db",
  "nomifun-extension",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-mcp",
  "nomifun-model-invoke",
  "nomifun-net",
@@ -5987,18 +6019,18 @@ dependencies = [
  "dirs 6.0.0",
  "fs2",
  "futures-util",
+ "geekclaw-browser",
+ "geekclaw-browser-engine",
+ "geekclaw-computer",
+ "geekclaw-config",
+ "geekclaw-process-runtime",
+ "geekclaw-tools",
+ "geekclaw-types",
  "git2",
  "http-body-util",
  "if-addrs",
  "image",
  "junction",
- "nomi-browser",
- "nomi-browser-engine",
- "nomi-computer",
- "nomi-config",
- "nomi-process-runtime",
- "nomi-tools",
- "nomi-types",
  "nomifun-agent-execution",
  "nomifun-ai-agent",
  "nomifun-api-types",
@@ -6017,7 +6049,7 @@ dependencies = [
  "nomifun-file",
  "nomifun-gateway",
  "nomifun-idmm",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-mcp",
  "nomifun-model-invoke",
  "nomifun-net",
@@ -6030,6 +6062,7 @@ dependencies = [
  "nomifun-shell",
  "nomifun-ssh",
  "nomifun-system",
+ "nomifun-team",
  "nomifun-terminal",
  "nomifun-webhook",
  "nomifun-workshop",
@@ -6080,15 +6113,23 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
+ "chrono",
  "dashmap",
  "getrandom 0.2.17",
+ "hmac 0.12.1",
  "http-body-util",
  "jsonwebtoken 9.3.1",
+ "md5",
  "nomifun-api-types",
  "nomifun-common",
  "nomifun-db",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "rsa",
  "serde",
  "serde_json",
+ "serde_urlencoded",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "thiserror 2.0.19",
  "tokio",
@@ -6158,10 +6199,10 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "dunce",
+ "geekclaw-types",
  "getrandom 0.2.17",
  "hmac 0.12.1",
  "libc",
- "nomi-types",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6181,10 +6222,10 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "geekclaw-memory",
+ "geekclaw-redact",
  "hex",
  "http-body-util",
- "nomi-memory",
- "nomi-redact",
  "nomifun-ai-agent",
  "nomifun-api-types",
  "nomifun-auth",
@@ -6192,7 +6233,7 @@ dependencies = [
  "nomifun-conversation",
  "nomifun-db",
  "nomifun-extension",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-preset",
  "nomifun-realtime",
  "reqwest 0.12.28",
@@ -6214,7 +6255,7 @@ dependencies = [
  "async-trait",
  "axum",
  "futures-util",
- "nomi-redact",
+ "geekclaw-redact",
  "nomifun-ai-agent",
  "nomifun-api-types",
  "nomifun-auth",
@@ -6222,7 +6263,7 @@ dependencies = [
  "nomifun-db",
  "nomifun-extension",
  "nomifun-file",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-mcp",
  "nomifun-preset",
  "nomifun-realtime",
@@ -6278,6 +6319,7 @@ dependencies = [
  "nomifun-db",
  "nomifun-preset",
  "nomifun-realtime",
+ "nomifun-team",
  "serde",
  "serde_json",
  "sqlx",
@@ -6299,7 +6341,7 @@ dependencies = [
  "nomifun-auth",
  "nomifun-common",
  "nomifun-db",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-realtime",
  "serde",
  "serde_json",
@@ -6330,37 +6372,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geekclaw-desktop"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "clap",
- "gtk",
- "junction",
- "keepawake",
- "nomifun-app",
- "nomifun-common",
- "nomifun-runtime",
- "objc2",
- "objc2-app-kit",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-process",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "tracing",
- "windows 0.61.3",
-]
-
-[[package]]
 name = "nomifun-extension"
 version = "0.4.1"
 dependencies = [
@@ -6368,11 +6379,11 @@ dependencies = [
  "axum",
  "dirs 6.0.0",
  "fs2",
+ "geekclaw-process-runtime",
  "http-body-util",
  "include_dir",
  "junction",
  "mime_guess",
- "nomi-process-runtime",
  "nomifun-api-types",
  "nomifun-common",
  "nomifun-db",
@@ -6429,12 +6440,12 @@ dependencies = [
  "async-trait",
  "axum",
  "futures",
+ "geekclaw-browser",
+ "geekclaw-computer",
+ "geekclaw-config",
+ "geekclaw-tools",
+ "geekclaw-types",
  "jsonschema",
- "nomi-browser",
- "nomi-computer",
- "nomi-config",
- "nomi-tools",
- "nomi-types",
  "nomifun-agent-execution",
  "nomifun-ai-agent",
  "nomifun-api-types",
@@ -6449,7 +6460,7 @@ dependencies = [
  "nomifun-extension",
  "nomifun-file",
  "nomifun-idmm",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-mcp",
  "nomifun-requirement",
  "nomifun-shell",
@@ -6492,7 +6503,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "geekclaw-knowledge"
+name = "nomifun-knowledge"
 version = "0.4.1"
 dependencies = [
  "async-trait",
@@ -6502,12 +6513,12 @@ dependencies = [
  "dirs 6.0.0",
  "fs2",
  "futures-util",
+ "geekclaw-redact",
  "hex",
  "htmd",
  "http-body-util",
  "junction",
  "libc",
- "nomi-redact",
  "nomifun-api-types",
  "nomifun-auth",
  "nomifun-common",
@@ -6541,7 +6552,7 @@ dependencies = [
  "async-trait",
  "axum",
  "dirs 6.0.0",
- "nomi-process-runtime",
+ "geekclaw-process-runtime",
  "nomifun-api-types",
  "nomifun-common",
  "nomifun-db",
@@ -6593,9 +6604,9 @@ dependencies = [
  "async-trait",
  "axum",
  "dashmap",
+ "geekclaw-process-runtime",
  "getrandom 0.2.17",
  "hex",
- "nomi-process-runtime",
  "nomifun-api-types",
  "nomifun-auth",
  "nomifun-common",
@@ -6685,6 +6696,7 @@ dependencies = [
  "nomifun-db",
  "nomifun-file",
  "nomifun-realtime",
+ "nomifun-team",
  "nomifun-terminal",
  "reqwest 0.12.28",
  "serde",
@@ -6701,8 +6713,8 @@ version = "0.4.1"
 dependencies = [
  "dirs 6.0.0",
  "fs2",
+ "geekclaw-process-runtime",
  "hex",
- "nomi-process-runtime",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -6724,8 +6736,8 @@ dependencies = [
  "axum",
  "bytes",
  "futures-util",
+ "geekclaw-process-runtime",
  "http-body-util",
- "nomi-process-runtime",
  "nomifun-api-types",
  "nomifun-common",
  "nomifun-db",
@@ -6753,7 +6765,7 @@ dependencies = [
  "axum",
  "dashmap",
  "dirs 6.0.0",
- "nomi-ssh",
+ "geekclaw-ssh",
  "nomifun-ai-agent",
  "nomifun-api-types",
  "nomifun-auth",
@@ -6800,6 +6812,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "nomifun-team"
+version = "0.4.1"
+dependencies = [
+ "axum",
+ "nomifun-ai-agent",
+ "nomifun-api-types",
+ "nomifun-auth",
+ "nomifun-common",
+ "nomifun-db",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "nomifun-terminal"
 version = "0.4.1"
 dependencies = [
@@ -6807,14 +6838,14 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "dashmap",
+ "geekclaw-process-runtime",
  "libc",
- "nomi-process-runtime",
  "nomifun-api-types",
  "nomifun-auth",
  "nomifun-common",
  "nomifun-db",
  "nomifun-file",
- "geekclaw-knowledge",
+ "nomifun-knowledge",
  "nomifun-realtime",
  "nomifun-runtime",
  "reqwest 0.12.28",
@@ -7572,6 +7603,16 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "os_pipe"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9787,6 +9828,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared_child"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e362d9935bc50f019969e2f9ecd66786612daae13e8f277be7bfb66e8bed3f7"
+dependencies = [
+ "libc",
+ "sigchld",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
 name = "shared_library"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9813,6 +9865,17 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "sigchld"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47106eded3c154e70176fc83df9737335c94ce22f821c32d17ed1db1f83badb1"
+dependencies = [
+ "libc",
+ "os_pipe",
+ "signal-hook",
+]
 
 [[package]]
 name = "signal-hook"
@@ -10804,6 +10867,27 @@ checksum = "d55511a7bf6cd70c8767b02c97bf8134fa434daf3926cfc1be0a0f94132d165a"
 dependencies = [
  "tauri",
  "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-shell"
+version = "2.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8457dbf9e2bab1edd8df22bb2c20857a59a9868e79cb3eac5ed639eec4d0c73b"
+dependencies = [
+ "encoding_rs",
+ "log",
+ "open",
+ "os_pipe",
+ "regex",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "shared_child",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.19",
+ "tokio",
 ]
 
 [[package]]

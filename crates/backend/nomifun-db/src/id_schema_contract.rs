@@ -84,13 +84,26 @@ pub(crate) const PRODUCT_TABLES: &[&str] = &[
     "ssh_hosts",
     "system_settings",
     "tag_settings",
+    "teams",
+    "team_members",
+    "team_consensus_runs",
+    "team_consensus_messages",
     "terminal_scrollback",
     "terminal_sessions",
     "terminal_turn_admissions",
     "users",
+    "invitations",
+    "credit_transactions",
+    "model_pricing",
+    "orders",
     "webhooks",
+    "subscription_plans",
+    "system_kv",
     "workshop_assets",
     "workshop_canvases",
+    "expert_catalog",
+    "user_expert_licenses",
+    "sms_verification_codes",
 ];
 
 /// Business columns that carry a bare canonical UUIDv7 for every populated row.
@@ -133,12 +146,18 @@ const UUIDV7_BUSINESS_COLUMNS: &[(&str, &str)] = &[
     ("remote_agents", "remote_agent_id"),
     ("requirements", "requirement_id"),
     ("ssh_hosts", "ssh_host_id"),
+    ("teams", "team_id"),
+    ("team_members", "team_member_id"),
+    ("team_consensus_runs", "run_id"),
+    ("team_consensus_messages", "message_id"),
     ("terminal_sessions", "terminal_id"),
     ("terminal_turn_admissions", "turn_token"),
     ("users", "user_id"),
     ("webhooks", "webhook_id"),
     ("workshop_assets", "asset_id"),
     ("workshop_canvases", "canvas_id"),
+    ("expert_catalog", "expert_id"),
+    ("user_expert_licenses", "license_id"),
 ];
 
 /// Canonical UUIDv7 values owned by a managed side store rather than a
@@ -150,6 +169,7 @@ const UUIDV7_MANAGED_VALUE_COLUMNS: &[(&str, &str)] = &[("creation_tasks", "node
 /// `_id` column must be present in [`LOGICAL_REFERENCES`].
 const NON_REFERENCE_ID_COLUMNS: &[(&str, &str)] = &[
     ("acp_session", "acp_session_id"),
+    ("subscription_plans", "plan_id"),
     ("agent_metadata", "agent_id"),
     ("agent_metadata", "yolo_id"),
     ("agent_execution_attempts", "attempt_id"),
@@ -209,12 +229,25 @@ const NON_REFERENCE_ID_COLUMNS: &[(&str, &str)] = &[
     ("remote_agents", "device_id"),
     ("requirements", "requirement_id"),
     ("ssh_hosts", "ssh_host_id"),
+    ("team_members", "team_member_id"),
+    ("teams", "team_id"),
+    ("team_consensus_runs", "run_id"),
+    ("team_consensus_messages", "message_id"),
     ("terminal_sessions", "terminal_id"),
     ("terminal_turn_admissions", "turn_token"),
     ("users", "user_id"),
+    ("credit_transactions", "user_id"),
+    ("orders", "user_id"),
+    ("subscription_plans", "plan_id"),
     ("webhooks", "webhook_id"),
     ("workshop_assets", "asset_id"),
     ("workshop_canvases", "canvas_id"),
+    ("expert_catalog", "expert_id"),
+    ("expert_catalog", "creator_id"),
+    ("user_expert_licenses", "license_id"),
+    ("user_expert_licenses", "user_id"),
+    ("user_expert_licenses", "expert_id"),
+    ("user_expert_licenses", "tx_id"),
 ];
 
 const PARTIAL_UNIQUE_INDEXES: &[PartialUniqueIndexContract] = &[
@@ -533,6 +566,21 @@ pub(crate) const LOGICAL_REFERENCES: &[LogicalReference] = &[
         .with_aggregate_scope("parent.conversation_id = child.conversation_id"),
     text_ref!("terminal_sessions", "user_id" => "users", "user_id", false, "idx_terminal_sessions_user_id", Cascade),
     text_ref!("ssh_hosts", "user_id" => "users", "user_id", false, "idx_ssh_hosts_user_id", Cascade),
+    text_ref!("teams", "owner_user_id" => "users", "user_id", false, "idx_teams_owner_user_id", Cascade),
+    text_ref!("team_members", "team_id" => "teams", "team_id", false, "idx_team_members_team_id", Cascade),
+    // #73 consensus engine: runs + messages are owned by a team and cascade
+    // with it; messages additionally cascade with their parent run.
+    text_ref!("team_consensus_runs", "team_id" => "teams", "team_id", false, "idx_team_consensus_runs_team_id", Cascade),
+    text_ref!("team_consensus_runs", "owner_user_id" => "users", "user_id", false, "idx_team_consensus_runs_owner_user_id", Cascade),
+    // provider_id is resolved before the run starts (consensus.rs resolve_default_provider)
+    // and persisted via mark_running; keep it nullable so create_run can insert the
+    // idle row first. References the providers registry (uuidv7 business id).
+    // provider_id is resolved before the run starts and persisted via mark_running.
+    // It is nullable and already exists in datasets that applied migration 026, so we
+    // use an opaque reference (no uuidv7 CHECK requirement) and add its index in 027.
+    opaque_text_ref!("team_consensus_runs", "provider_id" => "providers", "provider_id", true, "idx_team_consensus_runs_provider_id", Restrict),
+    text_ref!("team_consensus_messages", "run_id" => "team_consensus_runs", "run_id", false, "idx_team_consensus_messages_run_id", Cascade),
+    text_ref!("team_consensus_messages", "team_id" => "teams", "team_id", false, "idx_team_consensus_messages_team_id", Cascade),
     // Delivery receipts intentionally survive Terminal/Requirement deletion so
     // a replay can never regain PTY write authority.
     text_ref!("terminal_turn_admissions", "terminal_id" => "terminal_sessions", "terminal_id", false, "idx_terminal_turn_admissions_terminal_epoch", KeepHistory),
@@ -791,7 +839,7 @@ pub(crate) const JSON_LOGICAL_REFERENCES: &[JsonLogicalReference] = &[
     json_text_ref!(
         "cron_jobs", "agent_config", "$.provider_id (agent_type=geekclaw)",
         "SELECT json_extract(agent_config, '$.provider_id') AS value FROM cron_jobs WHERE agent_type = 'geekclaw' AND agent_config IS NOT NULL" =>
-        "providers", "provider_id", "idx_cron_jobs_nomi_provider_id", Restrict, RequireParent
+        "providers", "provider_id", "idx_cron_jobs_geekclaw_provider_id", Restrict, RequireParent
     ),
     json_text_ref!(
         "workshop_assets", "origin", "$.provider_id",

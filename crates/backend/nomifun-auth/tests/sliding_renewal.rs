@@ -16,8 +16,8 @@ use tower::ServiceExt;
 
 use nomifun_auth::middleware::{AuthState, auth_middleware};
 use nomifun_auth::{CookieConfig, JwtService};
-use nomifun_common::UserId;
-use nomifun_db::models::User;
+use nomifun_common::{TimestampMs, UserId};
+use nomifun_db::models::{CreditTransaction, Invitation, ModelPricing, User};
 use nomifun_db::{DbError, IUserRepository};
 
 const TEST_USER_ID: &str = "0190f5fe-7c00-7a00-8000-000000000001";
@@ -38,6 +38,12 @@ fn test_user() -> User {
         created_at: 0,
         updated_at: 0,
         last_login: None,
+        role: "admin".into(),
+        is_active: 1,
+        plan: "free".into(),
+        credits: 0,
+        invite_code: None,
+        invited_by: None,
     }
 }
 
@@ -86,6 +92,70 @@ impl IUserRepository for StubUserRepo {
         unreachable!()
     }
     async fn update_jwt_secret(&self, _: &str, _: &str) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn set_user_role(&self, _: &str, _: &str) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn set_user_active(&self, _: &str, _: bool) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn count_active_admins(&self) -> Result<i64, DbError> {
+        unreachable!()
+    }
+    async fn create_invitation(
+        &self,
+        _: &str,
+        _: TimestampMs,
+        _: Option<&str>,
+        _: i64,
+        _: i64,
+    ) -> Result<Invitation, DbError> {
+        unreachable!()
+    }
+    async fn list_invitations(&self) -> Result<Vec<Invitation>, DbError> {
+        unreachable!()
+    }
+    async fn get_invitation(&self, _: &str) -> Result<Option<Invitation>, DbError> {
+        unreachable!()
+    }
+    async fn consume_invitation(&self, _: &str, _: &str) -> Result<bool, DbError> {
+        unreachable!()
+    }
+    async fn delete_user(&self, _: &str) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn revoke_invitation(&self, _: &str) -> Result<bool, DbError> {
+        unreachable!()
+    }
+    async fn add_credits(
+        &self,
+        _: &str,
+        _: i64,
+        _: &str,
+        _: Option<&str>,
+        _: Option<&str>,
+        _: Option<&str>,
+    ) -> Result<i64, DbError> {
+        unreachable!()
+    }
+    async fn set_plan(&self, _: &str, _: &str) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn list_model_pricing(&self) -> Result<Vec<ModelPricing>, DbError> {
+        unreachable!()
+    }
+    async fn upsert_model_pricing(&self, _: &ModelPricing) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn get_model_pricing(&self, _: &str, _: &str, _: &str) -> Result<Option<ModelPricing>, DbError> {
+        unreachable!()
+    }
+    async fn list_credit_transactions(
+        &self,
+        _: &str,
+        _: i64,
+    ) -> Result<Vec<CreditTransaction>, DbError> {
         unreachable!()
     }
 }

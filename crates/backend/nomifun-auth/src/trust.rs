@@ -134,6 +134,8 @@ pub async fn trust_resolve_middleware(State(state): State<TrustState>, mut reque
         request.extensions_mut().insert(CurrentUser {
             id: user_id,
             username: state.authoritative_user_id.to_string(),
+            role: "admin".to_string(),
+            is_active: 1,
         });
         request.extensions_mut().insert(LocalTrusted);
     }

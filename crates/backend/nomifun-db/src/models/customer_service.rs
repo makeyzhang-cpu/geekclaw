@@ -20,6 +20,10 @@ pub struct CsAgentRow {
     pub model: Option<String>,
     /// JSON array of `knowledge_bases.knowledge_base_id` values.
     pub knowledge_base_ids: String,
+    /// JSON array of `BusinessEndpoint` objects — optional read-only business
+    /// query endpoints (order / logistics / inventory lookups). See the
+    /// customer-service crate for the shape and SSRF guards.
+    pub business_endpoints: String,
     pub enabled: bool,
     /// Per-agent concurrent turn ceiling (1..=64, default 8).
     pub max_concurrent: i64,
@@ -39,6 +43,31 @@ impl CsAgentRow {
     pub fn encode_knowledge_base_ids(ids: &[String]) -> String {
         serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_owned())
     }
+
+    /// Decode the stored JSON array of business-query endpoints. Invalid JSON
+    /// is treated as an empty list rather than failing a read path.
+    pub fn business_endpoints_vec(&self) -> Vec<BusinessEndpoint> {
+        serde_json::from_str(&self.business_endpoints).unwrap_or_default()
+    }
+
+    /// Encode a list of business-query endpoints into the stored JSON form.
+    pub fn encode_business_endpoints(endpoints: &[BusinessEndpoint]) -> String {
+        serde_json::to_string(endpoints).unwrap_or_else(|_| "[]".to_owned())
+    }
+}
+
+/// One optional read-only business-query endpoint exposed to a customer-service
+/// agent. The engine turns each endpoint into a safe HTTP-GET-only tool whose
+/// host is pinned to `url_template`'s host (SSRF-guarded). `url_template` may
+/// contain `{placeholder}` tokens substituted from the tool call arguments.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BusinessEndpoint {
+    /// Stable machine name used to build the tool id (e.g. `order_query`).
+    pub name: String,
+    /// `https://host/path?param={param}` — only the host is reachable.
+    pub url_template: String,
+    /// Human description of what this lookup returns, shown to the model.
+    pub description: String,
 }
 
 /// Values accepted when inserting a `cs_agents` row.
@@ -53,6 +82,8 @@ pub struct NewCsAgentRow {
     pub model: Option<String>,
     /// JSON array string (`CsAgentRow::encode_knowledge_base_ids`).
     pub knowledge_base_ids: String,
+    /// JSON array string (`CsAgentRow::encode_business_endpoints`).
+    pub business_endpoints: String,
     pub enabled: bool,
     pub max_concurrent: i64,
     pub audit_retention_days: i64,

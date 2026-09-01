@@ -33,6 +33,7 @@
     "deep-link:default",
     "updater:allow-check",
     "process:default",
-    "autostart:default"
+    "autostart:default",
+    "shell:allow-open"
   ]
 }

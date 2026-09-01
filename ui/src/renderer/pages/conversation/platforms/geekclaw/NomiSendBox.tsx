@@ -379,6 +379,9 @@ const NomiSendBox: React.FC<{
           },
           created_at: Date.now(),
         });
+        // 协同共答触发：用户消息落定后通知「协作者」面板并行调用
+        // POST /api/co-agent/run（门控由面板按梯度开关判定，绝不静默耗 token）。
+        emitter.emit('co-agent.turn', { conversation_id, message: input });
         } else {
           setActiveMsgId(null);
           reconcilePublicDeliveryReplay(res.completed);
@@ -560,6 +563,8 @@ const NomiSendBox: React.FC<{
             created_at: Date.now(),
           });
           setActiveMsgId(res.msg_id);
+          // 协同共答触发（编辑重发视为新的用户回合）。
+          emitter.emit('co-agent.turn', { conversation_id, message });
         } else {
           setActiveMsgId(null);
           reconcilePublicDeliveryReplay(res.completed);

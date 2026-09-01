@@ -380,6 +380,7 @@ pub fn cron_job_to_row(job: &CronJob) -> Result<CronJobRow, CronError> {
         run_count: job.run_count,
         retry_count: job.retry_count,
         max_retries: job.max_retries,
+        consensus_target: None,
     })
 }
 
@@ -464,7 +465,7 @@ fn schedule_to_row_fields(
 // Domain ↔ DTO conversion
 // ---------------------------------------------------------------------------
 
-pub fn cron_job_to_response(job: &CronJob) -> CronJobResponse {
+pub fn cron_job_to_response(job: &CronJob, consensus_target: Option<&str>) -> CronJobResponse {
     let schedule = match &job.schedule {
         CronSchedule::At { at_ms, description } => CronScheduleDto::At {
             at_ms: *at_ms,
@@ -530,6 +531,7 @@ pub fn cron_job_to_response(job: &CronJob) -> CronJobResponse {
             retry_count: job.retry_count,
             max_retries: job.max_retries,
         },
+        consensus_target: consensus_target.map(String::from),
     }
 }
 
@@ -756,6 +758,7 @@ mod tests {
             run_count: 5,
             retry_count: 0,
             max_retries: 3,
+            consensus_target: None,
         }
     }
 
@@ -1032,7 +1035,7 @@ mod tests {
     #[test]
     fn domain_to_dto_every() {
         let job = sample_job();
-        let resp = cron_job_to_response(&job);
+        let resp = cron_job_to_response(&job, None);
         assert_eq!(resp.cron_job_id, JOB_ID);
         assert_eq!(resp.name, "Test Job");
         assert!(resp.enabled);
@@ -1064,7 +1067,7 @@ mod tests {
             },
             ..sample_job()
         };
-        let resp = cron_job_to_response(&job);
+        let resp = cron_job_to_response(&job, None);
         assert!(matches!(
             resp.schedule,
             CronScheduleDto::At {
@@ -1084,7 +1087,7 @@ mod tests {
             },
             ..sample_job()
         };
-        let resp = cron_job_to_response(&job);
+        let resp = cron_job_to_response(&job, None);
         assert!(matches!(resp.schedule, CronScheduleDto::Cron { .. }));
     }
 
@@ -1094,7 +1097,7 @@ mod tests {
             agent_config: None,
             ..sample_job()
         };
-        let resp = cron_job_to_response(&job);
+        let resp = cron_job_to_response(&job, None);
         assert!(resp.metadata.agent_config.is_none());
     }
 
@@ -1104,7 +1107,7 @@ mod tests {
             execution_mode: ExecutionMode::NewConversation,
             ..sample_job()
         };
-        let resp = cron_job_to_response(&job);
+        let resp = cron_job_to_response(&job, None);
         assert_eq!(resp.execution_mode, "new_conversation");
     }
 

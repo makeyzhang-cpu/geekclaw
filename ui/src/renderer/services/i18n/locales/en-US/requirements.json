@@ -1,10 +1,154 @@
 {
-  "title": "Requirements",
-  "subtitle": "Manage requirements, extensions, and data sources",
+  "title": "A2A Cross-border E-commerce",
+  "subtitle": "AI cross-border shopping · source & compare · one-click order",
   "section": {
-    "workspace": "Requirements",
+    "workspace": "A2A Marketplace",
+    "storefront": "A2A Storefronts",
     "extensions": "Extensions",
     "sources": "Data Sources"
+  },
+  "a2a": {
+    "platform": {
+      "title": "A2A Marketplace",
+      "subtitle": "Ask in natural language → AI sources & compares → one-click order → cross-border delivery",
+      "hint": "Tell the buyer agent what you want, e.g. \"a noise-cancelling headset within 800 RMB\"",
+      "placeholder": "e.g. a noise-cancelling headset within 800 RMB",
+      "send": "Send",
+      "buy": "Buy this",
+      "wechat": "WeChat Pay",
+      "alipay": "Alipay",
+      "confirm": "Confirm order",
+      "reset": "Restart",
+      "orderId": "Order ID",
+      "amount": "Amount",
+      "origin": "Origin/Shipping",
+      "shipDays": "Direct shipping ~{{days}} days",
+      "rating": "Rating",
+      "stock": "Stock",
+      "paid": "Status",
+      "paidOk": "Payment successful",
+      "sourceCloud": "Cloud data (admin console)",
+      "sourceLocal": "Local demo",
+      "sourceLoading": "Loading data source…",
+      "barcode": "Global Localization Brain · 11 languages · Multi-Model AI",
+      "featuredTitle": "AI Picks",
+      "featuredHint": "Powered by multi-model AI engine, tailored to your locale",
+      "hero": {
+        "slogan": "Imagine it. Trade everything.",
+        "subtitle": "Tell GeekClaw your idea, need or inspiration — our multi-model AI engine helps you discover what to buy, book or compare, turning your thoughts into real deals.",
+        "placeholder": "+ Type a product name or drop an inspiration image…",
+        "poweredBy": "Multi-Model AI · Global Localization Brain · 24×7"
+      },
+      "chips": {
+        "recommend0": "Airport pickup",
+        "recommend1": "Busan Sky Capsule tour",
+        "recommend2": "Gyeongju day trip",
+        "recommend3": "Recommend Grand Bassam",
+        "recommend4": "I need airport pickup",
+        "recommend5": "Recommend Libreville airport pickup",
+        "japan0": "Recommend Showa retro goods",
+        "japan1": "Recommend Kyoto wagashi",
+        "eu0": "Recommend a Berlin art gallery"
+      },
+      "product": {
+        "tagPicked": "UKEN Pick",
+        "tagCraft": "Crafted",
+        "tagStyle": "Editor's Pick",
+        "tagTravel": "Travel-ready",
+        "detail": "Detail",
+        "buy": "Buy"
+      },
+      "analysis": {
+        "followupTitle": "Suggested questions",
+        "q1": "What are the specs and materials of this product?",
+        "q2": "Compare it with other candidates.",
+        "q3": "Is this product good for gifting to family?"
+      },
+      "payment": {
+        "title": "Choose payment method",
+        "total": "Total",
+        "security": "Secured by GeekClaw Commerce™ and licensed payment partners",
+        "wechat": "WeChat Pay",
+        "wechatHint": "Wangbeikang WeChat channel",
+        "alipay": "Alipay",
+        "alipayHint": "Wangbeikang Alipay channel",
+        "stripe": "Stripe (Cards)",
+        "stripeHint": "Visa / Mastercard / Amex worldwide",
+        "paypal": "PayPal",
+        "paypalHint": "Balance + cards globally",
+        "local": "Local wallet",
+        "localHint": "Auto-picked by region"
+      },
+      "live": {
+        "label": "LIVE",
+        "title": "From intent to order",
+        "subtitle": "AI shopping assistant live · Localization Brain active",
+        "model": "Current model",
+        "locale": "Current locale",
+        "pkgTitle": "Featured bundle",
+        "pkg1Name": "Smart Travel Bundle",
+        "pkg1Desc": "Best match 4 stops, AI-orchestrated end-to-end",
+        "pkg1Price": "$48"
+      },
+      "sidebar": {
+        "newChat": "New chat",
+        "agents": "Agents",
+        "search": "Search chats",
+        "cart": "Cart",
+        "history": "Recent"
+      },
+      "model": {
+        "imageGen": "Image generation",
+        "chat": "Chat"
+      },
+      "ip": {
+        "title": "GeekClaw Commerce™ · Tech & IP moats",
+        "body": "A2A Agent Negotiation™ · Localization Brain™ · Multi-Model Commerce Engine™ · Multi-dimension product analysis · Global payment routing — self-developed to help Chinese SMEs go global the AI-native way."
+      }
+    },
+    "storefront": {
+      "title": "A2A Storefronts",
+      "heroTitle": "AI-native storefronts for global buyers",
+      "subtitle": "AI-native storefronts for global buyers: products listed & quoted by merchant agents, while buyer agents auto-source, compare and close the deal.",
+      "catalogTitle": "Featured cross-border picks",
+      "count": "{{count}} products",
+      "merchantTitle": "Merchant Agent Onboarding",
+      "merchantDesc": "List your products on A2A storefronts; a merchant agent greets global buyer agents 24×7 — auto quotes, inventory sync and cross-border fulfillment. Join the GeekChuhai OPC ecosystem and let global AI agents find and buy from you.",
+      "apply": "Apply to join",
+      "comingSoon": "Onboarding opens soon",
+      "roadmapTitle": "Platform Roadmap",
+      "gate": {
+        "title": "Storefront not activated",
+        "desc": "A2A storefronts require activation from the web admin console. Please contact your administrator to enable it.",
+        "goAdmin": "Open admin console",
+        "goAdminHint": "Authorized centrally at geekclaw.ai/admin",
+        "checking": "Checking activation status…",
+        "notSignedIn": "Please sign in to your cloud account",
+        "notSignedInDesc": "Activation is tied to your cloud account; we'll re-check after you sign in.",
+        "cloudUnavailable": "Cloud service unavailable",
+        "cloudUnavailableDesc": "Cannot reach the cloud admin console to confirm activation. Please retry later or contact your administrator.",
+        "retry": "Re-check",
+        "demoHint": "Local demo mode — not authorized via cloud"
+      },
+      "roadmap": {
+        "agent": {
+          "title": "Merchant Agent Onboarding",
+          "desc": "Agent Card listings & quoting, 24×7 auto-serving global buyer agents"
+        },
+        "trust": {
+          "title": "Reputation & Arbitration",
+          "desc": "Cross-agent collaboration + reputation + dispute arbitration + escrow"
+        },
+        "x402": {
+          "title": "x402 Micropayments",
+          "desc": "Optional on-chain micropayments, zero friction for small deals"
+        },
+        "geo": {
+          "title": "OrbitAI Optimization",
+          "desc": "GEO optimization so products get discovered by agents"
+        }
+      }
+    }
   },
   "newRequirement": "New Requirement",
   "empty": "No requirements yet",

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/agent/*", "crates/backend/*", "crates/shared/*", "apps/web", "apps/desktop"]
 
 [workspace.package]
-version = "0.4.1"
+version = "5.0.12"
 edition = "2024"
 license = "Apache-2.0"
 repository = "local/geekclaw-tauri"
@@ -50,6 +50,7 @@ geekclaw-redact = { path = "crates/shared/nomi-redact" }
 geekclaw-process-runtime = { path = "crates/shared/nomi-process-runtime" }
 geekclaw-ssh = { path = "crates/shared/nomi-ssh" }
 nomifun-ssh = { path = "crates/backend/nomifun-ssh" }
+nomifun-team = { path = "crates/backend/nomifun-team" }
 
 # --- Internal crates: agent (from geekclaw-agent-rs, now local) ---
 geekclaw-types = { path = "crates/agent/nomi-types" }
@@ -114,7 +115,9 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 psl = "2"
 
 uuid = { version = "1", features = ["v7"] }
+rand = "0.8"
 reqwest = { version = "0.12", features = ["json", "multipart", "stream", "gzip", "rustls-tls", "socks", "system-proxy"], default-features = false }
+md5 = "0.8"
 dashmap = "6"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 prost = "0.13"
@@ -173,8 +176,8 @@ open = { version = "5", features = ["shellexecute-on-windows"] }
 which = "7"
 
 # --- Office ---
-sha1 = "0.10"
-sha2 = "0.10"
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"
 
 # --- AWS ---
@@ -300,6 +303,16 @@ debug = false
 # tool panic into a full-process crash — a real behavior regression.
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto = false
 codegen-units = 1
 strip = true
+
+# GeekClaw build-reliability override (2026-08-12): chromiumoxide generates a
+# huge CDP protocol surface and, at opt-level=3 + codegen-units=1, a single
+# rustc invocation can need 6-10 GB. On this 32 GB box the parallel release
+# build OOMs (rustc-LLVM out of memory) when chromiumoxide overlaps other heavy
+# crates. Drop its optimization/codegen granularity so it fits under memory
+# pressure; runtime impact for a browser-automation dep is negligible.
+[profile.release.package.chromiumoxide]
+opt-level = 2
+codegen-units = 16

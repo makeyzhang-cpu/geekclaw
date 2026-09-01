@@ -49,6 +49,8 @@ fn login_response_serialization_matches_spec() {
         PublicUser {
             user_id: user_id.clone(),
             username: "admin".into(),
+            role: "admin".into(),
+            is_active: true,
         },
         "eyJhbGciOiJIUzI1NiJ9".into(),
     );

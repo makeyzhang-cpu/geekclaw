@@ -10,6 +10,8 @@ type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
 export interface AuthUser {
   id: UserId;
   username: string;
+  role: string;
+  is_active: boolean;
 }
 
 /**
@@ -19,10 +21,18 @@ export interface AuthUser {
  */
 export const parseAuthUser = (value: unknown): AuthUser | null => {
   if (!value || typeof value !== 'object') return null;
-  const raw = value as { user_id?: unknown; id?: unknown; username?: unknown };
+  const raw = value as {
+    user_id?: unknown;
+    id?: unknown;
+    username?: unknown;
+    role?: unknown;
+    is_active?: unknown;
+  };
   if (Object.prototype.hasOwnProperty.call(raw, 'id')) return null;
   if (typeof raw.user_id !== 'string' || typeof raw.username !== 'string') return null;
-  return { id: parseUserId(raw.user_id), username: raw.username };
+  const role = typeof raw.role === 'string' ? raw.role : 'user';
+  const is_active = typeof raw.is_active === 'boolean' ? raw.is_active : true;
+  return { id: parseUserId(raw.user_id), username: raw.username, role, is_active };
 };
 
 interface LoginParams {
@@ -49,6 +59,8 @@ interface SetupParams {
 
 type LoginErrorCode =
   | 'invalidCredentials'
+  | 'invalidInviteCode'
+  | 'usernameExists'
   | 'tooManyAttempts'
   | 'serverError'
   | 'networkError'
@@ -71,9 +83,17 @@ interface AuthContextValue {
   login: (params: LoginParams) => Promise<LoginResult>;
   /** First-run only: create the initial admin from the typed credentials and log in. */
   setup: (params: SetupParams) => Promise<LoginResult>;
+  /** Invite-code-gated registration. On success the new user is logged in. */
+  register: (params: RegisterParams) => Promise<LoginResult>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   clearAuthCache: () => void;
+}
+
+interface RegisterParams {
+  username: string;
+  password: string;
+  inviteCode: string;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -228,7 +248,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     const qrLoginUser = consumeQrLoginResume();
     if (qrLoginUser) {
       hadSessionRef.current = true;
-      setUser(qrLoginUser);
+      setUser({ ...qrLoginUser, role: 'user', is_active: true });
       setStatus('authenticated');
       setNeedsSetup(false);
       setReady(true);
@@ -453,6 +473,74 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     }
   }, []);
 
+  // Invite-code-gated registration. The desktop shell is single-user/no-auth,
+  // so it short-circuits to success; the WebUI path hits POST /api/auth/register
+  // (CSRF-exempt, same as /login) and logs the new user in on success.
+  const register = useCallback(
+    async ({ username, password, inviteCode }: RegisterParams): Promise<LoginResult> => {
+      try {
+        if (isDesktopRuntime) {
+          setReady(true);
+          return { success: true };
+        }
+
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ username, password, inviteCode }),
+        });
+
+        const data = (await response.json()) as {
+          success: boolean;
+          message?: string;
+          error?: string;
+          code?: string;
+          user?: unknown;
+        };
+        const authenticatedUser = parseAuthUser(data.user);
+
+        if (!response.ok || !data.success || !authenticatedUser) {
+          let code: LoginErrorCode = 'unknown';
+          const message = data?.message ?? data?.error ?? 'Registration failed';
+          if (response.status === 400) {
+            code = data?.code === 'invalidInviteCode' ? 'invalidInviteCode' : 'invalidCredentials';
+          } else if (response.status === 409) {
+            code = 'usernameExists';
+          } else if (response.status === 429) {
+            code = 'tooManyAttempts';
+          } else if (response.status >= 500) {
+            code = 'serverError';
+          }
+          return { success: false, message, code };
+        }
+
+        hadSessionRef.current = true;
+        setUser(authenticatedUser);
+        setStatus('authenticated');
+        setReady(true);
+
+        configService.reload().catch(() => {});
+
+        if (typeof window !== 'undefined' && (window as any).__websocketReconnect) {
+          (window as any).__websocketReconnect();
+        }
+
+        return { success: true };
+      } catch (error) {
+        console.error('Register request failed:', error);
+        return {
+          success: false,
+          message: 'Network error. Please try again.',
+          code: 'networkError',
+        };
+      }
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     if (isDesktopRuntime) {
       setUser(null);
@@ -498,6 +586,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       needsSetup,
       login,
       setup,
+      register,
       logout,
       refresh,
       clearAuthCache,

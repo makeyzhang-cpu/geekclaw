@@ -1,4 +1,6 @@
 //! JWT authentication, password hashing, CSRF protection, rate limiting, and auth middleware.
+mod allinpay;
+mod aliyun_sms;
 mod companion_token;
 mod cookie;
 mod csrf;

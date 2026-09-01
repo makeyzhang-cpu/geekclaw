@@ -9,7 +9,9 @@ use nomifun_ai_agent::registry::AgentRegistry;
 use nomifun_ai_agent::runtime_registry::AgentRuntimeRegistry;
 use nomifun_ai_agent::types::AgentRuntimeBuildOptions;
 use nomifun_api_types::{AutoWorkState, AutoWorkTargetKind, Requirement, RequirementStatus, SendMessageRequest};
+use nomifun_api_types::StartConsensusRequest;
 use nomifun_common::{AppError, ConversationId, TerminalId, UserId};
+use nomifun_team::TeamConsensusService;
 use nomifun_conversation::{
     ConversationService, IdempotentMessageDelivery, runtime_state::RuntimeBuildLease,
 };
@@ -80,6 +82,10 @@ pub struct AutoWorkRunnerDeps {
     /// in lock-step with `AgentFactoryDeps::requirement_mcp_config` so the prompt
     /// never names a tool the session lacks.
     pub requirement_mcp_enabled: bool,
+    /// #74: optional team-consensus engine. When set, a requirement bound to a
+    /// team (`extra.team_id`) launches a team consensus run instead of a
+    /// conversation/terminal turn. `None` keeps the legacy behaviour.
+    pub consensus: Option<Arc<TeamConsensusService>>,
 }
 
 /// Sealed, in-process preparation handed to ConversationService. It is invoked
@@ -1264,6 +1270,65 @@ async fn run_loop(
         let recovered_active = claimed.recovered_active;
         let claimed = claimed.requirement;
         let req_id = claimed.requirement_id.clone();
+
+        // #74 requirement→consensus bridge: a requirement bound to a team
+        // (`extra.team_id`) launches a team consensus run instead of a
+        // conversation/terminal turn. This branch is inert unless BOTH the
+        // binding and the engine are present, so the legacy AutoWork path is
+        // completely untouched for ordinary requirements.
+        if let Some(team_id) = deps.service.team_id_for_requirement(&req_id).await {
+            if let Some(consensus) = &deps.consensus {
+                let topic = format!("需求「{}」：{}", claimed.title, claimed.content);
+                let engine = consensus.clone();
+                let note = match engine
+                    .start(
+                        &deps.authoritative_user_id,
+                        &team_id,
+                        StartConsensusRequest {
+                            topic,
+                            max_rounds: None,
+                            provider_id: None,
+                            model: None,
+                            chairman_prompt: None,
+                            member_prompts: None,
+                        },
+                    )
+                    .await
+                {
+                    Ok(_) => Some("已发起团队共识".to_string()),
+                    Err(error) => {
+                        warn!(
+                            target_id,
+                            tag,
+                            requirement_id = %req_id,
+                            error = %error,
+                            "AutoWork requirement→consensus trigger failed"
+                        );
+                        Some(format!("发起团队共识失败：{error}"))
+                    }
+                };
+                // Consume the claim: the requirement's purpose (triggering the
+                // consensus run) is complete. `turn_errored=false` finalizes it
+                // as done so the loop never re-pends this requirement and spins.
+                let _ = deps
+                    .service
+                    .finalize_claim_if_needed(
+                        &req_id,
+                        claim_generation,
+                        &claim_token,
+                        owner_id,
+                        kind,
+                        false,
+                        note,
+                        false,
+                    )
+                    .await;
+            }
+            progress.set_current(None);
+            emit_autowork_progress(&deps, kind, target_id, tag, &progress, false);
+            continue;
+        }
+
         progress.set_current(Some(LiveClaim {
             requirement_id: req_id.clone(),
             claim_generation,

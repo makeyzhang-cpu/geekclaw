@@ -1,5 +1,31 @@
 {
   "title": "设置",
+  "coAgent": {
+    "title": "协同共答",
+    "desc": "让一个并行「协作者」参与每轮对话，复用系统已配置的模型与 Key，给出独立视角的补充见解。协作者输出以署名「协作者」块呈现，不替代主回复。",
+    "mode": "参与模式",
+    "modeDesc": "控制协作者何时参与本轮对话。",
+    "modeOff": "关闭",
+    "modeOffDesc": "协作者不参与任何回合。",
+    "modeManual": "手动",
+    "modeManualDesc": "仅在对话页点击「向协作者提问」时参与。",
+    "modeKeyword": "关键词",
+    "modeKeywordDesc": "仅当用户消息包含下方任意关键词时参与。",
+    "modeAuto": "自动（每轮）",
+    "modeAutoDesc": "每轮对话都自动参与。",
+    "keywords": "触发关键词",
+    "keywordsPlaceholder": "每行一个，或用英文逗号分隔",
+    "name": "协作者名称",
+    "namePlaceholder": "显示在署名块中的名称",
+    "advanced": "高级",
+    "providerModel": "指定模型（可选）",
+    "providerModelDesc": "留空则使用系统默认模型与 Key；也可显式指定 provider 与模型。",
+    "panelTitle": "协作者",
+    "askButton": "向协作者提问",
+    "thinking": "协作者正在思考…",
+    "empty": "协作者尚未参与本轮。",
+    "error": "协作者调用失败：{{message}}"
+  },
   "contextLimit": "上下文窗口 (tokens)",
   "contextLimitPlaceholder": "留空 = 默认 200k",
   "contextLimitSelectPlaceholder": "选择上下文窗口",
@@ -1353,7 +1379,7 @@
       "emptyHint": "已配置的模型中没有打上图像/视频生成标签的。请到模型管理页为具备能力的模型打标。",
       "emptyNoProviders": "尚未配置任何模型供应商。请先在「供应商模型」中添加供应商与模型。"
     },
-    "sectionSpeech": "语音转文字",
+    "sectionSpeech": "语音",
     "speech": {
       "title": "语音转文字",
       "subtitle": "选择一个已录入的云端语音模型。",
@@ -1363,7 +1389,23 @@
       "languagePlaceholder": "留空则自动识别，例如 zh、en",
       "enabled": "在输入框中启用语音转文字",
       "noSources": "暂无可用的语音转文字模型，请先在供应商中录入语音识别模型。",
-      "manageProviders": "管理供应商模型"
+      "manageProviders": "管理供应商模型",
+      "tts": {
+        "title": "语音合成 (TTS)",
+        "subtitle": "选择一个已录入的云端语音模型，让伙伴开口说话。",
+        "cloud": "云端供应商",
+        "source": "默认语音模型",
+        "voice": "音色 / 声音 ID",
+        "voicePlaceholder": "留空使用模型默认音色；克隆音色填 voice id",
+        "format": "音频格式",
+        "enabled": "在聊天中启用语音朗读",
+        "autoPlay": "AI 回复后自动朗读",
+        "noSources": "暂无可用的语音合成模型，请先在供应商中录入语音合成模型。",
+        "manageProviders": "管理供应商模型",
+        "testPlay": "试听",
+        "notConfigured": "请先选择语音模型",
+        "testFailed": "试听失败"
+      }
     }
   },
   "otherHub": {

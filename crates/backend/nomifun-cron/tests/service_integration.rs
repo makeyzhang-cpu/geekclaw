@@ -985,6 +985,7 @@ fn make_create_req(name: &str, schedule: CronScheduleDto) -> CreateCronJobReques
             workspace: None,
             clear_context_each_run: false,
         }),
+        consensus_target: None,
     }
 }
 
@@ -1114,6 +1115,7 @@ async fn secondary_cron_keeps_model_selection_but_cannot_gain_host_configuration
                     workspace: Some("/unsafe".into()),
                     clear_context_each_run: true,
                 }),
+                consensus_target: None,
             },
         )
         .await

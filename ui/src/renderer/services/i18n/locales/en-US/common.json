@@ -115,9 +115,27 @@
   "processing": "Processing...",
   "optional": "(optional)",
   "clear": "Clear",
+  "workCommunity": {
+    "title": "AI Brand Marketing",
+    "subtitle": "AI-driven customer acquisition & digital asset building. Global multilingual AI websites + AI SEO + AI GEO. Going global? Overseas GEO is a must — make global buyers see you, trust you, and find you when they ask AI.",
+    "domesticTitle": "Domestic GEO AI Marketing",
+    "domesticDesc": "AI search engine optimization (GEO) for the domestic market — get your brand seen, trusted and found in answers from DeepSeek, Kimi, Doubao and more.",
+    "domesticBadge": "Domestic",
+    "internationalTitle": "International GEO AI Marketing",
+    "internationalDesc": "Multilingual AI websites + AI SEO + AI GEO. Overseas GEO is a must for going global — make precise global buyers see you, trust you and find you when they ask AI.",
+    "internationalBadge": "Global",
+    "enter": "Enter platform",
+    "back": "Back"
+  },
   "unit": {
     "hour_short": "h",
     "minute_short": "m",
     "second_short": "s"
+  },
+  "cloudLoginWall": {
+    "subtitle": "Enterprise AI Office Desktop System",
+    "cta": "Sign in / Register",
+    "waiting": "Put your AI team into your computer now",
+    "hint": "Your exclusive Agent creates infinite possibilities"
   }
 }

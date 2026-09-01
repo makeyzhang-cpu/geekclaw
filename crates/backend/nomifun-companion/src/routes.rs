@@ -1072,6 +1072,8 @@ mod tests {
             Extension(CurrentUser {
                 id: nomifun_common::UserId::new(),
                 username: "u1".into(),
+                role: "user".to_string(),
+                is_active: 1,
             }),
         );
         (app, service)

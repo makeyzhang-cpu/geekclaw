@@ -330,9 +330,9 @@ impl ICronRepository for SqliteCronRepository {
                 preset_id, preset_revision, preset_snapshot, \
                 conversation_id, conversation_title, agent_type, created_by, \
                 skill_content, description, created_at, updated_at, next_run_at, last_run_at, \
-                last_status, last_error, run_count, retry_count, max_retries\
+                last_status, last_error, run_count, retry_count, max_retries, consensus_target\
             ) VALUES (\
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\
             )",
         )
         .bind(&row.cron_job_id)
@@ -365,10 +365,36 @@ impl ICronRepository for SqliteCronRepository {
         .bind(row.run_count)
         .bind(row.retry_count)
         .bind(row.max_retries)
+        .bind(&row.consensus_target)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn set_consensus_target(
+        &self,
+        cron_job_id: &str,
+        target: Option<&str>,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE cron_jobs SET consensus_target = ? WHERE cron_job_id = ?")
+            .bind(target)
+            .bind(cron_job_id)
+            .execute(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        Ok(())
+    }
+
+    async fn get_consensus_target(&self, cron_job_id: &str) -> Result<Option<String>, DbError> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT consensus_target FROM cron_jobs WHERE cron_job_id = ?",
+        )
+        .bind(cron_job_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(row.and_then(|r| r.0.filter(|v| !v.is_empty())))
     }
 
     async fn update(

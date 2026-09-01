@@ -48,6 +48,15 @@ const IdmmSettingsContent: React.FC = () => {
   }, [chatGroups, settings.backup_provider_id]);
 
   const save = async () => {
+    // 后端校验：backup_provider_id 与 backup_model 必须同时提供或同时省略。
+    if (settings.backup_provider_id && !settings.backup_model) {
+      Message.error(
+        t('idmm.settings.modelRequired', {
+          defaultValue: '已选择旁路供应商，必须同时选择旁路模型才能保存。',
+        })
+      );
+      return;
+    }
     setSaving(true);
     try {
       const saved = await ipcBridge.idmm.updateSettings.invoke(settings);

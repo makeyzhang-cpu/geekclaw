@@ -109,7 +109,7 @@ const FigurePanel: React.FC<FigurePanelProps> = ({ profile, patchCompanion, figu
         <div className='flex flex-col gap-8px rd-10px border border-solid border-[var(--color-border-2)] px-12px py-10px'>
           <div className='flex items-center justify-between gap-8px'>
             <span className='text-13px font-500 text-t-primary'>
-              {t('geekclaw.customFigure.sizeLabel', { defaultValue: '桌面形象尺寸' })}
+              {t('geekclaw.customFigure.sizeLabel', { defaultValue: '数字分身形象尺寸' })}
             </span>
             <span className='shrink-0 text-12px text-t-primary'>{`${sizeDraft}px`}</span>
           </div>

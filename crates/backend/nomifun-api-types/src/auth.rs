@@ -8,6 +8,97 @@ use serde::{Deserialize, Serialize};
 pub struct PublicUser {
     pub user_id: UserId,
     pub username: String,
+    /// `admin` or `user`. Drives access to the user-management control plane.
+    pub role: String,
+    /// Whether the account is enabled.
+    pub is_active: bool,
+}
+
+/// One row in the admin user list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserListItem {
+    pub user_id: UserId,
+    pub username: String,
+    pub role: String,
+    pub is_active: bool,
+    /// Last successful login, epoch milliseconds; `None` if never.
+    pub last_login: Option<i64>,
+    /// Billing plan tier (`free` / `pro` / `team`).
+    pub plan: String,
+    /// Credits wallet balance.
+    pub credits: i64,
+}
+
+/// Response for `GET /api/auth/users`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListUsersResponse {
+    pub success: bool,
+    pub users: Vec<UserListItem>,
+}
+
+/// Request body for `POST /api/auth/users/{id}/role`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetRoleRequest {
+    pub role: String,
+}
+
+/// Invitation code as returned to admins.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvitationInfo {
+    pub code: String,
+    pub created_by: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub used_by: Option<String>,
+    pub used_at: Option<i64>,
+    /// Plan tier granted to the invitee on success (NULL = default `free`).
+    pub plan: Option<String>,
+    /// Initial credits granted to the invitee when consumed.
+    pub credits_grant: i64,
+    /// Credits awarded to the inviter (`created_by`) on success — the
+    /// bidirectional growth reward.
+    pub reward_to_inviter: i64,
+}
+
+/// Response for `GET /api/auth/invitations`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InvitationListResponse {
+    pub success: bool,
+    pub invitations: Vec<InvitationInfo>,
+}
+
+/// Request body for `POST /api/auth/invitations`.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CreateInvitationRequest {
+    /// Validity window in days. Defaults to 7.
+    pub expires_in_days: i64,
+    /// Plan tier granted to the invitee on success (`None` = default `free`).
+    pub plan: Option<String>,
+    /// Initial credits granted to the invitee when the code is consumed.
+    pub credits_grant: i64,
+    /// Credits awarded to the inviter on success — the bidirectional reward.
+    pub reward_to_inviter: i64,
+}
+
+impl Default for CreateInvitationRequest {
+    fn default() -> Self {
+        Self {
+            expires_in_days: 7,
+            plan: None,
+            credits_grant: 0,
+            reward_to_inviter: 0,
+        }
+    }
+}
+
+/// Response for `POST /api/auth/invitations`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateInvitationResponse {
+    pub success: bool,
+    pub code: String,
+    pub expires_at: i64,
 }
 
 /// Login request body for `POST /login`.
@@ -16,6 +107,18 @@ pub struct PublicUser {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+}
+
+/// Register request body for `POST /api/auth/register`.
+///
+/// Closed registration: a valid, unexpired, unused invitation code is required.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisterRequest {
+    pub username: String,
+    pub password: String,
+    #[serde(rename = "inviteCode")]
+    pub invite_code: String,
 }
 
 /// Login success response for `POST /login` and `POST /api/auth/qr-login`.
@@ -157,6 +260,167 @@ pub struct WebuiGenerateQrTokenResponse {
     pub expires_at_ms: i64,
 }
 
+// ---------------------------------------------------------------------------
+// Phone-number SMS verification (registration / login / password reset)
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/auth/sms/send`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SendSmsRequest {
+    /// 11-digit mainland China mobile number.
+    pub phone: String,
+    /// `register`, `login`, or `reset`.
+    pub purpose: String,
+}
+
+/// Request body for `POST /api/auth/register/phone`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhoneRegisterRequest {
+    pub phone: String,
+    /// 6-digit SMS code received by the phone.
+    pub code: String,
+    pub password: String,
+    #[serde(rename = "inviteCode")]
+    pub invite_code: String,
+    /// Optional display username. When omitted the phone number is used as the
+    /// login username, so the existing /login (find_by_username) path keeps
+    /// working for phone-only registrations.
+    #[serde(default)]
+    pub username: Option<String>,
+}
+
+/// Request body for `POST /api/auth/login/phone`.
+///
+/// Either `password` or `code` must be supplied (at least one); supplying both
+/// is allowed — password takes precedence when present.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhoneLoginRequest {
+    pub phone: String,
+    pub password: Option<String>,
+    pub code: Option<String>,
+}
+
+/// Request body for `POST /api/auth/reset-password/phone`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResetPasswordPhoneRequest {
+    pub phone: String,
+    pub code: String,
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
+
+// ---------------------------------------------------------------------------
+// Billing / economy DTOs (plan tiers + credits wallet + model pricing)
+// ---------------------------------------------------------------------------
+
+/// One credits-ledger row, as exposed to clients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditTransactionInfo {
+    pub id: i64,
+    pub user_id: String,
+    /// `consume` | `grant` | `refund` | `invite_reward` | `signup_bonus` |
+    /// `monthly_grant` | `adjust`.
+    pub tx_type: String,
+    /// Signed delta: positive = credit, negative = debit.
+    pub amount: i64,
+    /// Wallet balance immediately after this transaction.
+    pub balance_after: i64,
+    /// What the change relates to: `conversation` | `invitation` | `admin` |
+    /// `system` (nullable).
+    pub ref_type: Option<String>,
+    /// Related id / invitation code / admin note key (nullable).
+    pub ref_value: Option<String>,
+    /// Human-readable note (nullable).
+    pub note: Option<String>,
+    pub created_at: i64,
+}
+
+/// A model's per-token pricing, keyed by `(provider, model, task)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPriceInfo {
+    pub id: i64,
+    pub provider: String,
+    pub model: String,
+    /// `Chat` | `ImageGeneration` | ... — matches `ModelTask` values.
+    pub task: String,
+    pub input_credits_per_1k: f64,
+    pub output_credits_per_1k: f64,
+    pub cache_read_credits_per_1k: f64,
+    /// Billing currency unit; the wallet is denominated in `credits`.
+    pub currency: String,
+    pub updated_at: i64,
+}
+
+/// Response for `GET /api/billing/me`: the signed-in user's wallet + ledger.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BillingBalance {
+    pub success: bool,
+    pub user_id: String,
+    /// Billing plan tier (`free` / `pro` / `team`).
+    pub plan: String,
+    /// Current credits wallet balance.
+    pub credits: i64,
+    /// Most recent ledger rows, newest first.
+    pub transactions: Vec<CreditTransactionInfo>,
+}
+
+/// Response for `GET /api/billing/pricing` (admin): all model prices.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelPriceListResponse {
+    pub success: bool,
+    pub prices: Vec<ModelPriceInfo>,
+}
+
+/// Admin request to manually adjust a user's credits.
+///
+/// `delta` is signed: positive grants, negative deducts. A ledger row is
+/// appended so the change is auditable.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdjustCreditsRequest {
+    pub delta: i64,
+    pub note: Option<String>,
+}
+
+/// Admin request to set a user's plan tier.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetPlanRequest {
+    pub plan: String,
+}
+
+/// Admin request to insert/update a model's price (keyed by provider/model/task).
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpsertPricingRequest {
+    pub provider: String,
+    pub model: String,
+    /// Defaults to `Chat` when omitted.
+    pub task: String,
+    pub input_credits_per_1k: f64,
+    pub output_credits_per_1k: f64,
+    pub cache_read_credits_per_1k: f64,
+    pub currency: Option<String>,
+}
+
+impl Default for UpsertPricingRequest {
+    fn default() -> Self {
+        Self {
+            provider: String::new(),
+            model: String::new(),
+            task: "Chat".to_string(),
+            input_credits_per_1k: 0.0,
+            output_credits_per_1k: 0.0,
+            cache_read_credits_per_1k: 0.0,
+            currency: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +431,8 @@ mod tests {
         let user = PublicUser {
             user_id: UserId::new(),
             username: "admin".into(),
+            role: "admin".into(),
+            is_active: true,
         };
         let json = serde_json::to_value(&user).unwrap();
         assert_eq!(json["user_id"], user.user_id.as_str());
@@ -193,6 +459,8 @@ mod tests {
         let user = PublicUser {
             user_id: UserId::new(),
             username: "admin".into(),
+            role: "admin".into(),
+            is_active: true,
         };
         let resp = LoginResponse::new(user.clone(), "jwt_token".into());
         assert!(resp.success);
@@ -208,6 +476,8 @@ mod tests {
             PublicUser {
                 user_id: user_id.clone(),
                 username: "admin".into(),
+                role: "admin".into(),
+                is_active: true,
             },
             "eyJhbGciOi".into(),
         );

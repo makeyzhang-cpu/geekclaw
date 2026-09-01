@@ -114,6 +114,17 @@ pub trait ICronRepository: Send + Sync {
     /// Inserts a new cron job row.
     async fn insert(&self, row: &CronJobRow) -> Result<(), DbError>;
 
+    /// Persists the optional team-consensus trigger JSON for a cron job (#74).
+    async fn set_consensus_target(
+        &self,
+        cron_job_id: &str,
+        target: Option<&str>,
+    ) -> Result<(), DbError>;
+
+    /// Reads the optional team-consensus trigger JSON for a cron job (#74),
+    /// used to echo the binding back through `CronJobResponse`.
+    async fn get_consensus_target(&self, cron_job_id: &str) -> Result<Option<String>, DbError>;
+
     /// Updates a cron job by its stable business ID with the provided fields.
     /// Returns `DbError::NotFound` if absent.
     async fn update(

@@ -89,7 +89,7 @@ pub enum ConversationStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConversationSource {
-    Nomifun,
+    GeekClaw,
     Telegram,
     Lark,
     Dingtalk,

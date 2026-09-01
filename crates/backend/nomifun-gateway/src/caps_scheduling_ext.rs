@@ -47,7 +47,7 @@ async fn cron_get_job(deps: Arc<GatewayDeps>, ctx: CallerCtx, p: CronGetJobParam
         .get_job(ctx.user_id.as_str(), p.cron_job_id.as_str())
         .await
     {
-        Ok(job) => ok(cron_job_to_response(&job)),
+        Ok(job) => ok(cron_job_to_response(&job, None)),
         Err(e) => json!({"error": e.to_string()}),
     }
 }

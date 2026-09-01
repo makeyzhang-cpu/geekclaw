@@ -106,7 +106,7 @@ fn read_bun_version() -> String {
     parsed
         .get("package")
         .and_then(|p| p.get("metadata"))
-        .and_then(|m| m.get("nomifun-runtime"))
+        .and_then(|m| m.get("geekclaw-runtime"))
         .and_then(|r| r.get("bun_version"))
         .and_then(|v| v.as_str())
         .expect("[package.metadata.geekclaw-runtime] bun_version missing")

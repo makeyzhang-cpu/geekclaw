@@ -19,6 +19,7 @@ mod browser_inventory_events;
 mod provider_deletion;
 mod router;
 mod services;
+mod expert_market;
 mod workshop_bridge;
 mod channel_asset_resolver;
 

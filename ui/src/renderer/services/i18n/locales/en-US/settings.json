@@ -1,5 +1,31 @@
 {
   "title": "Settings",
+  "coAgent": {
+    "title": "Collaborative Co-answer",
+    "desc": "Have a parallel \"collaborator\" join every turn, reusing the system-configured model and key to offer an independent perspective. The collaborator's output is shown as a signed \"collaborator\" block and never replaces the primary reply.",
+    "mode": "Participation mode",
+    "modeDesc": "Controls when the collaborator joins a turn.",
+    "modeOff": "Off",
+    "modeOffDesc": "The collaborator never joins.",
+    "modeManual": "Manual",
+    "modeManualDesc": "Only when you click \"Ask collaborator\" in the chat.",
+    "modeKeyword": "Keyword",
+    "modeKeywordDesc": "Only when the user message contains any of the keywords below.",
+    "modeAuto": "Auto (every turn)",
+    "modeAutoDesc": "Joins every turn automatically.",
+    "keywords": "Trigger keywords",
+    "keywordsPlaceholder": "One per line, or comma-separated",
+    "name": "Collaborator name",
+    "namePlaceholder": "Shown in the signed block",
+    "advanced": "Advanced",
+    "providerModel": "Specific model (optional)",
+    "providerModelDesc": "Leave blank to use the system default model and key; or set an explicit provider and model.",
+    "panelTitle": "Collaborator",
+    "askButton": "Ask collaborator",
+    "thinking": "Collaborator is thinking…",
+    "empty": "The collaborator has not joined this turn yet.",
+    "error": "Collaborator call failed: {{message}}"
+  },
   "contextLimit": "Context window (tokens)",
   "contextLimitPlaceholder": "Leave blank = default 200k",
   "contextLimitSelectPlaceholder": "Select context window",
@@ -986,7 +1012,7 @@
     "title": "This model provider is in use",
     "desc": "The following features still use this provider. Unbind or switch models first, then delete:",
     "goto": "Go fix it",
-    "desktopCompanion": "Desktop companion",
+    "desktopCompanion": "Digital avatar companion",
     "customerService": "Customer service",
     "smartDecision": "Smart decision",
     "conversation": "Conversation lead model",
@@ -1353,7 +1379,7 @@
       "emptyHint": "No configured model is tagged for image/video generation. Tag the capable models on the model management page.",
       "emptyNoProviders": "No model providers are configured. Add a provider and model under \"Provider Models\" first."
     },
-    "sectionSpeech": "Speech to Text",
+    "sectionSpeech": "Voice",
     "speech": {
       "title": "Speech to Text",
       "subtitle": "Choose a configured cloud speech model.",
@@ -1363,7 +1389,23 @@
       "languagePlaceholder": "Leave empty for automatic detection, for example zh or en",
       "enabled": "Enable speech to text in input boxes",
       "noSources": "No speech-to-text model is available. Add a speech recognition model to a provider first.",
-      "manageProviders": "Manage Provider Models"
+      "manageProviders": "Manage Provider Models",
+      "tts": {
+        "title": "Speech Synthesis (TTS)",
+        "subtitle": "Pick an enrolled cloud voice model so your companion can speak.",
+        "cloud": "Cloud Providers",
+        "source": "Default Voice Model",
+        "voice": "Voice / Voice ID",
+        "voicePlaceholder": "Leave empty for the model default; fill voice id for a cloned voice",
+        "format": "Audio Format",
+        "enabled": "Enable voice playback in chat",
+        "autoPlay": "Auto-read AI replies aloud",
+        "noSources": "No speech synthesis model is available. Add a speech synthesis model to a provider first.",
+        "manageProviders": "Manage Provider Models",
+        "testPlay": "Test Play",
+        "notConfigured": "Pick a voice model first",
+        "testFailed": "Test play failed"
+      }
     }
   },
   "otherHub": {

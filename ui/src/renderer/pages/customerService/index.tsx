@@ -72,7 +72,8 @@ const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void }> = ({ agent,
  * 客服（/customer-service）—— 面向陌生访客的客服控制台首页（花名册）。
  *
  * 与「桌面伙伴」完全分离的一级域：一次性只读引擎会话（knowledge_search /
- * knowledge_read / cs_notes_search 三个只读工具），高危能力从不注册。
+ * knowledge_read / cs_notes_search 三个只读工具，外加可选的、由管理员钉死
+ * host 的只读 HTTPS 业务查询端点），高危能力从不注册。
  */
 const CustomerServiceRosterPage: React.FC = () => {
   const { t } = useTranslation();
@@ -93,7 +94,8 @@ const CustomerServiceRosterPage: React.FC = () => {
             </h1>
             <p className='m-0 text-13px text-t-secondary leading-19px max-w-[560px]'>
               {t('customerService.subtitle', {
-                defaultValue: '面向陌生访客的客服员工 —— 只依据知识库与客服笔记回答，高危能力从不注册。',
+                defaultValue:
+                  '面向陌生访客的客服员工 —— 只依据知识库、客服笔记与可选的只读业务接口回答，高危能力从不注册。',
               })}
             </p>
           </div>
@@ -120,6 +122,12 @@ const CustomerServiceRosterPage: React.FC = () => {
           <span className='inline-flex items-center gap-7px text-12px text-t-secondary'>
             <Lock theme='outline' size='15' fill='rgb(var(--primary-6))' className='block' style={{ lineHeight: 0 }} />
             {t('customerService.trust.locked', { defaultValue: '终端 / 文件 / 电脑 / 浏览器 等高危能力从不注册' })}
+          </span>
+          <span className='inline-flex items-center gap-7px text-12px text-t-secondary'>
+            <SafeRetrieval theme='outline' size='15' fill='rgb(var(--primary-6))' className='block' style={{ lineHeight: 0 }} />
+            {t('customerService.trust.businessQuery', {
+              defaultValue: '可选只读业务查询：仅你授权的 HTTPS 接口，模型无法访问内网或写数据',
+            })}
           </span>
         </div>
 

@@ -32,7 +32,6 @@ type UpdateStatus =
 
 type UpdateInfo = UpdateReleaseInfo;
 
-const BAIDU_RELEASE_MIRROR_URL = 'https://pan.baidu.com/s/5GPonoJNrwJ7GciBSDgXLaA';
 const PRODUCT_WEBSITE_URL = 'https://www.geekclaw.com';
 const GITHUB_RELEASES_PAGE = 'https://github.com/geekclaw/geekclaw-tauri/releases/latest';
 
@@ -75,12 +74,6 @@ const UpdateModal: React.FC = () => {
     const target = releasePageUrl || GITHUB_RELEASES_PAGE;
     void ipcBridge.shell.openExternal.invoke(target).catch((error) => {
       console.error('Failed to open release page:', error);
-    });
-  };
-
-  const openBaiduReleaseMirror = () => {
-    void ipcBridge.shell.openExternal.invoke(BAIDU_RELEASE_MIRROR_URL).catch((error) => {
-      console.error('Failed to open Baidu release mirror:', error);
     });
   };
 
@@ -256,6 +249,8 @@ const UpdateModal: React.FC = () => {
         case 'checking':
           break;
         case 'available':
+          // 静默推送：不自动弹窗，交由左下角提示（UpdateToast）引导用户手动安装。
+          // Silent push: do not auto-open the modal; the bottom-left toast handles prompting.
           reportUpdateAvailable(evt.version);
           setAutoUpdateAvailable(true);
           setAutoUpdateInfo({
@@ -263,7 +258,6 @@ const UpdateModal: React.FC = () => {
             releaseNotes: evt.releaseNotes,
           });
           setStatus('available');
-          setVisible(true);
           break;
         case 'not-available':
           reportNoUpdateAvailable();
@@ -353,21 +347,6 @@ const UpdateModal: React.FC = () => {
     });
   };
 
-  const renderDisclaimer = (className = '') => (
-    <div className={`text-12px leading-18px text-warning-6 ${className}`}>{t('update.disclaimer')}</div>
-  );
-
-  const renderBaiduManualDownloadButton = (className = '') => (
-    <Button
-      size='small'
-      onClick={openBaiduReleaseMirror}
-      icon={<Download size='14' />}
-      className={`!px-16px ${className}`}
-    >
-      {t('settings.baiduManualDownload')}
-    </Button>
-  );
-
   const renderContent = () => {
     switch (status) {
       case 'checking':
@@ -382,7 +361,6 @@ const UpdateModal: React.FC = () => {
               <div className='absolute inset-0 border-3px border-solid border-primary border-t-transparent rounded-full animate-spin' />
             </div>
             <div className='text-15px text-t-primary font-500'>{t('update.checking')}</div>
-            <div className='mt-16px'>{renderBaiduManualDownloadButton()}</div>
           </div>
         );
 
@@ -396,7 +374,6 @@ const UpdateModal: React.FC = () => {
             <div className='text-13px text-t-tertiary'>
               {t('update.currentVersion', { version: currentVersion || '-' })}
             </div>
-            <div className='mt-16px'>{renderBaiduManualDownloadButton()}</div>
           </div>
         );
 
@@ -433,7 +410,6 @@ const UpdateModal: React.FC = () => {
                     {t('update.downloadButton')}
                   </Button>
                 )}
-                {renderBaiduManualDownloadButton()}
               </div>
             </div>
 
@@ -445,17 +421,6 @@ const UpdateModal: React.FC = () => {
 
             <div className='mx-24px mt-12px px-12px py-10px rounded-8px border border-solid border-[rgba(var(--primary-6),0.16)] bg-[rgba(var(--primary-6),0.06)] text-12px leading-18px text-t-secondary'>
               <div>{t('update.downloadSourceHint')}</div>
-              <div className='mt-4px'>
-                {t('update.baiduMirrorHint')}{' '}
-                <button
-                  type='button'
-                  onClick={openBaiduReleaseMirror}
-                  title={BAIDU_RELEASE_MIRROR_URL}
-                  className='cursor-pointer border-0 bg-transparent p-0 text-12px leading-18px text-primary-6 underline-offset-2 hover:underline'
-                >
-                  {t('update.baiduMirrorLink')}
-                </button>
-              </div>
               <div className='mt-4px'>
                 {t('update.productWebsiteHint')}{' '}
                 <button
@@ -505,7 +470,6 @@ const UpdateModal: React.FC = () => {
                 <span className='text-primary-6 font-500'>{progress.speed}</span>
               </div>
             </div>
-            <div className='mt-16px'>{renderBaiduManualDownloadButton()}</div>
           </div>
         );
 
@@ -529,7 +493,6 @@ const UpdateModal: React.FC = () => {
               >
                 {t('update.installNow')}
               </Button>
-              {renderBaiduManualDownloadButton()}
             </div>
           </div>
         );
@@ -574,7 +537,6 @@ const UpdateModal: React.FC = () => {
               <Button type='primary' size='small' onClick={openFile} className='!px-16px'>
                 {t('update.openFile')}
               </Button>
-              {renderBaiduManualDownloadButton()}
             </div>
           </div>
         );
@@ -594,7 +556,6 @@ const UpdateModal: React.FC = () => {
               <Button type='primary' size='small' onClick={openReleasePage} className='!px-16px'>
                 {t('update.goToRelease')}
               </Button>
-              {renderBaiduManualDownloadButton()}
               <Button size='small' onClick={openProductWebsite} className='!px-16px'>
                 {t('update.productWebsiteLink')}
               </Button>
@@ -622,15 +583,6 @@ const UpdateModal: React.FC = () => {
     >
       <div className='flex flex-col h-full w-full'>
         <div className='min-h-0 flex-1'>{renderContent()}</div>
-        {/* 同方向的 border-t-solid：无方向的 border-solid 会给四边都上样式，另外三边没有
-            宽度类会回落到 medium≈3px。bg-fill-1/60 也是死写法（bg-fill-N 规则以 $ 锚定，
-            斜杠透明度让它一条都匹配不上），改用 color-mix 拿到同样的 60% 填充。
-            Same-direction style + a fill that actually compiles: `bg-fill-1/60` matched
-            no rule at all, so this strip had no background of any kind.
-            注意 updateDisclaimer.test.ts 用正则要求类名字符串紧跟在括号后面。 */}
-        {renderDisclaimer(
-          'shrink-0 border-t border-t-solid border-[rgba(var(--warning-6),0.18)] bg-[color-mix(in_srgb,var(--color-fill-1)_60%,transparent)] px-20px py-10px text-center'
-        )}
       </div>
     </NomiModal>
   );

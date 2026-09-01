@@ -1,0 +1,22 @@
+{
+  "title": "用户管理",
+  "subtitle": "云端账号",
+  "editProfile": "编辑资料",
+  "comingSoon": "即将上线",
+  "appearance": "外观",
+  "helpFeedback": "帮助与反馈",
+  "checkUpdate": "检查更新",
+  "systemSettings": "系统设置",
+  "buddyStation": "GeekClaw 加油站",
+  "checkInPoints": "签到领积分",
+  "invite": "去邀约",
+  "inviteReward": "最高得 650 积分/人",
+  "points": "积分余额",
+  "growthPlan": "成长计划",
+  "growthReward": "连登抽取 GeekClaw 周边",
+  "license": {
+    "trial": "体验版",
+    "pro": "PRO",
+    "upgrade": "升级"
+  }
+}

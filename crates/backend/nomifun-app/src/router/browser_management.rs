@@ -2368,6 +2368,8 @@ mod tests {
         let owner_user = CurrentUser {
             id: user.user_id.clone(),
             username: user.username.clone(),
+            role: "admin".to_string(),
+            is_active: 1,
         };
         let jwt = Arc::new(JwtService::new("browser-management-test-secret".to_owned()));
         let token = jwt.sign(user.user_id.as_str(), &user.username).unwrap();

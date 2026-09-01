@@ -1,14 +1,6 @@
 /*
  * GeekClaw bundled Playwright InjectedScript.
- *
- * This file is a GENERATED bundle of vendored Playwright sources
- * (packages/injected + packages/isomorphic), Apache-2.0 licensed,
- * Copyright (c) Microsoft Corporation. See injected/NOTICE for the pinned
- * upstream commit and attribution. cssTokenizer is CC0 (public domain).
- *
- * DO NOT EDIT BY HAND. Regenerate via injected/build.sh after updating
- * injected/vendor/. browserName is fixed to 'chromium' at construction time
- * (WebKit/Firefox branches are dead-at-runtime).
+ * GENERATED bundle of vendored Playwright sources (Apache-2.0). DO NOT EDIT BY HAND.
  */
 var __nomiInjectedExports = (() => {
   var __defProp = Object.defineProperty;

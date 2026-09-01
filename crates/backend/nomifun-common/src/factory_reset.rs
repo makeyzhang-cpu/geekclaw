@@ -5004,12 +5004,17 @@ pub fn retire_non_v3_dataset_after_probe(
     if read_completed_automatic_legacy_retirement(data_dir)?.is_some()
         && !request_is_fresh_explicit_authority
     {
-        return Err(AppError::Conflict(
-            "this installation has already consumed its one automatic legacy-data retirement; \
-             preserving the detected legacy data without mutation; use an explicit factory reset \
-             if the replacement dataset should be cleared"
-                .into(),
-        ));
+        // The active database is still non-v3 after a previous automatic retirement.
+        // Rather than trapping the user in an unbootable state (common after a
+        // reinstall that preserves AppData, a partial reset rollback, or a manual
+        // restore from retired-datasets), consume a fresh automatic retirement.
+        // The old data is still preserved under retired-datasets/<new-generation>/.
+        tracing::warn!(
+            target: "boot",
+            "legacy database still present after a previous automatic retirement; \
+             re-arming a fresh automatic retirement so the app can boot"
+        );
+        clear_completed_automatic_legacy_retirement(data_dir)?;
     }
     let reason = if request.is_some() {
         DatasetResetReason::ExplicitFactoryReset
@@ -5330,6 +5335,24 @@ fn plan_consumes_automatic_legacy_retirement(
                 plan.reason,
                 DatasetResetReason::ExplicitFactoryReset
             )
+}
+
+fn clear_completed_automatic_legacy_retirement(
+    data_dir: &Path,
+) -> Result<(), AppError> {
+    let path = automatic_legacy_retirement_path(data_dir);
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(AppError::Internal(format!(
+                "clear automatic legacy retirement marker {}: {error}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn write_completed_automatic_legacy_retirement(
@@ -6585,7 +6608,7 @@ mod tests {
     }
 
     #[test]
-    fn automatic_legacy_retirement_is_consumed_once_per_installation() {
+    fn automatic_legacy_retirement_can_be_re_consumed_after_rollback() {
         let data = tempfile::tempdir().unwrap();
         touch(&data.path().join(DB_FILE));
         assert_eq!(
@@ -6627,27 +6650,50 @@ mod tests {
         )
         .unwrap();
 
-        let error = retire_non_v3_dataset_after_probe(
-            data.path(),
-            data.path(),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("already consumed its one automatic")
-        );
+        // A previous automatic retirement should not trap the app: if the
+        // active database is still legacy (reinstall, partial reset, or manual
+        // restore from retired-datasets), consume a fresh automatic retirement.
         assert_eq!(
-            fs::read(data.path().join(DB_FILE)).unwrap(),
-            b"exact-legacy-database-sentinel"
+            retire_non_v3_dataset_after_probe(
+                data.path(),
+                data.path(),
+            )
+            .unwrap(),
+            DatasetPreparation::ResetApplied
         );
-        assert!(!reset_dir(data.path()).exists());
+        assert!(
+            !data.path().join(DB_FILE).exists(),
+            "the re-retired legacy database must be moved out of the active root"
+        );
+        assert!(reset_dir(data.path()).exists());
+        // The marker is cleared before re-arming and is only rewritten once
+        // the reset finalizes; until then the pending plan is the authority.
+        assert!(
+            !automatic_legacy_retirement_path(data.path()).is_file()
+        );
 
+        // The fresh explicit factory-reset request remains available after the
+        // re-consumed automatic retirement, once the pending auto plan is finalized.
+        let second_plan = read_pending_v3_reset(data.path(), data.path())
+            .unwrap()
+            .unwrap();
+        touch(&data.path().join(DB_FILE));
+        write_v3_dataset_receipt(data.path(), &second_plan.generation).unwrap();
+        finalize_v3_dataset_reset(data.path(), data.path()).unwrap();
+        assert!(
+            automatic_legacy_retirement_path(data.path()).is_file()
+        );
+
+        fs::write(
+            data.path().join(DB_FILE),
+            b"another-legacy-database-sentinel",
+        )
+        .unwrap();
         request_v3_dataset_reset(data.path(), data.path()).unwrap();
         assert_eq!(
             prepare_v3_dataset(data.path(), data.path()).unwrap(),
             DatasetPreparation::ResetApplied,
-            "a new explicit user request remains available after the one automatic retirement"
+            "a new explicit user request remains available after re-consuming the automatic retirement"
         );
         assert!(!data.path().join(DB_FILE).exists());
     }

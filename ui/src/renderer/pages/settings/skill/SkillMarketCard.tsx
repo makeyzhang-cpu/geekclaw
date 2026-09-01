@@ -28,6 +28,7 @@ const MarketSourceBadge: React.FC<{ source: ISkillMarketItem['source'] }> = ({ s
     mcpworld: '!bg-[rgba(var(--purple-6),0.1)] !text-[rgba(var(--purple-6),1)]',
     clawhub_plugins: '!bg-[rgba(var(--orange-6),0.12)] !text-[rgba(var(--orange-7),1)]',
     skillhub_packages: '!bg-[rgba(var(--cyan-6),0.1)] !text-[rgba(var(--cyan-7),1)]',
+    geekclaw_featured: '!bg-[rgba(var(--primary-6),0.12)] !text-primary-6',
   }[source];
 
   return (

@@ -14,6 +14,7 @@ const MARKET_SOURCE_LABELS: Record<SkillMarketSource, string> = {
   mcpworld: 'MCP World',
   clawhub_plugins: 'ClawHub Plugins',
   skillhub_packages: 'SkillHub Packages',
+  geekclaw_featured: '精选插件',
 };
 
 const MARKET_SOURCE_URLS: Record<SkillMarketSource, string> = {
@@ -24,6 +25,7 @@ const MARKET_SOURCE_URLS: Record<SkillMarketSource, string> = {
   mcpworld: 'https://www.mcpworld.com/?category=most_popular',
   clawhub_plugins: 'https://clawhub.ai/plugins',
   skillhub_packages: 'https://skillhub.cn/skillspackage',
+  geekclaw_featured: 'https://geekclaw.ai/plugins',
 };
 
 export const marketSourceLabel = (source: SkillMarketSource): string => MARKET_SOURCE_LABELS[source];
@@ -40,7 +42,8 @@ export const isSkillMarketSource = (value: unknown): value is SkillMarketSource 
   value === 'skillhub_mcp' ||
   value === 'mcpworld' ||
   value === 'clawhub_plugins' ||
-  value === 'skillhub_packages';
+  value === 'skillhub_packages' ||
+  value === 'geekclaw_featured';
 
 export const cleanMarketText = (value: unknown, maxLength = MAX_DESCRIPTION_LENGTH): string => {
   if (typeof value !== 'string') return '';
@@ -56,6 +59,7 @@ const isSafeMarketUrl = (source: SkillMarketSource, url: string): boolean => {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) return false;
     if (source === 'clawhub' || source === 'clawhub_plugins') return parsed.hostname === 'clawhub.ai';
+    if (source === 'geekclaw_featured') return parsed.hostname === 'geekclaw.ai';
     if (source === 'skillhub') {
       return parsed.hostname === 'skillhub.cn' || parsed.hostname === 'www.skills.sh' || parsed.hostname === 'skills.sh';
     }
@@ -77,6 +81,7 @@ const isSafeInstallCommand = (source: SkillMarketSource, value: string): boolean
   if (source === 'skillhub_mcp') return /^mcp market add skillhub:[a-z0-9._-]+$/i.test(value);
   if (source === 'mcpworld') return /^mcp market add mcpworld:[a-z0-9._-]+$/i.test(value);
   if (source === 'clawhub_plugins') return value.startsWith('openclaw plugins install clawhub:@');
+  if (source === 'geekclaw_featured') return value.startsWith('openclaw plugins install geekclaw:');
   if (source === 'skillhub_packages') return /^skillhub package add [a-z0-9._-]+$/i.test(value);
   return false;
 };

@@ -17,6 +17,7 @@ import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutContext } from '@renderer/hooks/context/LayoutContext';
+import UserMenu from '@renderer/components/layout/UserMenu';
 import { NavigationHistoryProvider } from '@renderer/hooks/context/NavigationHistoryContext';
 import { WebuiServerProvider } from '@renderer/hooks/context/WebuiServerContext';
 import { useDeepLink } from '@renderer/hooks/system/useDeepLink';
@@ -91,6 +92,7 @@ const useDebug = () => {
 };
 
 const UpdateModal = React.lazy(() => import('@/renderer/components/settings/UpdateModal'));
+const UpdateToast = React.lazy(() => import('@/renderer/components/UpdateToast'));
 
 // Primary rail width. Default slimmed from 216 → 184; the rail is now freely
 // resizable by dragging its right edge (clamped to [RAIL_MIN, RAIL_MAX]) and the
@@ -389,8 +391,9 @@ const Layout: React.FC<{
       try {
         const res = await ipcBridge.autoUpdate.check.invoke({ includePrerelease });
         if (!cancelled && res?.success && res.data?.updateInfo) {
+          // 静默推送：仅同步全局状态（侧栏小圆点 + 左下角提示），不自动弹窗。
+          // Silent push: just sync global state (sidebar dot + bottom-left toast); never auto-open the modal.
           reportUpdateAvailable(res.data.updateInfo.version);
-          window.dispatchEvent(new CustomEvent('geekclaw-open-update-modal', { detail: { source: 'startup' } }));
         } else if (!cancelled && res?.success) {
           reportNoUpdateAvailable();
         }
@@ -558,29 +561,16 @@ const Layout: React.FC<{
                 )}
               >
                 <div
-                  className={classNames('shrink-0 size-32px relative rd-0.5rem overflow-hidden', {
+                  className={classNames('shrink-0 size-32px relative rd-0.5rem overflow-hidden flex items-center justify-center bg-transparent', {
                     '!size-24px': collapsed,
                   })}
                   onClick={onClick}
                 >
-                  <svg className='absolute inset-0 w-full h-full' viewBox='0 0 80 80' fill='none'>
-                    <defs>
-                      <linearGradient id='sidebar-logo-bg' x1='0' y1='0' x2='0' y2='80' gradientUnits='userSpaceOnUse'>
-                        <stop offset='0' stopColor='#1B1822'></stop>
-                        <stop offset='1' stopColor='#0B0A10'></stop>
-                      </linearGradient>
-                      <linearGradient id='sidebar-logo-bowl' x1='15' y1='49' x2='65' y2='69' gradientUnits='userSpaceOnUse'>
-                        <stop offset='0' stopColor='#FF9FB4'></stop>
-                        <stop offset='1' stopColor='#FF6F91'></stop>
-                      </linearGradient>
-                    </defs>
-                    <rect width='80' height='80' fill='url(#sidebar-logo-bg)'></rect>
-                    <path key='logo-steam-1' d='M33 17 q-4.5 -4 0 -8.5' stroke='#FF8FA8' strokeWidth='3' fill='none' strokeLinecap='round'></path>
-                    <path key='logo-steam-2' d='M40 15 q-4.5 -4 0 -8.5' stroke='#FFB3C4' strokeWidth='3' fill='none' strokeLinecap='round'></path>
-                    <path key='logo-steam-3' d='M47 17 q-4.5 -4 0 -8.5' stroke='#FF8FA8' strokeWidth='3' fill='none' strokeLinecap='round'></path>
-                    <path key='logo-rice' d='M22 46 Q22 27 40 27 Q58 27 58 46 Z' fill='#FFFFFF'></path>
-                    <path key='logo-bowl' d='M14 49 H66 Q61.5 70 40 70 Q18.5 70 14 49 Z' fill='url(#sidebar-logo-bowl)'></path>
-                  </svg>
+                  <img
+                    src='/geekclaw-claw.png'
+                    alt='GeekClaw'
+                    className='w-full h-full object-contain'
+                  />
                 </div>
                 <div className='min-w-0 flex-1 truncate text-16px text-t-primary collapsed-hidden font-semibold'>
                   GeekClaw
@@ -614,7 +604,7 @@ const Layout: React.FC<{
                 )}
                 {/* 侧栏折叠改由标题栏统一控制 / Sidebar folding handled by Titlebar toggle */}
               </ArcoLayout.Header>
-              <ArcoLayout.Content className='pt-0 px-8px pb-0 layout-sider-content'>
+              <ArcoLayout.Content className='pt-0 px-8px pb-[52px] layout-sider-content'>
                 {React.isValidElement(sider)
                   ? React.cloneElement(sider, {
                       onSessionClick: () => {
@@ -625,6 +615,12 @@ const Layout: React.FC<{
                     } as any)
                   : sider}
               </ArcoLayout.Content>
+              {!isMobile && (
+                <div className='absolute bottom-10px left-10px right-10px z-20'>
+                  <UserMenu collapsed={collapsed} />
+                </div>
+              )}
+              {!isMobile && <UpdateToast />}
               {!isMobile && (
                 <div
                   className='absolute top-0 h-full w-8px z-20 cursor-col-resize group'

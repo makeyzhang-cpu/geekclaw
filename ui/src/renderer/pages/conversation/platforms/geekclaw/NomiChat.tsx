@@ -21,6 +21,7 @@ import HOC from '@renderer/utils/ui/HOC';
 import React, { useEffect, useMemo, useState } from 'react';
 import LocalImageView from '@renderer/components/media/LocalImageView';
 import NomiSendBox from './NomiSendBox';
+import CollaboratorPanel from '@/renderer/pages/conversation/components/CollaboratorPanel';
 import { mergeWithCapabilities, type AgentModeOption } from '@/renderer/utils/model/agentModes';
 import { useNomiMessage } from './useNomiMessage';
 import type { NomiModelSelection } from './useNomiModelSelection';
@@ -122,6 +123,8 @@ const NomiChat: React.FC<{
               loadingOlder={historyPaging.loadingOlder}
             />
           </FlexFullContainer>
+          {/* 协同共答「协作者」面板：独立于消息流渲染，不触碰流式内部。 */}
+          <CollaboratorPanel conversation_id={conversation_id} />
           {!readOnly && !hideSendBox && (
             <NomiSendBox
               conversation_id={conversation_id}

@@ -60,7 +60,7 @@
   },
   "bindings": {
     "saved": "Bindings updated",
-    "domainHint": "Customer service uses its own channel bots, fully independent from desktop companions' channels.",
+    "domainHint": "Customer service uses its own channel bots, fully independent from digital avatar companions' channels.",
     "noBots": "No customer-service channel bots yet — create one here; it will be bound to this agent automatically.",
     "createBot": "Create channel bot",
     "createTitle": "New customer-service channel bot",

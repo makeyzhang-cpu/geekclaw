@@ -33,8 +33,11 @@ linker = "rust-lld.exe"
 # to reclaim the orphaned old target/ contents.
 # 2026-08-07 本地覆盖：源码在 E:(exFAT) 不能放构建产物（无硬链接、不稳），
 # 统一路由到 D:(NTFS 数据盘，重置不丢)。CARGO_BUILD_DIR 环境变量同样指向它。
-[build]
-build-dir = "D:/gc-build1"
+# 2026-08-07 晚修正：cargo 无法删除/改写它自己此前写过文件的目录（os error 5，内核层）。
+# 根治=每次构建用从未被 cargo 触碰的全新目录。做法：本配置【不】写死 build-dir，
+# 改由构建脚本用 CARGO_BUILD_DIR 环境变量注入时间戳全新目录（config 不设置时 env 生效）。
+# [build]
+# build-dir = "D:/gc-build_FRESH"
 
 # Enlarge rustc's compilation-thread stack. The release `tauri build` embeds the
 # entire frontend `ui/dist` (~34 MB, hundreds of files) into the `geekclaw-desktop`
@@ -49,4 +52,17 @@ build-dir = "D:/gc-build1"
 # `tauri build`, CI — so the failure cannot regress on a machine that forgets it.
 [env]
 RUST_MIN_STACK = "134217728"
+# 2026-08-10 关键修复：aws-lc-sys / zstd-sys / lzma-sys 等 cc-rs 类 C 依赖在 MSVC 下
+# 编译失败的根因 = INCLUDE/LIB 没传到 cl.exe 子进程（shell export 不被 cargo-tauri 继承，
+# 且 cc-rs 的 VS 自动探测在本环境失败）。用 config.toml [env] 由 cargo 强制注入到所有
+# build script 与编译器子进程，最可靠。
+# - INCLUDE 必须含 ucrt（stddef.h/stdio.h 所在），否则 cl 报 C1034 找不到系统头。
+# - CFLAGS/CXXFLAGS 加 -utf-8（中文 Windows 代码页 936 把 UTF-8 源码读乱→C4819→C2146 语法错）
+#   与 -WX-（关掉 cc-rs 默认的 /WX 警告当错误，避免 /O2 被 /Od 覆盖的 D9025 升级成致命）。
+# 改 CFLAGS 会让所有 cc-rs 依赖重编指纹（增量构建多花 ~15-25 分钟），属正常。
+INCLUDE = "D:/dev/vs/VC/Tools/MSVC/14.44.35207/include;C:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/ucrt;C:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/um;C:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/shared;C:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/winrt"
+LIB = "D:/dev/vs/VC/Tools/MSVC/14.44.35207/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x64"
+CFLAGS = "-WX- -utf-8"
+CXXFLAGS = "-WX- -utf-8"
+VCINSTALLDIR = "D:/dev/vs/VC"
 

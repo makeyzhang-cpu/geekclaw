@@ -56,6 +56,8 @@ async fn deleting_a_host_withdraws_its_pooled_links() {
     .layer(Extension(CurrentUser {
         id: UserId::parse(harness.user_id.clone()).expect("seeded user id"),
         username: harness.user_id.clone(),
+        role: "user".to_string(),
+        is_active: 1,
     }));
 
     let response = router

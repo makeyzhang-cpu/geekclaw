@@ -64,5 +64,29 @@
     "yesterday": "昨天",
     "daysAgo": "{{count}} 天前",
     "weeksAgo": "上周"
+  },
+  "tab": {
+    "canvases": "我的画布",
+    "market": "智能体市场"
+  },
+  "market": {
+    "start": "开始创作"
+  },
+  "runner": {
+    "notFound": "未找到该智能体",
+    "backToMarket": "返回创意工坊",
+    "back": "返回",
+    "resultPlaceholder": "在左侧填写信息，点击「生成」即可开始创作。",
+    "cancel": "取消",
+    "canceled": "已取消",
+    "failed": "生成失败",
+    "retry": "重试",
+    "loadingText": "加载中…",
+    "openInCanvas": "在画布中打开",
+    "regenerate": "重新生成",
+    "noModel": "请先在模型中心配置可用的生成模型。",
+    "noModelHint": "尚未配置可用的生成模型，请先到模型中心添加并启用一个图像/视频/语音模型。",
+    "pleaseFill": "请填写",
+    "generate": "生成"
   }
 }

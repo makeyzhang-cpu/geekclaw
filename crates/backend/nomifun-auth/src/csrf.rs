@@ -44,13 +44,21 @@ pub async fn csrf_middleware(
     // Validate CSRF for state-changing requests
     let needs_validation = matches!(method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH);
     let is_exempt =
-        path == "/login" || path == "/api/auth/qr-login" || path == "/api/auth/setup" || path == "/logout";
+        path == "/login" || path == "/api/auth/qr-login" || path == "/api/auth/setup" || path == "/api/auth/register" || path == "/logout"
+        || path == "/api/billing/notify/allinpay"
+        || path == "/api/auth/sms/send"
+        || path == "/api/auth/register/phone";
 
     // Locally-trusted requests authenticate via the `X-GeekClaw-Local-Trust` header,
     // not an ambient cookie, so they are not a CSRF target — skip validation.
     let local_trusted = request.extensions().get::<crate::trust::LocalTrusted>().is_some();
 
-    if needs_validation && !is_exempt && !local_trusted {
+    // Bearer-token requests (Authorization header) are not cookie-based sessions;
+    // CSRF protection is irrelevant for them and must not block server-to-server
+    // proxies such as the desktop cloud-billing relay.
+    let has_authorization = request.headers().get(header::AUTHORIZATION).is_some();
+
+    if needs_validation && !is_exempt && !local_trusted && !has_authorization {
         let header_token = request
             .headers()
             .get(CSRF_HEADER_NAME)

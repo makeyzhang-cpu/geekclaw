@@ -137,6 +137,10 @@ pub struct CronJobResponse {
     pub execution_mode: String,
     pub metadata: CronJobMetadataDto,
     pub state: CronJobStateDto,
+    /// #74: optional team-consensus trigger (JSON `{"team_id": "...", "topic": "..."}`).
+    /// Echoed back so the UI can show which team a scheduled job is bound to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consensus_target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -178,6 +182,11 @@ pub struct CreateCronJobRequest {
     pub execution_mode: Option<String>,
     #[serde(default)]
     pub agent_config: Option<CronAgentConfigDto>,
+    /// Optional team-consensus trigger. JSON: {"team_id": "<uuidv7>", "topic": "..."}.
+    /// When present the scheduled job launches a team consensus run instead of a
+    /// conversation.
+    #[serde(default)]
+    pub consensus_target: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -569,6 +578,7 @@ mod tests {
                 retry_count: 0,
                 max_retries: 3,
             },
+            consensus_target: None,
         }
     }
 
@@ -644,6 +654,7 @@ mod tests {
                 retry_count: 0,
                 max_retries: 3,
             },
+            consensus_target: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["execution_mode"], "existing");

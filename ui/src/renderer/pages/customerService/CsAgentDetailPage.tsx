@@ -23,7 +23,7 @@ import {
 } from '@arco-design/web-react';
 import { Delete, Headset, Left, Plus } from '@icon-park/react';
 import { ipcBridge } from '@/common';
-import type { ICsNote } from '@/common/adapter/ipcBridge';
+import type { IBusinessEndpoint, ICsNote } from '@/common/adapter/ipcBridge';
 import { parseCsAgentId, type CsAgentId, type KnowledgeBaseId, type ProviderId } from '@/common/types/ids';
 import { useModelsForTask } from '@renderer/hooks/agent/useModelsForTask';
 import CsChannelBotsSection from './CsChannelBotsSection';
@@ -45,6 +45,35 @@ const Section: React.FC<{ title: string; extra?: React.ReactNode; children: Reac
   </div>
 );
 
+/** 业务端点 URL 校验（与管理端后端 SSRF 防护对齐）：仅 https，host 不可为
+ * localhost 或内网地址。返回错误信息；null 表示通过。 */
+function validateEndpointUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return 'URL 不能为空';
+  if (!/^https:\/\//i.test(trimmed)) return '仅允许 https:// 开头（安全策略）';
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost')) return '禁止指向 localhost';
+    if (host === '0.0.0.0' || host === '[::1]' || host === '::1') return '禁止指向本地地址';
+    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4) {
+      const o = ipv4.slice(1).map(Number);
+      const priv =
+        o[0] === 10 ||
+        o[0] === 127 ||
+        o[0] === 0 ||
+        (o[0] === 169 && o[1] === 254) ||
+        (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||
+        (o[0] === 192 && o[1] === 168);
+      if (priv) return '禁止指向内网 IP';
+    }
+    return null;
+  } catch {
+    return 'URL 格式无效';
+  }
+}
+
 /**
  * 客服详情页（/customer-service/:cs_agent_id）：身份与话术编辑、模型与知识库、
  * 渠道机器人绑定管理（复选全量替换）、客服笔记（cs_notes）简表 CRUD。
@@ -64,7 +93,7 @@ const CsAgentDetailPage: React.FC = () => {
   const { agent, loading, patch, reload } = useCsAgent(csAgentId);
   // Task-filtered catalog (chat): providers with at least one chat-capable model.
   const { groups: chatGroups } = useModelsForTask('chat');
-  const providers = useMemo(() => chatGroups.map((g) => g.provider), [chatGroups]);
+  const providers = useMemo(() => (chatGroups ?? []).map((g) => g.provider), [chatGroups]);
   const { options: kbOptions } = useKnowledgeBaseOptions();
 
   // ── identity draft (explicit save; text fields shouldn't PATCH per keystroke) ──
@@ -137,6 +166,55 @@ const CsAgentDetailPage: React.FC = () => {
     }
   };
 
+  // ── business query endpoints (read-only capability) ─────────────────
+  const [endpoints, setEndpoints] = useState<IBusinessEndpoint[]>([]);
+  const [endpointModalOpen, setEndpointModalOpen] = useState(false);
+  const [endpointDraft, setEndpointDraft] = useState({ name: '', url_template: '', description: '' });
+  const [savingEndpoint, setSavingEndpoint] = useState(false);
+  useEffect(() => {
+    if (agent) setEndpoints(agent.business_endpoints ?? []);
+  }, [agent]);
+
+  const endpointUrlError = validateEndpointUrl(endpointDraft.url_template);
+
+  const saveEndpoints = async (next: IBusinessEndpoint[]) => {
+    if (!csAgentId) return;
+    setEndpoints(next);
+    try {
+      await patch({ business_endpoints: next });
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const addEndpoint = async () => {
+    const name = endpointDraft.name.trim();
+    const url = endpointDraft.url_template.trim();
+    const description = endpointDraft.description.trim();
+    if (!name) {
+      Message.warning(t('customerService.endpoints.nameRequired', { defaultValue: '请填写端点名称' }));
+      return;
+    }
+    const urlError = validateEndpointUrl(url);
+    if (urlError) {
+      Message.warning(urlError);
+      return;
+    }
+    setSavingEndpoint(true);
+    try {
+      await saveEndpoints([...endpoints, { name, url_template: url, description }]);
+      setEndpointModalOpen(false);
+      setEndpointDraft({ name: '', url_template: '', description: '' });
+      Message.success(t('customerService.endpoints.added', { defaultValue: '已添加业务查询端点' }));
+    } finally {
+      setSavingEndpoint(false);
+    }
+  };
+
+  const removeEndpoint = (index: number) => {
+    void saveEndpoints(endpoints.filter((_, i) => i !== index));
+  };
+
   // ── delete agent ─────────────────────────────────────────────────────
   const deleteAgent = async () => {
     if (!csAgentId) return;
@@ -169,6 +247,7 @@ const CsAgentDetailPage: React.FC = () => {
 
   const provider = providers.find((p) => p.id === agent.provider_id);
   const modelOptions = chatGroups.find((g) => g.provider.id === agent.provider_id)?.models ?? [];
+  const knowledgeBaseIds = Array.isArray(agent.knowledge_base_ids) ? agent.knowledge_base_ids : [];
 
   return (
     <div className='w-full min-h-full box-border overflow-y-auto px-16px py-20px'>
@@ -279,10 +358,13 @@ const CsAgentDetailPage: React.FC = () => {
             <div className='mb-4px text-12px text-t-tertiary'>{t('customerService.fields.knowledgeBases', { defaultValue: '知识库' })}</div>
             <Select
               mode='multiple'
-              value={agent.knowledge_base_ids}
+              value={knowledgeBaseIds}
               placeholder={t('customerService.fields.knowledgeBasesPlaceholder', { defaultValue: '选择可检索的知识库' })}
               allowClear
-              onChange={(value) => void patch({ knowledge_base_ids: (value ?? []) as KnowledgeBaseId[] })}
+              onChange={(value) => {
+                const next = Array.isArray(value) ? value : value == null ? [] : [value];
+                void patch({ knowledge_base_ids: next as KnowledgeBaseId[] });
+              }}
             >
               {kbOptions.map((kb) => (
                 <Select.Option key={kb.value} value={kb.value}>
@@ -302,6 +384,54 @@ const CsAgentDetailPage: React.FC = () => {
               }}
             />
           </div>
+        </Section>
+
+        {/* 业务查询能力 — 只读 HTTPS GET 端点，让客服能答实时业务问题 */}
+        <Section
+          title={t('customerService.sections.businessEndpoints', { defaultValue: '业务查询能力' })}
+          extra={
+            <Button size='small' onClick={() => setEndpointModalOpen(true)}>
+              <span className='inline-flex items-center gap-4px'>
+                <Plus theme='outline' size='13' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+                {t('customerService.endpoints.add', { defaultValue: '新增端点' })}
+              </span>
+            </Button>
+          }
+        >
+          <div className='text-12px text-t-tertiary leading-6'>
+            {t('customerService.endpoints.hint', {
+              defaultValue:
+                '为客服接入只读业务查询：每个端点通过 HTTPS GET 调用你授权的业务接口（订单/物流/库存等），模型仅可填充 {参数}，无法访问内网或发起任何写操作。',
+            })}
+          </div>
+          {endpoints.length === 0 ? (
+            <div className='text-13px text-t-tertiary py-8px'>
+              {t('customerService.endpoints.empty', { defaultValue: '暂无业务查询端点 — 点击右上角"新增端点"接入第一个只读接口。' })}
+            </div>
+          ) : (
+            <div className='flex flex-col gap-8px'>
+              {endpoints.map((ep, index) => (
+                <div
+                  key={`${ep.name}-${index}`}
+                  className='flex items-start gap-10px rounded border border-solid border-[var(--color-border-2)] px-12px py-8px'
+                >
+                  <div className='flex-1 min-w-0'>
+                    <div className='text-13px font-600 text-t-primary'>{ep.name}</div>
+                    <div className='text-12px text-t-tertiary break-all'>{ep.url_template}</div>
+                    {ep.description && <div className='text-12px text-t-secondary mt-2px'>{ep.description}</div>}
+                  </div>
+                  <Popconfirm
+                    title={t('customerService.endpoints.deleteConfirm', { defaultValue: '移除该业务查询端点？' })}
+                    onOk={() => removeEndpoint(index)}
+                  >
+                    <Button size='mini' status='danger' type='text'>
+                      <Delete theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+                    </Button>
+                  </Popconfirm>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
 
         {/* 绑定管理 — 客服域渠道机器人自闭环（与桌面伙伴渠道分域互斥） */}
@@ -427,6 +557,55 @@ const CsAgentDetailPage: React.FC = () => {
             />
             {t('customerService.notes.sharedHint', { defaultValue: '共享给全部客服（不勾选则仅本客服可用）' })}
           </label>
+        </div>
+      </Modal>
+
+      {/* 新增业务查询端点 */}
+      <Modal
+        visible={endpointModalOpen}
+        title={t('customerService.endpoints.add', { defaultValue: '新增业务查询端点' })}
+        onCancel={() => setEndpointModalOpen(false)}
+        onOk={() => void addEndpoint()}
+        confirmLoading={savingEndpoint}
+        okButtonProps={{ disabled: !endpointDraft.name.trim() || !!endpointUrlError }}
+        style={{ width: 480 }}
+      >
+        <div className='flex flex-col gap-10px'>
+          <div>
+            <div className='mb-4px text-12px text-t-tertiary'>{t('customerService.endpoints.name', { defaultValue: '端点名称' })}</div>
+            <Input
+              value={endpointDraft.name}
+              placeholder={t('customerService.endpoints.namePlaceholder', { defaultValue: '例如：订单查询' })}
+              onChange={(value) => setEndpointDraft((d) => ({ ...d, name: value }))}
+            />
+          </div>
+          <div>
+            <div className='mb-4px text-12px text-t-tertiary'>{t('customerService.endpoints.url', { defaultValue: '接口 URL 模板（仅 https）' })}</div>
+            <Input
+              value={endpointDraft.url_template}
+              status={endpointUrlError ? 'error' : undefined}
+              placeholder='https://api.example.com/orders/{order_id}'
+              onChange={(value) => setEndpointDraft((d) => ({ ...d, url_template: value }))}
+            />
+            {endpointUrlError ? (
+              <div className='mt-4px text-12px text-[rgb(var(--red-6))]'>{endpointUrlError}</div>
+            ) : (
+              <div className='mt-4px text-12px text-t-tertiary'>
+                {t('customerService.endpoints.urlHint', {
+                  defaultValue: '用 {参数名} 占位，对话时由模型填充（仅支持字母数字及 _ . - @ +）。',
+                })}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className='mb-4px text-12px text-t-tertiary'>{t('customerService.endpoints.description', { defaultValue: '说明（展示给模型）' })}</div>
+            <Input.TextArea
+              rows={2}
+              value={endpointDraft.description}
+              placeholder={t('customerService.endpoints.descriptionPlaceholder', { defaultValue: '这个接口返回什么，例如：根据订单号返回订单状态与物流信息。' })}
+              onChange={(value) => setEndpointDraft((d) => ({ ...d, description: value }))}
+            />
+          </div>
         </div>
       </Modal>
     </div>

@@ -4,23 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Suspense, useCallback, useEffect, useRef } from 'react';
+import React, { Suspense, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import classNames from 'classnames';
+import { Box } from '@icon-park/react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
-import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { blurActiveElement } from '@renderer/utils/ui/focus';
-import { isDesktopShell } from '@renderer/utils/platform';
 import { useKnowledgeInboxPending } from '@renderer/pages/knowledge/useKnowledge';
 import {
-  isBrowserCapabilityUnavailable,
-  useBrowserOverview,
-} from '@renderer/pages/browser/useBrowserInventory';
-import { parseSessionRoute } from '@renderer/utils/routes/sessionRoute';
-import {
   SiderAssetLibraryEntry,
-  SiderBrowserEntry,
   SiderPresetEntry,
   SiderSkillsEntry,
   SiderConversationEntry,
@@ -29,13 +23,18 @@ import {
   SiderMcpEntry,
   SiderModelHubEntry,
   SiderNomiEntry,
-  SiderOpenCapabilitiesEntry,
   SiderRequirementsEntry,
   SiderScheduledEntry,
   SiderSectionHeader,
+  SiderSettingsEntry,
   SiderWorkshopEntry,
+  SiderExpertAgentsEntry,
+  SiderUserManagementEntry,
+  SiderWorkCommunityEntry,
+  SiderForeignTradeEntry,
 } from './SiderNav';
-import SiderFooter from './SiderFooter';
+import { useAuth } from '@renderer/hooks/context/AuthContext';
+import SiderThemeControl from './SiderThemeControl';
 
 const SettingsSider = React.lazy(() => import('@renderer/pages/settings/components/SettingsSider'));
 
@@ -52,43 +51,24 @@ interface SiderProps {
  * content-area secondary sidebar (`ConversationShell` / `ContentSider`),
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`): 常用 (会话 / 桌面伙伴),
- * 数据空间 (知识库), 自动化 (定时任务 / 需求平台),
- * 增强工具 (设定 / Skill / MCP), 服务 (客服), and a bottom-pinned 设置 group
- * (浏览器管理 + 模型管理 + the footer). Execution engines live as an
- * independent tab inside Settings rather than being mixed into model
- * management.
+ * 数据空间 (知识库 / 数字资产库), Work++工作平台 (Work++社区 / 定时任务 / A2A跨境电商),
+ * 增强工具 (设定 / Skill / MCP), 服务 (客服).
+ *
+ * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
+ * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
+ * of `Layout`, leaving this rail focused on primary destinations.
  */
 const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const { t } = useTranslation();
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
-  const location = useLocation();
-  const { pathname, search, hash } = location;
+  const { pathname } = useLocation();
+  const isSettings = pathname.startsWith('/settings');
   const { count: pendingInboxCount } = useKnowledgeInboxPending();
-  const {
-    overview: browserOverview,
-    unavailable: browserUnavailable,
-    transient: browserOverviewTransient,
-    retry: retryBrowserOverview,
-  } = useBrowserOverview();
-  const browserCapabilityUnavailable = isBrowserCapabilityUnavailable(
-    browserOverview,
-    browserUnavailable
-  );
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const navigate = useNavigate();
-  const { logout, status } = useAuth();
-  const isSettings = pathname.startsWith('/settings');
-  const lastNonSettingsPathRef = useRef('/guid');
-  // Logout is a WebUI-only affordance: the bundled desktop shell (Electron or
-  // Tauri) is single-user with no auth, so there is nothing to log out of.
-  const showLogout = !isDesktopShell() && status === 'authenticated';
-
-  useEffect(() => {
-    if (!pathname.startsWith('/settings')) {
-      lastNonSettingsPathRef.current = `${pathname}${search}${hash}`;
-    }
-  }, [pathname, search, hash]);
 
   const navTo = useCallback(
     (target: string) => {
@@ -105,17 +85,8 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   );
 
   const handleConversationClick = () => navTo('/guid');
-  const handleBrowserClick = () => {
-    if (browserOverviewTransient) {
-      void retryBrowserOverview();
-    }
-    const currentSession = parseSessionRoute(pathname);
-    if (currentSession?.kind === 'conversation') {
-      navTo(`/browser?conversation_id=${encodeURIComponent(currentSession.id)}`);
-      return;
-    }
-    navTo(pathname === '/browser' && search ? `/browser${search}` : '/browser');
-  };
+  const handleWorkCommunityClick = () => navTo('/work-community');
+  const handleForeignTradeClick = () => navTo('/foreign-trade');
   const handleScheduledClick = () => navTo('/scheduled');
   const handleRequirementsClick = () => navTo('/requirements');
   const handleKnowledgeClick = () => navTo('/knowledge');
@@ -123,59 +94,14 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleNomiClick = () => navTo('/geekclaw');
   const handleWorkshopClick = () => navTo('/workshop');
   const handleCustomerServiceClick = () => navTo('/customer-service');
+  const handleModelHubClick = () => navTo('/models');
+  const handleSettingsClick = () => navTo('/settings/system');
   const handlePresetClick = () => navTo('/presets');
   const handleSkillsClick = () => navTo('/skills');
   const handleMcpClick = () => navTo('/mcp');
-  const handleOpenCapabilitiesClick = () => navTo('/open-capabilities');
-  const handleModelHubClick = () => navTo('/models');
-
-  const handleSettingsClick = () => {
-    cleanupSiderTooltips();
-    blurActiveElement();
-    if (isSettings) {
-      const target = lastNonSettingsPathRef.current || '/guid';
-      Promise.resolve(navigate(target)).catch((error) => {
-        console.error('Navigation failed:', error);
-      });
-    } else {
-      Promise.resolve(navigate('/settings/system')).catch((error) => {
-        console.error('Navigation failed:', error);
-      });
-    }
-    if (onSessionClick) {
-      onSessionClick();
-    }
-  };
-
-  const handleLogout = useCallback(async () => {
-    cleanupSiderTooltips();
-    blurActiveElement();
-    try {
-      await logout();
-    } catch (error) {
-      console.error('Logout failed:', error);
-      return; // logout 失败时不执行后续操作
-    }
-    if (onSessionClick) {
-      onSessionClick();
-    }
-  }, [logout, onSessionClick]);
-
-  useEffect(() => {
-    if (!showLogout) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
-        event.preventDefault();
-        handleLogout();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [handleLogout, showLogout]);
+  const handleLobsterClick = () => navTo('/lobster');
+  const handleExpertAgentsClick = () => navTo('/expert-agents');
+  const handleUserManagementClick = () => navTo('/user-management');
 
   const tooltipEnabled = collapsed && !isMobile;
   const siderTooltipProps = getSiderTooltipProps(tooltipEnabled);
@@ -215,6 +141,24 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleNomiClick}
             />
+            {/* 极客出海 Agent (跨境外贸专家分身智能体) */}
+            <SiderExpertAgentsEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/expert-agents')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleExpertAgentsClick}
+            />
+            {/* 用户管理 (User Management) — admin-only control plane */}
+            {isAdmin && (
+              <SiderUserManagementEntry
+                isMobile={isMobile}
+                isActive={pathname.startsWith('/user-management')}
+                collapsed={collapsed}
+                siderTooltipProps={siderTooltipProps}
+                onClick={handleUserManagementClick}
+              />
+            )}
             {/* Creative Workshop (创意工坊) — infinite-canvas AI creation surface */}
             <SiderWorkshopEntry
               isMobile={isMobile}
@@ -242,8 +186,24 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleAssetLibraryClick}
             />
-            {/* 自动化 — automation platforms */}
+            {/* Work++工作平台 — automation platforms */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
+            {/* Work++社区 */}
+            <SiderWorkCommunityEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/work-community')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleWorkCommunityClick}
+            />
+            {/* AI 外贸工作台 — GeekFlow 外贸工作台入口 */}
+            <SiderForeignTradeEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/foreign-trade')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleForeignTradeClick}
+            />
             {/* Scheduled tasks */}
             <SiderScheduledEntry
               isMobile={isMobile}
@@ -285,8 +245,22 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleMcpClick}
             />
-            {/* 服务 — public-facing services (客服), a domain fully separate
-                from the desktop-companion group above. */}
+            {/* 龙虾盒子 — Lobster Box (under MCP) */}
+            <div
+              className={classNames(
+                'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
+                isMobile && 'sider-action-btn-mobile',
+                pathname.startsWith('/lobster') ? '!bg-primary-1 !text-primary-6' : 'hover:bg-fill-2 active:bg-fill-3'
+              )}
+              onClick={handleLobsterClick}
+            >
+              <span className='size-22px flex items-center justify-center shrink-0'>
+                <Box theme='outline' size='16' fill='currentColor' className='block leading-none' style={{ lineHeight: 0 }} />
+              </span>
+              <span className='collapsed-hidden text-14px font-[500] leading-24px'>龙虾盒子</span>
+            </div>
+            {/* 服务 — public-facing services (客服 / 模型管理 / 系统设置),
+                a domain fully separate from the desktop-companion group above. */}
             <SiderSectionHeader label={t('common.siderSection.services')} collapsed={collapsed} />
             <SiderCustomerServiceEntry
               isMobile={isMobile}
@@ -295,51 +269,30 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleCustomerServiceClick}
             />
+            {/* 模型管理 — API Key / provider configuration (模型管理) */}
+            <SiderModelHubEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/models')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleModelHubClick}
+            />
+            {/* 系统设置 — app-level settings (系统设置) */}
+            <SiderSettingsEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/settings')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleSettingsClick}
+            />
           </div>
         )}
       </div>
-      {/* Bottom pinned group (设置) — Model & Agent and Open Capabilities sit directly above Settings */}
-      <div className='shrink-0 mt-auto pt-5px flex flex-col gap-1px border-t border-solid border-[var(--color-border-2)] border-l-0 border-r-0 border-b-0'>
-        {/* 设置 — section label; the enclosing border-t already separates this region when collapsed */}
-        <SiderSectionHeader label={t('common.siderSection.settings')} collapsed={collapsed} collapsedRule={false} />
-        {/* Browser management — lifecycle/visibility control for managed Chromium,
-            a settings-adjacent surface pinned directly above model management. */}
-        {!browserCapabilityUnavailable &&
-          browserOverview?.supported !== false &&
-          browserOverview?.enabled !== false && (
-          <SiderBrowserEntry
-            isMobile={isMobile}
-            isActive={pathname === '/browser'}
-            collapsed={collapsed}
-            runningCount={browserOverview?.running_lanes ?? 0}
-            queuedCount={browserOverview?.queued_lanes ?? 0}
-            siderTooltipProps={siderTooltipProps}
-            onClick={handleBrowserClick}
-          />
-        )}
-        <SiderModelHubEntry
-          isMobile={isMobile}
-          isActive={pathname.startsWith('/models')}
-          collapsed={collapsed}
-          siderTooltipProps={siderTooltipProps}
-          onClick={handleModelHubClick}
-        />
-        <SiderOpenCapabilitiesEntry
-          isMobile={isMobile}
-          isActive={pathname.startsWith('/open-capabilities')}
-          collapsed={collapsed}
-          siderTooltipProps={siderTooltipProps}
-          onClick={handleOpenCapabilitiesClick}
-        />
-        <SiderFooter
-          isMobile={isMobile}
-          isSettings={isSettings}
-          collapsed={collapsed}
-          siderTooltipProps={siderTooltipProps}
-          onSettingsClick={handleSettingsClick}
-          showLogout={showLogout}
-          onLogoutClick={handleLogout}
-        />
+
+      {/* Footer — appearance (light/dark + scaling + CSS presets) quick access.
+          The rest of the former bottom settings group lives in the UserMenu. */}
+      <div className='shrink-0 mt-auto border-t border-[var(--color-border-2)]'>
+        <SiderThemeControl isMobile={isMobile} collapsed={collapsed} siderTooltipProps={siderTooltipProps} />
       </div>
     </div>
   );

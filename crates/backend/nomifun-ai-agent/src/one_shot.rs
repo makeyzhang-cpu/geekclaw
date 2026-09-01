@@ -35,6 +35,7 @@ const MAX_TOOL_ROUNDS: usize = 8;
 /// A single whitelisted tool for a one-shot turn. The handler is the ONLY
 /// executable surface: the engine never resolves tool names against any other
 /// registry.
+#[derive(Clone)]
 pub struct OneShotTool {
     pub name: String, pub description: String,
     pub input_schema: serde_json::Value,
@@ -56,6 +57,7 @@ pub struct OneShotTurnRequest {
 /// crate's other standalone completion surfaces use
 /// ([`crate::knowledge_completer::LiveKnowledgeCompleter`], companion
 /// learner).
+#[derive(Clone)]
 pub struct OneShotDeps {
     pub provider_repo: Arc<dyn IProviderRepository>,
     /// Per-model rows (base URL/API-key overrides and enablement live on

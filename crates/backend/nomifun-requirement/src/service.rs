@@ -118,6 +118,10 @@ pub struct RequirementService {
     /// workspace staging). `None` on instances that never touch attachments
     /// (e.g. the declaration sink).
     attachments: Option<Arc<AttachmentStore>>,
+    /// #74: optional team-consensus engine so AutoWork can launch a team
+    /// consensus run for requirements bound to a team (`extra.team_id`).
+    /// Inert unless attached and the requirement actually carries a binding.
+    consensus: Option<Arc<nomifun_team::TeamConsensusService>>,
 }
 
 impl RequirementService {
@@ -132,6 +136,7 @@ impl RequirementService {
             completion_notifier: None,
             autowork_waker: None,
             attachments: None,
+            consensus: None,
         }
     }
 
@@ -184,6 +189,27 @@ impl RequirementService {
     pub fn with_attachment_store(mut self, store: Arc<AttachmentStore>) -> Self {
         self.attachments = Some(store);
         self
+    }
+
+    /// #74: attach the team-consensus engine so AutoWork can launch a team
+    /// consensus run for requirements bound to a team.
+    pub fn with_consensus_service(mut self, service: Arc<nomifun_team::TeamConsensusService>) -> Self {
+        self.consensus = Some(service);
+        self
+    }
+
+    /// #74 requirement→consensus bridge helper. Returns the `team_id` a
+    /// requirement is bound to (stored in its `extra.team_id` JSON field), or
+    /// `None` when unbound or unreadable. Read-only; never fails the caller.
+    pub(crate) async fn team_id_for_requirement(&self, requirement_id: &str) -> Option<String> {
+        let row = self.repo.get_by_requirement_id(requirement_id).await.ok()??;
+        let extra: serde_json::Value = serde_json::from_str(&row.extra).ok()?;
+        let team_id = extra.get("team_id")?.as_str()?.to_owned();
+        if team_id.trim().is_empty() {
+            None
+        } else {
+            Some(team_id)
+        }
     }
 
     /// Attachments of a requirement as DTOs; empty when no store is attached

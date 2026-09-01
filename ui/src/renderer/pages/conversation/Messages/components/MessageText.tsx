@@ -15,9 +15,9 @@ import { toDisplayText } from '@/common/chat/displayText';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { Alert, Message, Tooltip } from '@arco-design/web-react';
-import { CheckOne, CloseOne, Copy, Edit, Info, Loading } from '@icon-park/react';
+import { CheckOne, CloseOne, Copy, Edit, Info, Loading, Sound } from '@icon-park/react';
 import classNames from 'classnames';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import { emitter } from '@/renderer/utils/emitter';
@@ -30,6 +30,7 @@ import { stripThinkTags, hasThinkTags } from '@renderer/utils/chat/thinkTagFilte
 import { stripSkillSuggest, hasSkillSuggest } from '@renderer/utils/chat/skillSuggestParser';
 import { MESSAGE_BODY_CLASS_NAME, MESSAGE_BODY_FONT_SIZE, MESSAGE_BODY_LINE_HEIGHT } from '../typography';
 import { parseMessageFileMarker } from './messageFileMarker';
+import { getTtsConfig, isTtsReady, speakText, TTS_CONFIG_CHANGED_EVENT } from '@/renderer/services/ttsConfig';
 
 /**
  * Format a timestamp for message display.
@@ -58,6 +59,24 @@ import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import AgentMessageAvatar from './AgentMessageAvatar';
 
 const CODE_STYLE = { marginTop: 4, marginBlock: 4 };
+
+/**
+ * Strip markdown/code markup so synthesized speech reads like natural prose.
+ * Keeps link text, drops code fences, images, and formatting symbols.
+ */
+const stripMarkdownForSpeech = (md: string): string => {
+  if (!md) return '';
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[*_~>`]/g, '')
+    .replace(/\n{2,}/g, '。')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+};
 
 const RUNNING_WRITEBACK_STATUSES = new Set<KnowledgeWritebackStatus>(['started', 'extracting', 'writing']);
 const SUCCESS_WRITEBACK_STATUSES = new Set<KnowledgeWritebackStatus>(['written']);
@@ -345,6 +364,58 @@ const MessageText: React.FC<{
   const shouldRenderPlainText = isUserMessage;
   const conversationContext = useConversationContextSafe();
   const shouldShowActions = !hideActions;
+
+  // ── Text-to-speech: read assistant replies aloud ──
+  const [speaking, setSpeaking] = useState(false);
+  const [ttsReady, setTtsReady] = useState(() => isTtsReady(getTtsConfig()));
+  const speechText = useMemo(() => stripMarkdownForSpeech(text), [text]);
+  const wasStreamingRef = useRef(hideActions);
+
+  useEffect(() => {
+    const sync = () => setTtsReady(isTtsReady(getTtsConfig()));
+    sync();
+    window.addEventListener(TTS_CONFIG_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(TTS_CONFIG_CHANGED_EVENT, sync);
+  }, []);
+
+  const handleSpeak = useCallback(async () => {
+    const cfg = getTtsConfig();
+    if (!isTtsReady(cfg)) {
+      Message.warning(t('messages.ttsNotConfigured', { defaultValue: '未配置语音合成，请到模型管理开启 TTS' }));
+      return;
+    }
+    if (!speechText) return;
+    setSpeaking(true);
+    try {
+      await speakText(speechText, cfg);
+    } catch {
+      Message.error(t('messages.ttsFailed', { defaultValue: '语音合成失败' }));
+    } finally {
+      setSpeaking(false);
+    }
+  }, [speechText, t]);
+
+  const speakerButton = !isUserMessage && ttsReady ? (
+    <Tooltip content={speaking ? t('messages.ttsPlaying', { defaultValue: '朗读中…' }) : t('messages.ttsPlay', { defaultValue: '朗读' })}>
+      <div
+        data-testid='message-tts-action'
+        className='flex h-24px w-24px shrink-0 items-center justify-center rd-4px cursor-pointer text-t-secondary hover:bg-3 transition-colors'
+        onClick={handleSpeak}
+        style={{ lineHeight: 0 }}
+      >
+        {speaking ? <Loading theme='outline' size='16' fill='currentColor' /> : <Sound theme='outline' size='16' fill='currentColor' />}
+      </div>
+    </Tooltip>
+  ) : null;
+
+  // Auto-read the reply once it finishes streaming (streaming → done transition).
+  useEffect(() => {
+    const cfg = getTtsConfig();
+    if (cfg.autoPlay && !isUserMessage && wasStreamingRef.current && !hideActions && speechText) {
+      void speakText(speechText, cfg).catch(() => undefined);
+    }
+    wasStreamingRef.current = hideActions;
+  }, [hideActions, isUserMessage, speechText]);
   const resolvedFiles = useMemo(
     () => files.map((file_path) => resolveMessageFilePath(file_path, conversationContext?.workspace)),
     [conversationContext?.workspace, files]
@@ -436,6 +507,7 @@ const MessageText: React.FC<{
     >
       {copyButton}
       {editButton}
+      {speakerButton}
       {message.created_at && (
         <span className='text-12px leading-20px text-inherit select-none'>
           {formatMessageTime(message.created_at)}
