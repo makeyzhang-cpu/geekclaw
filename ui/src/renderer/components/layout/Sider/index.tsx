@@ -51,8 +51,8 @@ interface SiderProps {
  * content-area secondary sidebar (`ConversationShell` / `ContentSider`),
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`): 常用 (会话 / 桌面伙伴),
- * 数据空间 (知识库 / 数字资产库), Work++工作平台 (Work++社区 / 定时任务 / A2A跨境电商),
- * 增强工具 (设定 / Skill / MCP), 服务 (客服).
+ * 数据空间 (知识库 / 数字资产库), Work++工作平台 (Work++社区 / A2A跨境电商 / 龙虾盒子),
+ * 增强工具 (设定 / Skill / MCP / 定时任务), 服务 (客服).
  *
  * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
  * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
@@ -204,15 +204,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleForeignTradeClick}
             />
-            {/* Scheduled tasks */}
-            <SiderScheduledEntry
-              isMobile={isMobile}
-              isActive={pathname === '/scheduled'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleScheduledClick}
-            />
-            {/* Requirements platform */}
+            {/* Requirements platform (A2A跨境电商) */}
             <SiderRequirementsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/requirements')}
@@ -220,6 +212,20 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleRequirementsClick}
             />
+            {/* 龙虾盒子 — Lobster Box (under A2A跨境电商) */}
+            <div
+              className={classNames(
+                'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
+                isMobile && 'sider-action-btn-mobile',
+                pathname.startsWith('/lobster') ? '!bg-primary-1 !text-primary-6' : 'hover:bg-fill-2 active:bg-fill-3'
+              )}
+              onClick={handleLobsterClick}
+            >
+              <span className='size-22px flex items-center justify-center shrink-0'>
+                <Box theme='outline' size='16' fill='currentColor' className='block leading-none' style={{ lineHeight: 0 }} />
+              </span>
+              <span className='collapsed-hidden text-14px font-[500] leading-24px'>龙虾盒子</span>
+            </div>
             {/* 增强工具 — extension capabilities */}
             <SiderSectionHeader label={t('common.siderSection.tools')} collapsed={collapsed} />
             {/* Presets and skills are separate concepts and destinations. */}
@@ -245,20 +251,14 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleMcpClick}
             />
-            {/* 龙虾盒子 — Lobster Box (under MCP) */}
-            <div
-              className={classNames(
-                'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
-                isMobile && 'sider-action-btn-mobile',
-                pathname.startsWith('/lobster') ? '!bg-primary-1 !text-primary-6' : 'hover:bg-fill-2 active:bg-fill-3'
-              )}
-              onClick={handleLobsterClick}
-            >
-              <span className='size-22px flex items-center justify-center shrink-0'>
-                <Box theme='outline' size='16' fill='currentColor' className='block leading-none' style={{ lineHeight: 0 }} />
-              </span>
-              <span className='collapsed-hidden text-14px font-[500] leading-24px'>龙虾盒子</span>
-            </div>
+            {/* 定时任务 — Scheduled tasks (under MCP) */}
+            <SiderScheduledEntry
+              isMobile={isMobile}
+              isActive={pathname === '/scheduled'}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleScheduledClick}
+            />
             {/* 服务 — public-facing services (客服 / 模型管理 / 系统设置),
                 a domain fully separate from the desktop-companion group above. */}
             <SiderSectionHeader label={t('common.siderSection.services')} collapsed={collapsed} />

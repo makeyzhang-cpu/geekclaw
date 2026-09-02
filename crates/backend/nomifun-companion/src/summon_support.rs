@@ -46,8 +46,15 @@ pub async fn resolve_summon_context(
     }
     let mut entries: Vec<String> = Vec::with_capacity(config.memory_ids.len());
     for memory_id in &config.memory_ids {
-        let Some(memory) = store.get_memory(memory_id).await? else {
-            continue; // deleted since selection — the snapshot just narrows
+        // Scoped to the summoned companion on purpose: `memory_ids` come from
+        // the caller and only their *format* is validated, so an unscoped
+        // lookup would let one companion's private memories be pulled into
+        // another companion's session.
+        let Some(memory) = store
+            .get_memory_for_companion(&config.companion_id, memory_id)
+            .await?
+        else {
+            continue; // deleted, or not this companion's — the snapshot just narrows
         };
         entries.push(format!(
             "- [{}|{}{}] {}\n",
@@ -263,6 +270,49 @@ mod tests {
         for line in out.lines().filter(|l| l.starts_with("- [")) {
             assert!(line.ends_with("很长的内容") || line.contains("很长的内容"));
         }
+    }
+
+    /// 召唤快照按伙伴作用域解析 memory_id：别人拥有的记忆不能仅凭一个 id
+    /// 注入到本次会话（id 只校验格式，不校验归属，所以解析必须带作用域）。
+    #[tokio::test]
+    async fn resolve_summon_context_ignores_other_companions_memories() {
+        let store = CompanionStore::open_memory().await.unwrap();
+        let summoned = companion_fixture(1);
+        let stranger = companion_fixture(2);
+        let own = store
+            .insert_memory_scoped(
+                "preference",
+                "主人只喝浅烘焙",
+                &[],
+                0.8,
+                "manual",
+                Some(summoned.as_str()),
+            )
+            .await
+            .unwrap();
+        let foreign = store
+            .insert_memory_scoped(
+                "preference",
+                "别的伙伴的私密偏好",
+                &[],
+                0.8,
+                "manual",
+                Some(stranger.as_str()),
+            )
+            .await
+            .unwrap();
+
+        let out = resolve_summon_context(
+            &store,
+            &summon_config(&summoned, vec![own.memory_id.clone(), foreign.memory_id.clone()]),
+        )
+        .await
+        .unwrap();
+        assert!(out.contains("主人只喝浅烘焙"), "own memory resolves: {out}");
+        assert!(
+            !out.contains("别的伙伴的私密偏好"),
+            "another companion's memory must not resolve: {out}"
+        );
     }
 
     /// 共享记忆已删除，所以这里不再断言「共享记忆对被召唤的伙伴可见」。

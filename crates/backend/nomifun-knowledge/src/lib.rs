@@ -44,11 +44,11 @@ pub use broker::{
 };
 pub use routes::knowledge_routes;
 pub use service::{
-    AutogenOutcome, ConsumerInfo, InboxDiff, InboxEntry, InboxMergeResult, KB_INBOX_REL_DIR, KnowledgeBinding,
-    KnowledgeService, MountOutcome, PreparedMountPlan, RefreshSourceSummary, TurnWritebackFailure, TurnWritebackReport,
-    TurnWritebackPhase, TurnWritebackRequest, TurnWritebackStatus, WriteMode, WriteOp, WriteOutcome, WritePolicy,
-    WriteRequest, WriteResolution, WriteSurface, WriteTargetSpec, decode_doc_handle, encode_doc_handle,
-    resolve_write_policy,
+    AutogenOutcome, ConsumerInfo, InboxDiff, InboxEntry, InboxMergeResult, KB_INBOX_REL_DIR, KNOWLEDGE_READ_MAX_CHARS,
+    KnowledgeBinding, KnowledgeService, MountOutcome, PreparedMountPlan, RefreshSourceSummary, TurnWritebackFailure,
+    TurnWritebackReport, TurnWritebackPhase, TurnWritebackRequest, TurnWritebackStatus, WriteMode, WriteOp,
+    WriteOutcome, WritePolicy, WriteRequest, WriteResolution, WriteSurface, WriteTargetSpec, decode_doc_handle,
+    encode_doc_handle, resolve_write_policy, truncate_document_content,
 };
 pub use source_url::{HttpFetcher, PageFetcher};
 pub use state::KnowledgeRouterState;

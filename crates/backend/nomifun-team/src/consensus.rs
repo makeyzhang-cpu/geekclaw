@@ -37,6 +37,29 @@ pub enum ConsensusServiceError {
     Internal(String),
 }
 
+/// Clears a run's cancellation flag when the deliberation loop exits.
+///
+/// `cancel()` inserts into the flag map but nothing ever removed entries, so a
+/// long-lived process accumulated one map entry per run — a slow leak that only
+/// grew with usage. Doing it in `Drop` covers every early `return` in the loop
+/// (cancelled / provider error / consensus reached) and a panic unwinding,
+/// without threading a cleanup call through each branch.
+struct CancelFlagGuard {
+    flags: Arc<tokio::sync::Mutex<HashMap<String, bool>>>,
+    run_id: String,
+}
+
+impl Drop for CancelFlagGuard {
+    fn drop(&mut self) {
+        // Drop cannot await. `try_lock` is the only option here; on the rare
+        // contended case the flag survives, which is harmless — a later
+        // `cancel()` simply re-inserts it and the next run clears it again.
+        if let Ok(mut guard) = self.flags.try_lock() {
+            guard.remove(&self.run_id);
+        }
+    }
+}
+
 /// Team consensus engine. Holds the repository + one-shot LLM deps; cheap to
 /// clone internally (all fields are `Arc` or `Clone`).
 #[derive(Clone)]
@@ -388,6 +411,12 @@ impl TeamConsensusService {
         chairman_prompt: Option<String>,
         member_prompts: Option<HashMap<String, MemberPromptOverride>>,
     ) {
+        // Every exit path — cancelled, provider error, consensus reached, max
+        // rounds exhausted, or a panic unwinding — clears this run's flag.
+        let _cancel_guard = CancelFlagGuard {
+            flags: Arc::clone(&self.cancel_flags),
+            run_id: run_id.to_owned(),
+        };
         let mut history: Vec<(String, String)> = Vec::new();
 
         for round in 1..=max_rounds {
@@ -422,12 +451,19 @@ impl TeamConsensusService {
                      Provide your perspective, analysis, or concrete proposal on the topic. \
                      Be concise and specific."
                 );
+                // History is deliberately NOT forwarded as chat messages. The
+                // accumulated discussion is already rendered into `user_text`
+                // (see `discussion` above), so passing it again as turns would
+                // both double the prompt and build an illegal message sequence:
+                // every speaker was pushed as "assistant", producing N
+                // consecutive assistant turns that Anthropic-style APIs reject
+                // with a 400. One system + one user message is valid everywhere.
                 let content = match nomifun_ai_agent::run_one_shot_turn(
                     &self.one_shot,
                     nomifun_ai_agent::OneShotTurnRequest {
                         provider: provider.clone(),
                         system_prompt: system,
-                        history: history.clone(),
+                        history: Vec::new(),
                         user_text,
                         tools: vec![],
                         timeout_secs: 120,
@@ -480,7 +516,11 @@ impl TeamConsensusService {
                     system_prompt: chairman_prompt
                         .clone()
                         .unwrap_or_else(|| SYNTHESIZER.system_prompt.to_string()),
-                    history: history.clone(),
+                    // Same reasoning as the member turns: `round_text` already
+                    // carries this round's discussion, so the history would be
+                    // duplicated content tacked on as a block of assistant
+                    // turns. The chairman judges the round from `synth_text`.
+                    history: Vec::new(),
                     user_text: synth_text,
                     tools: vec![],
                     timeout_secs: 120,

@@ -121,7 +121,14 @@ async fn set(deps: Arc<GatewayDeps>, ctx: CallerCtx, p: SetAutoworkParams) -> Va
     if p.enabled {
         if let Some(tag) = p.tag.clone() {
             deps.auto_work_runner
-                .start(kind, target_id.clone(), tag, p.max_requirements)
+                .start(
+                    kind,
+                    target_id.clone(),
+                    tag,
+                    p.max_requirements,
+                    // Explicit user enable → a fresh run, counter back to 0.
+                    false,
+                )
                 .await;
         }
     } else {

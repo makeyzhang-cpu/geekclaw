@@ -168,6 +168,7 @@ mod tests {
             },
             message: "hello".into(),
             execution_mode: "existing".into(),
+            consensus_target: None,
             metadata: CronJobMetadataDto {
                 conversation_id: Some("0190f5fe-7c00-7a00-8abc-012345678901".into()),
                 conversation_title: None,

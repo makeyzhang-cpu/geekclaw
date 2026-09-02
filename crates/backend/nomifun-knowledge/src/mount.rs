@@ -1320,7 +1320,10 @@ mod tests {
         let kb = make_base(&bases, "kb_escape");
         let escaped = ws.path().join(".geekclaw").join("escaped");
 
-        for unsafe_name in ["../escaped", "CON", "nul.txt", ".NOMI-COPY-hostile"] {
+        // The reserved prefixes track the mount root the code actually writes
+        // (`.geekclaw/knowledge`), so they had to move with the rebrand — an
+        // assertion still naming the old brand silently stops testing anything.
+        for unsafe_name in ["../escaped", "CON", "nul.txt", ".geekclaw-copy-hostile", ".geekclaw-managed-hostile"] {
             assert!(
                 sync_mounts(
                     ws.path(),

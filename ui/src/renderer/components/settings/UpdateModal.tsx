@@ -32,7 +32,7 @@ type UpdateStatus =
 
 type UpdateInfo = UpdateReleaseInfo;
 
-const PRODUCT_WEBSITE_URL = 'https://www.geekclaw.com';
+const PRODUCT_WEBSITE_URL = 'https://www.geekclaw.ai';
 const GITHUB_RELEASES_PAGE = 'https://github.com/geekclaw/geekclaw-tauri/releases/latest';
 
 const UpdateModal: React.FC = () => {

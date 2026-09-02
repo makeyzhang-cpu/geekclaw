@@ -14,8 +14,8 @@ import { useTranslation } from 'react-i18next';
 
 export const GEEKCLAW_PUBLIC_LINKS = {
   repository: 'https://github.com/geekclaw/geekclaw-tauri',
-  officialWebsite: 'https://www.geekclaw.com',
-  contact: 'https://www.geekclaw.com/contact',
+  officialWebsite: 'https://www.geekclaw.ai',
+  contact: 'https://www.geekclaw.ai/contact',
   issues: 'https://github.com/geekclaw/geekclaw-tauri/issues',
   releases: 'https://github.com/geekclaw/geekclaw-tauri/releases',
   baiduPan: 'https://pan.baidu.com/s/5GPonoJNrwJ7GciBSDgXLaA',
@@ -23,7 +23,7 @@ export const GEEKCLAW_PUBLIC_LINKS = {
   emailHref: 'mailto:535526063@qq.com',
 } as const;
 
-const COPYRIGHT = '© 2025-2026 GeekClaw · www.geekclaw.com';
+const COPYRIGHT = '© 2025-2026 GeekClaw · www.geekclaw.ai';
 
 const CONTACT_ITEMS = [
   {

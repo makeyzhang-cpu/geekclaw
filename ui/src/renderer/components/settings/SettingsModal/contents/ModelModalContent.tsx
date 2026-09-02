@@ -885,7 +885,7 @@ const ModelModalContent: React.FC = () => {
   // Triggered automatically once when the panel opens (e.g. right after cloud
   // sign-in) and manually via the header button. Not signed in → 401, ignored.
   const [syncing, setSyncing] = useState(false);
-  const syncCloudProviders = useCallback(async () => {
+  const syncCloudProviders = useCallback(async (isManual = false) => {
     setSyncing(true);
     try {
       const result = await ipcBridge.mode.syncCloudProviders.invoke();
@@ -897,10 +897,24 @@ const ModelModalContent: React.FC = () => {
       );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      // 未登录云端 → 401；自动同步的失败静默忽略
-      if (!msg.includes('401') && !msg.toLowerCase().includes('unauthorized')) {
+      const isUnauthorized = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
+      if (isUnauthorized) {
+        // 未登录云端 → 401；自动同步时静默忽略，手动点击则提示登录
+        if (isManual) {
+          message.warning(
+            t('settings.cloudProviderSyncNeedLogin', {
+              defaultValue: '请先登录云端账号，再同步云端模型',
+            })
+          );
+        }
+      } else {
         console.error('Failed to sync cloud providers:', error);
-        message.error(t('settings.cloudProviderSyncFailed', { defaultValue: '同步云端模型失败' }));
+        message.error(
+          t('settings.cloudProviderSyncFailedDetail', {
+            msg,
+            defaultValue: `同步云端模型失败：${msg}`,
+          })
+        );
       }
     } finally {
       setSyncing(false);
@@ -966,7 +980,7 @@ const ModelModalContent: React.FC = () => {
               shape='round'
               loading={syncing}
               icon={<Info theme='outline' size='16' />}
-              onClick={() => void syncCloudProviders()}
+              onClick={() => void syncCloudProviders(true)}
               className='rd-100px border-1px border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary'
             >
               {t('settings.syncCloudProviders', { defaultValue: '同步云端模型' })}
@@ -1365,6 +1379,40 @@ const ModelModalContent: React.FC = () => {
             })}
               </div>
             </SortableContext>
+
+            {/* 本地私有模型 / Local private model service */}
+            <div className='mt-16px px-16px py-14px rounded-12px bg-[var(--color-bg-2)] border border-solid border-[var(--color-border-2)]'>
+              <div className='flex items-center justify-between gap-12px flex-wrap'>
+                <div className='min-w-0 flex-1'>
+                  <div className='text-14px font-500 text-t-primary'>
+                    {t('settings.localPrivateModelTitle', { defaultValue: '本地私有模型' })}
+                  </div>
+                  <div className='mt-4px text-12px leading-18px text-t-secondary'>
+                    {t('settings.localPrivateModelHint', {
+                      defaultValue: '配置本地或内网部署的 OpenAI-compatible 模型服务（Ollama / LM Studio / vLLM）',
+                    })}
+                  </div>
+                </div>
+                <Button
+                  type='outline'
+                  shape='round'
+                  size='small'
+                  icon={<Plus size='14' />}
+                  onClick={() =>
+                    addPlatformModalCtrl.open({
+                      deepLinkData: {
+                        platform: 'new-api',
+                        name: t('settings.localPrivateModelDefaultName', { defaultValue: '本地私有模型' }),
+                        base_url: 'http://localhost:11434/v1',
+                      },
+                    })
+                  }
+                  className='rd-100px border-1px border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary shrink-0'
+                >
+                  {t('settings.localPrivateModelConfigure', { defaultValue: '配置' })}
+                </Button>
+              </div>
+            </div>
           </DndContext>
         )}
       </NomiScrollArea>

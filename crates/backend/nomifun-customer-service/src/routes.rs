@@ -258,6 +258,8 @@ mod tests {
         CurrentUser {
             id: nomifun_common::UserId::new(),
             username: "tester".into(),
+            role: "user".into(),
+            is_active: 1,
         }
     }
 

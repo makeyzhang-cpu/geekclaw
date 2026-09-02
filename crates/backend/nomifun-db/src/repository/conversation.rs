@@ -811,6 +811,21 @@ pub trait IConversationRepository: Send + Sync {
         cron_job_id: &str,
     ) -> Result<Vec<ConversationRow>, DbError>;
 
+    /// Conversations whose durable summon marker (`extra.summon.companion_id`)
+    /// points at `companion_id`.
+    ///
+    /// Companion deletion needs this to release the sessions that summoned it.
+    /// Without it the marker survives the delete and the factory keeps
+    /// rebuilding that conversation against a companion that no longer exists.
+    /// Defaults to "none" so repositories that do not persist summons report
+    /// nothing instead of failing the delete.
+    async fn list_summoned_by_companion(
+        &self,
+        _companion_id: &str,
+    ) -> Result<Vec<ConversationRow>, DbError> {
+        Ok(Vec::new())
+    }
+
     /// Lists conversations sharing the same `extra.workspace` value.
     /// The conversation identified by `conversation_id` is excluded.
     async fn list_associated(

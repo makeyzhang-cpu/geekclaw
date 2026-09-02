@@ -2,6 +2,7 @@
 mod allinpay;
 mod aliyun_sms;
 mod cloud_provider;
+mod expert_catalog;
 mod companion_token;
 mod cookie;
 mod csrf;
@@ -80,4 +81,9 @@ pub use routes::{AuthRouterState, auth_routes};
 pub use cloud_provider::{
     AdminCloudProviderRequest, CloudProviderAdminView, CloudProviderPublicView, CloudProviderService,
     CloudProviderSyncResult,
+};
+
+// Cloud-managed expert digital-twin catalog (admin CRUD + member read + desktop sync)
+pub use expert_catalog::{
+    AdminExpertRequest, ExpertCatalogService, ExpertSyncResult, ExpertView,
 };

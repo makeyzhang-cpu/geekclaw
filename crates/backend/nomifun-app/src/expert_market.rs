@@ -3,12 +3,15 @@
 //! 把 `expert_catalog` 里的专家雇佣成「数字分身伙伴」Companion 实例：
 //!   GET  /api/experts            — 市场列表（可按分类/关键词过滤，带 is_owned）
 //!   GET  /api/experts/:id        — 专家详情（:id 支持 slug 或 expert_id）
-//!   POST /api/experts/:id/hire   — 雇佣：扣积分 → 创建 Companion → 注入人格/技能/模型 → 记授权
+//!   POST /api/experts/:id/hire   — 雇佣：扣积分 → 创建 Companion → 注入人格/技能/模型/四能力 → 记授权
 //!   GET  /api/experts/mine       — 我雇佣的专家（含 companion_ref 可跳转到数字分身）
-//!   POST /api/experts            — 创建自定义专家（落 catalog，is_builtin=0）
 //!
-//! 经济闭环复用 `IUserRepository::add_credits`（tx_type = "hire_expert"），
-//! 数字分身复用 `nomifun_companion::CompanionService`（零新 schema）。
+//! 专家目录（含创建/自定义专家）已整体迁移到云端管理后台，桌面端只消费：
+//! 内置种子走 `source='local'`，云端同步走 `source='cloud'`，本模块不再提供创建入口。
+//!
+//! 雇佣时注入四能力：专属记忆（add_memory seed）、专属知识库（create_base + write_file + set_binding）、
+//! 自主进化（learn.enabled / evolve.enabled）、专属技能（skills.enabled）。
+//! 经济闭环复用 `IUserRepository::add_credits`（tx_type = "hire_expert"）。
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -24,12 +27,14 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
 
-/// 路由状态：复用 CompanionService（建数字分身）+ user_repo（扣积分）+ pool（查目录/授权）。
+/// 路由状态：复用 CompanionService（建数字分身）+ knowledge_service（专属知识库）
+/// + user_repo（扣积分）+ pool（查目录/授权）。
 #[derive(Clone)]
 pub struct ExpertMarketRouterState {
     pub pool: SqlitePool,
     pub user_repo: Arc<dyn IUserRepository>,
     pub companion_service: Arc<nomifun_companion::CompanionService>,
+    pub knowledge_service: Arc<nomifun_knowledge::KnowledgeService>,
     /// 桌面单所有者场景下的权威用户 ID（与安装所有者一致）。
     pub owner_user_id: Arc<str>,
 }
@@ -110,50 +115,24 @@ struct ExpertCatalogRow {
     default_model: Option<String>,
     default_model_provider: Option<String>,
     default_skills: String,
+    memory_seed: String,
+    knowledge_markdown: String,
+    learn_enabled: bool,
+    evolve_enabled: bool,
 }
 
 #[derive(Deserialize)]
 struct ListQuery {
     category: Option<String>,
     q: Option<String>,
-    /// 列表范围：`all`（默认）| `builtin` 内置 | `custom` 当前用户自定义。
+    /// 列表范围：`all`（默认）| `builtin` 内置。
     scope: Option<String>,
-}
-
-/// 创建自定义专家请求。
-#[derive(Deserialize)]
-struct CreateExpertRequest {
-    name: String,
-    title: String,
-    description: Option<String>,
-    tags: Vec<String>,
-    category: Option<String>,
-    #[serde(default)]
-    price_credits: i64,
-    #[serde(default)]
-    persona_custom: String,
-    #[serde(default = "default_persona_preset")]
-    persona_preset: String,
-    #[serde(default = "default_character")]
-    default_character: String,
-    default_model: Option<String>,
-    default_model_provider: Option<String>,
-    #[serde(default)]
-    default_skills: Vec<String>,
-}
-
-fn default_persona_preset() -> String {
-    "lively".to_owned()
-}
-
-fn default_character() -> String {
-    "mochi".to_owned()
 }
 
 /// 构造路由。
 pub fn expert_market_routes(state: ExpertMarketRouterState) -> Router {
     Router::new()
-        .route("/api/experts", get(list_experts).post(create_expert))
+        .route("/api/experts", get(list_experts))
         .route("/api/experts/mine", get(my_experts))
         .route("/api/experts/{id}", get(expert_detail))
         .route("/api/experts/{id}/hire", post(hire_expert))
@@ -167,50 +146,6 @@ fn parse_json_string_array(raw: &str) -> Vec<String> {
         .into_iter()
         .filter(|s| !s.trim().is_empty())
         .collect()
-}
-
-/// 把专家名称转换成 URL-safe slug（小写、空格/下划线变连字符、去非字母数字）。
-fn slugify(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut last_was_dash = true; // 避免开头和连续连字符
-    for ch in name.trim().to_lowercase().chars() {
-        if ch.is_alphanumeric() {
-            out.push(ch);
-            last_was_dash = false;
-        } else if ch == ' ' || ch == '_' || ch == '-' {
-            if !last_was_dash {
-                out.push('-');
-                last_was_dash = true;
-            }
-        }
-    }
-    // 去掉尾部连字符
-    while out.ends_with('-') {
-        out.pop();
-    }
-    if out.is_empty() {
-        out.push_str("expert");
-    }
-    out
-}
-
-/// 确保 slug 唯一：若已存在则在尾部追加短随机后缀。
-async fn unique_slug(pool: &SqlitePool, base: &str) -> Result<String, AppError> {
-    let mut candidate = base.to_owned();
-    for _attempt in 0..100 {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM expert_catalog WHERE slug = ?)")
-                .bind(&candidate)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| AppError::Internal(format!("check slug failed: {e}")))?;
-        if !exists {
-            return Ok(candidate);
-        }
-        let suffix = &generate_id()[..8];
-        candidate = format!("{base}-{suffix}");
-    }
-    Err(AppError::Internal("unable to generate unique expert slug".into()))
 }
 
 async fn owned_expert_ids(pool: &SqlitePool, user_id: &str) -> HashSet<String> {
@@ -231,7 +166,8 @@ async fn list_experts(
     let mut sql = String::from(
         "SELECT expert_id, slug, name, title, description, avatar, tags, category, \
          price_credits, persona_custom, persona_preset, default_character, \
-         default_model, default_model_provider, default_skills \
+         default_model, default_model_provider, default_skills, \
+         memory_seed, knowledge_markdown, learn_enabled, evolve_enabled \
          FROM expert_catalog WHERE enabled = 1",
     );
     let mut binds: Vec<String> = Vec::new();
@@ -243,10 +179,6 @@ async fn list_experts(
     }
     match query.scope.as_deref() {
         Some("builtin") => sql.push_str(" AND is_builtin = 1"),
-        Some("custom") => {
-            sql.push_str(" AND is_builtin = 0 AND creator_id = ?");
-            binds.push(state.owner_user_id.to_string());
-        }
         _ => {}
     }
     if let Some(q) = &query.q
@@ -299,7 +231,8 @@ async fn expert_detail(
     let row: Option<ExpertCatalogRow> = sqlx::query_as::<_, ExpertCatalogRow>(
         "SELECT expert_id, slug, name, title, description, avatar, tags, category, \
          price_credits, persona_custom, persona_preset, default_character, \
-         default_model, default_model_provider, default_skills \
+         default_model, default_model_provider, default_skills, \
+         memory_seed, knowledge_markdown, learn_enabled, evolve_enabled \
          FROM expert_catalog WHERE (slug = ? OR expert_id = ?) AND enabled = 1",
     )
     .bind(&id)
@@ -339,7 +272,8 @@ async fn hire_expert(
     let row: ExpertCatalogRow = sqlx::query_as::<_, ExpertCatalogRow>(
         "SELECT expert_id, slug, name, title, description, avatar, tags, category, \
          price_credits, persona_custom, persona_preset, default_character, \
-         default_model, default_model_provider, default_skills \
+         default_model, default_model_provider, default_skills, \
+         memory_seed, knowledge_markdown, learn_enabled, evolve_enabled \
          FROM expert_catalog WHERE (slug = ? OR expert_id = ?) AND enabled = 1",
     )
     .bind(&id)
@@ -388,11 +322,13 @@ async fn hire_expert(
         .await?;
     let companion_id = profile.companion_id.clone();
 
-    // 2) 注入人格（system prompt）+ 技能 + 可选默认模型。
+    // 2) 注入人格（system prompt）+ 专属技能 + 可选默认模型 + 自主进化开关。
     let skills = parse_json_string_array(&row.default_skills);
     let mut patch = json!({
         "persona": { "preset": row.persona_preset, "custom": row.persona_custom },
         "skills": { "enabled": skills },
+        "learn": { "enabled": row.learn_enabled },
+        "evolve": { "enabled": row.evolve_enabled },
     });
     if let (Some(provider), Some(model)) = (
         row.default_model_provider.as_ref(),
@@ -406,6 +342,29 @@ async fn hire_expert(
         .companion_service
         .patch_companion(&companion_id, patch)
         .await?;
+
+    // 2b) 专属记忆：注入初始记忆种子（best-effort，不影响雇佣主流程）。
+    if !row.memory_seed.trim().is_empty() {
+        if let Err(e) = state
+            .companion_service
+            .add_memory(
+                "profile",
+                row.memory_seed.trim(),
+                &["expert".to_owned()],
+                Some(&companion_id),
+            )
+            .await
+        {
+            tracing::warn!(companion_id = %companion_id, error = %e, "inject expert memory seed failed");
+        }
+    }
+
+    // 2c) 专属知识库：创建并挂载 companion 专属知识库（best-effort）。
+    if !row.knowledge_markdown.trim().is_empty() {
+        if let Err(e) = inject_expert_knowledge(&state, &companion_id, &row).await {
+            tracing::warn!(companion_id = %companion_id, error = %e, "inject expert knowledge base failed");
+        }
+    }
 
     // 3) 扣积分（经济闭环）。price=0 的专家（如 LiloAvatarAI 董事长）跳过扣费。
     let mut balance = current_balance(&state, &user_id).await?;
@@ -450,65 +409,31 @@ async fn hire_expert(
     })))
 }
 
-async fn create_expert(
-    State(state): State<ExpertMarketRouterState>,
-    Json(req): Json<CreateExpertRequest>,
-) -> Result<Json<ApiResponse<ExpertSummary>>, AppError> {
-    let name = req.name.trim();
-    let title = req.title.trim();
-    if name.is_empty() {
-        return Err(AppError::BadRequest("专家名称不能为空".into()));
-    }
-    if title.is_empty() {
-        return Err(AppError::BadRequest("专家头衔不能为空".into()));
-    }
-
-    let expert_id = generate_id();
-    let base_slug = slugify(name);
-    let slug = unique_slug(&state.pool, &base_slug).await?;
-    let tags_json = serde_json::to_string(&req.tags).unwrap_or_else(|_| "[]".to_owned());
-    let skills_json = serde_json::to_string(&req.default_skills).unwrap_or_else(|_| "[]".to_owned());
-    let created_at = now_ms();
-
-    sqlx::query(
-        "INSERT INTO expert_catalog \
-         (expert_id, slug, name, title, description, avatar, tags, category, price_credits, \
-          persona_custom, persona_preset, default_character, default_model, default_model_provider, \
-          default_skills, is_builtin, creator_id, enabled, sort_order, created_at) \
-         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, 1000, ?)",
-    )
-    .bind(&expert_id)
-    .bind(&slug)
-    .bind(name)
-    .bind(title)
-    .bind(req.description.as_deref().unwrap_or_default())
-    .bind(&tags_json)
-    .bind(req.category.as_deref())
-    .bind(req.price_credits.max(0))
-    .bind(&req.persona_custom)
-    .bind(&req.persona_preset)
-    .bind(&req.default_character)
-    .bind(req.default_model.as_deref())
-    .bind(req.default_model_provider.as_deref())
-    .bind(&skills_json)
-    .bind(&state.owner_user_id.to_string())
-    .bind(created_at)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("create expert failed: {e}")))?;
-
-    Ok(Json(ApiResponse::ok(ExpertSummary {
-        expert_id,
-        slug,
-        name: name.to_owned(),
-        title: title.to_owned(),
-        description: req.description.clone(),
-        avatar: None,
-        tags: req.tags,
-        category: req.category.clone(),
-        price_credits: req.price_credits.max(0),
-        is_owned: false,
-    })))
+/// 专属知识库：创建 knowledge base → 写入初始文档 → 挂载到 companion。
+async fn inject_expert_knowledge(
+    state: &ExpertMarketRouterState,
+    companion_id: &str,
+    row: &ExpertCatalogRow,
+) -> Result<(), AppError> {
+    let info = state
+        .knowledge_service
+        .create_base(&format!("{} · 专属知识库", row.name), "", None, None)
+        .await?;
+    let kb_id = info.knowledge_base_id.clone();
+    state
+        .knowledge_service
+        .write_file(kb_id.as_str(), "README.md", row.knowledge_markdown.trim())
+        .await?;
+    let binding = nomifun_knowledge::KnowledgeBinding {
+        enabled: true,
+        kb_ids: vec![kb_id],
+        ..Default::default()
+    };
+    state
+        .knowledge_service
+        .set_binding("companion", companion_id, binding)
+        .await?;
+    Ok(())
 }
 
 async fn my_experts(

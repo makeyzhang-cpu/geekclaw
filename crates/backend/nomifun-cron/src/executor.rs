@@ -800,6 +800,13 @@ impl JobExecutor {
             model,
             conversation_id: conversation_id.to_owned(),
             delegation_policy,
+            // Same conversation-owned policy as the interactive path: a job that
+            // runs on a schedule must honour the session's "拿不准时问我"
+            // setting exactly like a live conversation would.
+            decision_policy: nomifun_conversation::runtime_options::decision_policy_from_conversation_row(
+                &conversation_row,
+            )
+            .unwrap_or_default(),
             extra: build_extra,
             conversation_created_at,
             workspace_binding_lease: None,

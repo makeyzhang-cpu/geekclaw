@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nomifun_ai_agent::{one_shot_completion, resolve_provider_config, user_message};
+use nomifun_ai_agent::{one_shot_completion_timeout, resolve_provider_config, user_message};
 use nomifun_api_types::{BypassModelRef, DecisionStrategy};
 use nomifun_db::{IClientPreferenceRepository, IProviderRepository};
 use nomifun_common::ProviderId;
@@ -25,6 +25,13 @@ pub const PREF_BACKUP_MODEL: &str = "idmm_backup_model";
 pub const PREF_DEFAULT_STEERING: &str = "idmm_default_steering_prompt";
 
 const SIDECAR_MAX_TOKENS: u32 = 1024;
+
+/// Deadline for one sidecar completion. The supervisor sets an "intervening"
+/// flag around this call and only clears it when the call returns, so a
+/// provider that accepts the connection and then goes silent would otherwise
+/// wedge the watch forever with the UI stuck spinning. Bounded calls fall
+/// through to the rule tier like any other provider failure.
+const SIDECAR_COMPLETION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// The provider call seam. Production wraps the real provider; tests inject.
 #[async_trait]
@@ -60,11 +67,17 @@ impl Completer for LiveCompleter {
         .map_err(|e| {
             tracing::warn!(error = %e, "IDMM sidecar provider config resolution failed");
         })?;
-        one_shot_completion(&cfg, system, vec![user_message(user)], SIDECAR_MAX_TOKENS)
-            .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "IDMM sidecar completion failed");
-            })
+        one_shot_completion_timeout(
+            &cfg,
+            system,
+            vec![user_message(user)],
+            SIDECAR_MAX_TOKENS,
+            SIDECAR_COMPLETION_TIMEOUT,
+        )
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "IDMM sidecar completion failed");
+        })
     }
 }
 

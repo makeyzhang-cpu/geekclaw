@@ -1710,6 +1710,7 @@ mod tests {
             model: None,
             conversation_id: conversation_id.into(),
             delegation_policy: Default::default(),
+            decision_policy: Default::default(),
             extra: serde_json::Value::Null,
             conversation_created_at: None,
             workspace_binding_lease: Some(

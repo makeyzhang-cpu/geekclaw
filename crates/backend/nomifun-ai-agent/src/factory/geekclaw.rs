@@ -7,7 +7,7 @@ use nomifun_api_types::{
     GatewayMcpConfig, McpServerId, NomiBuildExtra, SessionMcpServer, SessionMcpTransport,
 };
 use nomifun_common::{
-    AppError, DelegationPolicy, ExecutionAuthority, LoopbackCapabilityLease,
+    AppError, DecisionPolicy, DelegationPolicy, ExecutionAuthority, LoopbackCapabilityLease,
     LoopbackCapabilityLeaseSet, ProviderId,
 };
 use nomifun_db::IMcpServerRepository;
@@ -111,6 +111,7 @@ pub(super) async fn build(
     // The first-class conversation field is authoritative. Never let an
     // open-ended extra payload override execution policy.
     overrides.delegation_policy = options.delegation_policy;
+    overrides.decision_policy = options.decision_policy;
     let is_instance_owner = authority.controls_host();
 
     // Gateway entitlement is derived from the immutable principal, never from
@@ -165,63 +166,90 @@ pub(super) async fn build(
     let mut summon_wiring: Option<NomiSummonWiring> = None;
     if let Some(provider) = deps.companion_summon.as_ref() {
         match summon_config.as_ref() {
-            Some(summon) => {
-                // Skill materialization (workspace is resolved by now). Manifest
-                // ownership makes this idempotent and prunes stale entries when
-                // exclusions change. Best-effort: a skill failure degrades the
-                // session, it must not block chatting.
-                match provider
-                    .sync_summon_workspace_skills(
-                        &ctx.conversation_id,
-                        std::path::Path::new(&ctx.workspace),
-                        &summon.companion_id,
-                        &summon.skill_exclusions,
-                    )
-                    .await
-                {
-                    Ok(linked) => debug!(
+            Some(summon) => match provider.companion_name(&summon.companion_id).await {
+                // The summoned companion is gone (deleted, or from another
+                // install's dataset). The old code still injected
+                // 「已装载伙伴「（已不存在）」」 and left its skills linked in
+                // the workspace — a phantom summon the user cannot clear from
+                // the UI because the companion is no longer selectable. Unload
+                // instead: same manifest cleanup as an explicit 解除召唤, minus
+                // the loading notice and the memory sinks.
+                None => {
+                    warn!(
                         conversation_id = %ctx.conversation_id,
-                        skills = linked.len(),
-                        "summon: companion skills materialized into workspace"
-                    ),
-                    Err(error) => warn!(
-                        conversation_id = %ctx.conversation_id,
-                        error = %error,
-                        "summon: companion skill materialization failed; continuing without them"
-                    ),
-                }
-                let name = provider.companion_name(&summon.companion_id).await;
-                let notice = format!(
-                    "本会话已装载伙伴「{}」的技能与所选记忆（只读）。伙伴人格不接管本会话。\
-                     需要补查伙伴记忆用 recall_memories；伙伴记忆在本会话中只读，不可写入。",
-                    name.as_deref().unwrap_or("（已不存在）")
-                );
-                overrides.system_prompt = Some(match overrides.system_prompt.take() {
-                    Some(existing) if !existing.trim().is_empty() => {
-                        format!("{existing}\n\n{notice}")
-                    }
-                    _ => notice,
-                });
-                match (
-                    provider.summon_memory_sink(&summon.companion_id),
-                    provider.summon_context_sink(summon),
-                ) {
-                    (Ok(memory_sink), Ok(context_sink)) => {
-                        summon_wiring = Some(NomiSummonWiring {
-                            memory_sink,
-                            context_sink,
-                        });
-                    }
-                    (memory, context) => {
+                        companion_id = %summon.companion_id,
+                        "summon: companion no longer exists; unloading the dangling summon"
+                    );
+                    if let Err(error) = provider
+                        .clear_summon_workspace_skills(
+                            &ctx.conversation_id,
+                            std::path::Path::new(&ctx.workspace),
+                        )
+                        .await
+                    {
                         warn!(
                             conversation_id = %ctx.conversation_id,
-                            memory_sink_err = ?memory.err().map(|e| e.to_string()),
-                            context_sink_err = ?context.err().map(|e| e.to_string()),
-                            "summon: sink construction failed; session continues without summon tools"
+                            error = %error,
+                            "summon: dangling-summon skill cleanup failed"
                         );
                     }
                 }
-            }
+                Some(name) => {
+                    // Skill materialization (workspace is resolved by now). Manifest
+                    // ownership makes this idempotent and prunes stale entries when
+                    // exclusions change. Best-effort: a skill failure degrades the
+                    // session, it must not block chatting.
+                    match provider
+                        .sync_summon_workspace_skills(
+                            &ctx.conversation_id,
+                            std::path::Path::new(&ctx.workspace),
+                            &summon.companion_id,
+                            &summon.skill_exclusions,
+                        )
+                        .await
+                    {
+                        Ok(linked) => debug!(
+                            conversation_id = %ctx.conversation_id,
+                            skills = linked.len(),
+                            "summon: companion skills materialized into workspace"
+                        ),
+                        Err(error) => warn!(
+                            conversation_id = %ctx.conversation_id,
+                            error = %error,
+                            "summon: companion skill materialization failed; continuing without them"
+                        ),
+                    }
+                    let notice = format!(
+                        "本会话已装载伙伴「{name}」的技能与所选记忆（只读）。伙伴人格不接管本会话。\
+                         需要补查伙伴记忆用 recall_memories；伙伴记忆在本会话中只读，不可写入。"
+                    );
+                    overrides.system_prompt = Some(match overrides.system_prompt.take() {
+                        Some(existing) if !existing.trim().is_empty() => {
+                            format!("{existing}\n\n{notice}")
+                        }
+                        _ => notice,
+                    });
+                    match (
+                        provider.summon_memory_sink(&summon.companion_id),
+                        provider.summon_context_sink(summon),
+                    ) {
+                        (Ok(memory_sink), Ok(context_sink)) => {
+                            summon_wiring = Some(NomiSummonWiring {
+                                memory_sink,
+                                context_sink,
+                            });
+                        }
+                        (memory, context) => {
+                            warn!(
+                                conversation_id = %ctx.conversation_id,
+                                memory_sink_err = ?memory.err().map(|e| e.to_string()),
+                                context_sink_err = ?context.err().map(|e| e.to_string()),
+                                "summon: sink construction failed; session continues without summon tools"
+                            );
+                        }
+                    }
+                }
+            },
             None if is_instance_owner && !overrides.companion => {
                 // A cleared (or never-set) summon unloads its manifest-owned
                 // skills on the next build. No-op without a manifest; companion
@@ -345,6 +373,14 @@ pub(super) async fn build(
         overrides.system_prompt.take(),
         delegation_hint_available,
         overrides.delegation_policy,
+    );
+
+    // 「拿不准时问我」：此前该开关只作用于子 Agent 主动请求人类决策的分支，
+    // 顶层会话的模型完全看不到它，等于死开关。这里把它翻译成模型可见的行为
+    // 约束（同样只影响提示，不授予工具、不改审批模式）。
+    overrides.system_prompt = compose_decision_hint(
+        overrides.system_prompt.take(),
+        overrides.decision_policy,
     );
 
     // Every native GeekClaw session — regular desktop chat, companion, IM
@@ -1018,7 +1054,12 @@ fn append_knowledge_context(
 pub(crate) const DELEGATION_STANDARD_HINT: &str = "遇到可并行的独立工作，或需要成体系拆解的复杂多步目标时，统一使用 `nomi_delegate`：独立工作传 `strategy=parallel` 和 tasks，复杂目标传 `strategy=planned` 和 goal，让规划器生成依赖 DAG。每个受委派的 Agent 都在右侧画布实时显示状态与转录。顶层会话委派会创建一个 Agent Execution；执行中的 Attempt 再委派只会向同一个 Execution 追加 Step，不会创建子执行。拿到 execution_id（以及追加时的 added_step_ids）后立即结束本轮，不要轮询等待或重复创建。全部结束时系统会把持久化最终结果直接作为 assistant 回执写入顶层会话，不会再启动一轮模型汇总；用户主动询问进度时才用 `nomi_execution_get` 读取一次。简单或单步问题直接作答，无需委派。";
 
 /// Additional guidance for [`DelegationPolicy::PreferParallel`].
-pub(crate) const DELEGATION_PREFER_PARALLEL_HINT: &str = "本会话偏好并行委派：面对每个请求都先明确评估能否拆成多个互相独立的 Agent 工作，并在确有并行收益时优先使用 `nomi_delegate`。只有任务确实单步可答或无法安全拆分时才直接处理；不要为了形式并行制造重复工作。";
+///
+/// The concurrency figure is stated deliberately: an execution runs at most
+/// `max_parallel` steps at once (default 4 unless the delegation sets it), so
+/// without it a model that over-splits into 16 tasks believes all 16 start
+/// together and reports a parallelism the canvas never shows.
+pub(crate) const DELEGATION_PREFER_PARALLEL_HINT: &str = "本会话偏好并行委派：面对每个请求都先明确评估能否拆成多个互相独立的 Agent 工作，并在确有并行收益时优先使用 `nomi_delegate`。只有任务确实单步可答或无法安全拆分时才直接处理；不要为了形式并行制造重复工作。注意并发上限：一次执行同时运行的 Step 数受 `max_parallel` 约束（未显式设置时为 4），超出的任务会排队等待而不是同时开始——拆分粒度应贴近这个上限，估计进度时也要按排队口径说明。";
 
 /// 是否给本会话追加常驻 delegation 提示（纯策略，可单测）。提示点名的
 /// `nomi_delegate` 工具只随进程签发的桌面网关能力提供给本地可信会话，
@@ -1054,6 +1095,31 @@ pub(crate) fn compose_delegation_hint(
     Some(match base {
         Some(existing) if !existing.is_empty() => format!("{existing}\n\n{hint}"),
         _ => hint,
+    })
+}
+
+/// Guidance for [`DecisionPolicy::AskUser`] — the "拿不准时问我" toggle.
+///
+/// Without this the toggle was inert in a top-level conversation: the policy
+/// was only ever consulted when a *sub-agent* proactively requested a human
+/// decision, so the model had no idea the user had enabled it. This turns the
+/// setting into a behaviour the model can actually follow. It stays advisory —
+/// it cannot block a tool the session already has — which is the right shape
+/// for a preference expressed in natural language.
+pub(crate) const DECISION_ASK_USER_HINT: &str = "本会话开启了「拿不准时问我」。遇到下列情况时，不要自行选定方案继续，先停下来征求用户确认：存在多个都合理、且选择会明显影响结果的走向；操作不可逆或影响面大（删除、覆盖、对外发送、付款、改动他人配置等）；需求本身有歧义或信息不足，需要用户补充事实才能继续。停下来时简洁列出可选方案、各自取舍和你的推荐，等用户确认后再执行。以下情况仍应直接推进：当前步骤明确无争议、用户已给出方向、或停下来只会增加往返而不会改变结果。";
+
+/// Append decision-policy guidance. [`DecisionPolicy::Automatic`] preserves
+/// `base` unchanged so the default path carries no extra prompt weight.
+pub(crate) fn compose_decision_hint(
+    base: Option<String>,
+    policy: DecisionPolicy,
+) -> Option<String> {
+    if policy != DecisionPolicy::AskUser {
+        return base;
+    }
+    Some(match base {
+        Some(existing) if !existing.is_empty() => format!("{existing}\n\n{DECISION_ASK_USER_HINT}"),
+        _ => DECISION_ASK_USER_HINT.to_owned(),
     })
 }
 

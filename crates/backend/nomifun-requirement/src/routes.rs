@@ -282,7 +282,14 @@ async fn set_autowork(
             }
             state
                 .auto_work_runner
-                .start(req.kind, req.target_id.clone(), tag, req.max_requirements)
+                .start(
+                    req.kind,
+                    req.target_id.clone(),
+                    tag,
+                    req.max_requirements,
+                    // Explicit user enable → a fresh run, counter back to 0.
+                    false,
+                )
                 .await;
         }
     } else {

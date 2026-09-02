@@ -3114,6 +3114,40 @@ impl CompanionStore {
         row.as_ref().map(row_to_memory).transpose()
     }
 
+    /// Fetch a memory only if `companion_id` is allowed to see it.
+    ///
+    /// [`Self::get_memory`] looks up by id alone and therefore cannot tell
+    /// whether a memory belongs to the companion being loaded. Since a summon
+    /// carries arbitrary caller-supplied ids and only their *format* is
+    /// validated, resolving them unscoped lets one companion's private memories
+    /// be pulled into another companion's session. Any path that resolves
+    /// user-selected memory ids must use this.
+    ///
+    /// The predicate is the same one every companion-facing read uses
+    /// ([`MEMORY_VISIBILITY_PREDICATE`]), so a memory that shows up in the
+    /// companion's own list can always be resolved by its id — and one owned
+    /// by somebody else never can.
+    pub async fn get_memory_for_companion(
+        &self,
+        companion_id: &str,
+        memory_id: &str,
+    ) -> Result<Option<CompanionMemory>, AppError> {
+        CompanionMemoryId::try_from(memory_id)
+            .map_err(|error| AppError::BadRequest(format!("invalid memory id: {error}")))?;
+        let companion_id = CompanionId::parse(companion_id)
+            .map_err(|error| AppError::BadRequest(format!("invalid companion id: {error}")))?;
+        let sql = format!(
+            "SELECT * FROM companion_memories WHERE memory_id = ?{MEMORY_VISIBILITY_PREDICATE}"
+        );
+        let row = sqlx::query(&sql)
+            .bind(memory_id)
+            .bind(companion_id.as_str())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db_err)?;
+        row.as_ref().map(row_to_memory).transpose()
+    }
+
     /// Fidelity insert for import: every field (memory_id, timestamps, strength,
     /// pinned, source, status, …) is written exactly as given — unlike
     /// [`insert_memory`], nothing is regenerated or clamped. The caller is

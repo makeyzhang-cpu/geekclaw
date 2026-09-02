@@ -198,20 +198,6 @@ impl RequirementService {
         self
     }
 
-    /// #74 requirement→consensus bridge helper. Returns the `team_id` a
-    /// requirement is bound to (stored in its `extra.team_id` JSON field), or
-    /// `None` when unbound or unreadable. Read-only; never fails the caller.
-    pub(crate) async fn team_id_for_requirement(&self, requirement_id: &str) -> Option<String> {
-        let row = self.repo.get_by_requirement_id(requirement_id).await.ok()??;
-        let extra: serde_json::Value = serde_json::from_str(&row.extra).ok()?;
-        let team_id = extra.get("team_id")?.as_str()?.to_owned();
-        if team_id.trim().is_empty() {
-            None
-        } else {
-            Some(team_id)
-        }
-    }
-
     /// Attachments of a requirement as DTOs; empty when no store is attached
     /// or on a read failure (display data must not fail the main call).
     async fn load_attachments(&self, requirement_id: &str) -> Vec<AttachmentDto> {
@@ -1053,8 +1039,8 @@ impl RequirementService {
     }
 
     /// Persist the AutoWork config `{ enabled, tag, max_requirements }` for a
-    /// target. Conversations store it under `extra.autowork`; terminals store it
-    /// in the `terminal_sessions.autowork` JSON column (via the driver).
+    /// target, preserving the durable completion counter — this entry point
+    /// owns the user's configuration, not the loop's progress.
     pub async fn save_autowork_config(
         &self,
         kind: AutoWorkTargetKind,
@@ -1062,6 +1048,31 @@ impl RequirementService {
         enabled: bool,
         tag: Option<&str>,
         max_requirements: Option<u32>,
+    ) -> Result<(), AppError> {
+        let completed = self.read_autowork_completed(kind, target_id).await;
+        self.save_autowork_config_with_progress(
+            kind,
+            target_id,
+            enabled,
+            tag,
+            max_requirements,
+            completed,
+        )
+        .await
+    }
+
+    /// Full-fidelity AutoWork writer: the persisted `autowork` object is
+    /// replaced wholesale (the conversation `update_extra` merge is top-level
+    /// only), so every field — including `completed` — must be written together
+    /// or it would be silently dropped.
+    pub async fn save_autowork_config_with_progress(
+        &self,
+        kind: AutoWorkTargetKind,
+        target_id: &str,
+        enabled: bool,
+        tag: Option<&str>,
+        max_requirements: Option<u32>,
+        completed: u32,
     ) -> Result<(), AppError> {
         match kind {
             AutoWorkTargetKind::Conversation => {
@@ -1075,6 +1086,7 @@ impl RequirementService {
                             "enabled": enabled,
                             "tag": tag,
                             "max_requirements": max_requirements,
+                            "completed": completed,
                         }
                     }),
                 )
@@ -1088,12 +1100,63 @@ impl RequirementService {
                     "enabled": enabled,
                     "tag": tag,
                     "max_requirements": max_requirements,
+                    "completed": completed,
                 })
                 .to_string();
                 driver.write_autowork(parse_terminal_id(target_id)?, Some(&blob)).await?;
                 Ok(())
             }
         }
+    }
+
+    /// Durable completion counter for the current AutoWork run on a target.
+    ///
+    /// Lives in the same persisted `autowork` object as the config so a process
+    /// restart cannot hand out a fresh `max_requirements` quota — the old
+    /// in-memory counter reset on every restart, which let a capped loop run
+    /// its cap again and again.
+    pub async fn read_autowork_completed(
+        &self,
+        kind: AutoWorkTargetKind,
+        target_id: &str,
+    ) -> u32 {
+        self.read_autowork_blob(kind, target_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|aw| aw.get("completed").and_then(|v| v.as_u64()))
+            .map(|n| n.min(u32::MAX as u64) as u32)
+            .unwrap_or(0)
+    }
+
+    /// Reset the durable counter. An explicit enable starts a fresh run, so a
+    /// stale count from a previous run must not shorten the new one.
+    pub async fn reset_autowork_progress(
+        &self,
+        kind: AutoWorkTargetKind,
+        target_id: &str,
+    ) -> Result<(), AppError> {
+        let (enabled, tag, max) = self.read_autowork_config(kind, target_id).await?;
+        self.save_autowork_config_with_progress(kind, target_id, enabled, tag.as_deref(), max, 0)
+            .await
+    }
+
+    /// Increment the durable counter and return the new value. The persisted
+    /// value is the source of truth; the caller mirrors it into its in-memory
+    /// progress so the API and the cap check agree.
+    pub async fn bump_autowork_progress(
+        &self,
+        kind: AutoWorkTargetKind,
+        target_id: &str,
+    ) -> Result<u32, AppError> {
+        let (enabled, tag, max) = self.read_autowork_config(kind, target_id).await?;
+        let next = self
+            .read_autowork_completed(kind, target_id)
+            .await
+            .saturating_add(1);
+        self.save_autowork_config_with_progress(kind, target_id, enabled, tag.as_deref(), max, next)
+            .await?;
+        Ok(next)
     }
 
     /// Read the persisted AutoWork config `(enabled, tag, max)` for a target.
@@ -1104,13 +1167,28 @@ impl RequirementService {
         kind: AutoWorkTargetKind,
         target_id: &str,
     ) -> Result<(bool, Option<String>, Option<u32>), AppError> {
+        let aw = self.read_autowork_blob(kind, target_id).await?.unwrap_or_default();
+        let enabled = aw.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        let tag = aw.get("tag").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let max = aw.get("max_requirements").and_then(|v| v.as_u64()).map(|n| n as u32);
+        Ok((enabled, tag, max))
+    }
+
+    /// Raw persisted AutoWork object (`extra.autowork` for conversations, the
+    /// `autowork` column for terminals). `None` when no backing store is
+    /// attached or no config exists.
+    async fn read_autowork_blob(
+        &self,
+        kind: AutoWorkTargetKind,
+        target_id: &str,
+    ) -> Result<Option<serde_json::Value>, AppError> {
         let raw: Option<serde_json::Value> = match kind {
             AutoWorkTargetKind::Conversation => {
                 let Some(conv_repo) = &self.conversation_repo else {
-                    return Ok((false, None, None));
+                    return Ok(None);
                 };
                 let Some(row) = conv_repo.get(parse_conversation_id(target_id)?).await? else {
-                    return Ok((false, None, None));
+                    return Ok(None);
                 };
                 let extra: serde_json::Value = serde_json::from_str(&row.extra).map_err(|error| {
                     AppError::Internal(format!(
@@ -1126,7 +1204,7 @@ impl RequirementService {
             }
             AutoWorkTargetKind::Terminal => {
                 let Some(driver) = &self.terminal_driver else {
-                    return Ok((false, None, None));
+                    return Ok(None);
                 };
                 match driver.read_autowork(parse_terminal_id(target_id)?).await? {
                     Some(s) => Some(serde_json::from_str(&s).map_err(|error| {
@@ -1138,11 +1216,7 @@ impl RequirementService {
                 }
             }
         };
-        let aw = raw.unwrap_or_default();
-        let enabled = aw.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-        let tag = aw.get("tag").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let max = aw.get("max_requirements").and_then(|v| v.as_u64()).map(|n| n as u32);
-        Ok((enabled, tag, max))
+        Ok(raw)
     }
 
     /// Verify `terminal_id` belongs to `user_id` (data isolation for the terminal

@@ -97,6 +97,7 @@ mod tests {
             model: None,
             conversation_id: "0190f5fe-7c00-7a00-8abc-012345678901".into(),
             delegation_policy: Default::default(),
+            decision_policy: Default::default(),
             extra,
             conversation_created_at: Some(10),
             workspace_binding_lease: None,

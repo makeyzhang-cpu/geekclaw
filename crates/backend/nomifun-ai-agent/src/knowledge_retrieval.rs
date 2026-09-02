@@ -51,6 +51,9 @@ impl KnowledgeRetrievalSink for LiveKnowledgeRetrievalSink {
             return Err("handle points to a base not mounted in this session".to_owned());
         }
         let file = self.service.read_file(kb_id.as_str(), &rel_path).await.map_err(|e| e.to_string())?;
-        Ok(file.content)
+        // Cap at the model boundary: a user vault file carries no size
+        // guarantee, and an uncapped read silently evicts the rest of the
+        // context (and, being injected mid-turn, cannot be recovered).
+        Ok(nomifun_knowledge::truncate_document_content(file.content))
     }
 }

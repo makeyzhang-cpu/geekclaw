@@ -23,17 +23,16 @@ import { Plus, Search, Shop } from '@icon-park/react';
 import classNames from 'classnames';
 import HubPageShell from '@renderer/components/layout/HubPageShell';
 import {
-  CreateExpertPayload,
   ExpertDetail,
   ExpertScope,
   ExpertSummary,
   HireResponse,
   MyExpert,
-  createExpert,
   getExpert,
   hireExpert,
   listExperts,
   myExperts,
+  syncExperts,
 } from './api';
 
 const CATEGORIES = [
@@ -204,7 +203,7 @@ const ExpertMarketPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState<'builtin' | 'custom' | 'mine'>('builtin');
+  const [tab, setTab] = useState<'builtin' | 'mine'>('builtin');
   const [loading, setLoading] = useState(true);
   const [experts, setExperts] = useState<ExpertSummary[]>([]);
   const [mine, setMine] = useState<MyExpert[]>([]);
@@ -219,24 +218,9 @@ const ExpertMarketPage: React.FC = () => {
   const [hireLoading, setHireLoading] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateExpertPayload>({
-    name: '',
-    title: '',
-    description: '',
-    tags: [],
-    category: '',
-    price_credits: 0,
-    persona_custom: '',
-    persona_preset: 'lively',
-    default_character: 'mochi',
-    default_model: '',
-    default_model_provider: '',
-    default_skills: [],
-  });
+  const [syncLoading, setSyncLoading] = useState(false);
 
-  const scope: ExpertScope = tab === 'custom' ? 'custom' : 'builtin';
+  const scope: ExpertScope = 'all';
 
   const loadMarket = useCallback(async () => {
     setLoading(true);
@@ -324,54 +308,24 @@ const ExpertMarketPage: React.FC = () => {
 
   const filteredMine = useMemo(() => mine, [mine]);
 
-  const resetCreateForm = useCallback(() => {
-    setCreateForm({
-      name: '',
-      title: '',
-      description: '',
-      tags: [],
-      category: '',
-      price_credits: 0,
-      persona_custom: '',
-      persona_preset: 'lively',
-      default_character: 'mochi',
-      default_model: '',
-      default_model_provider: '',
-      default_skills: [],
-    });
-  }, []);
-
-  const submitCreate = useCallback(async () => {
-    if (!createForm.name.trim() || !createForm.title.trim()) {
-      Message.error(t('expertMarket.createRequired', { defaultValue: '请填写专家名称和头衔' }));
-      return;
-    }
-    setCreateLoading(true);
+  const performSync = useCallback(async () => {
+    setSyncLoading(true);
     try {
-      const payload: CreateExpertPayload = {
-        ...createForm,
-        name: createForm.name.trim(),
-        title: createForm.title.trim(),
-        description: createForm.description?.trim() || undefined,
-        category: createForm.category?.trim() || undefined,
-        price_credits: Number(createForm.price_credits) || 0,
-        persona_custom: createForm.persona_custom?.trim() || undefined,
-        persona_preset: createForm.persona_preset?.trim() || 'lively',
-        default_character: createForm.default_character?.trim() || 'mochi',
-        default_model: createForm.default_model?.trim() || undefined,
-        default_model_provider: createForm.default_model_provider?.trim() || undefined,
-      };
-      await createExpert(payload);
-      Message.success(t('expertMarket.createSuccess', { defaultValue: '专家创建成功' }));
-      setCreateOpen(false);
-      resetCreateForm();
+      const res = await syncExperts();
+      Message.success(
+        t('expertMarket.syncSuccess', {
+          synced: res.synced,
+          pruned: res.pruned,
+          defaultValue: `已从云端同步 ${res.synced} 位专家（清理 ${res.pruned} 位下架专家）`,
+        })
+      );
       void loadMarket();
     } catch (err) {
       Message.error(String(err));
     } finally {
-      setCreateLoading(false);
+      setSyncLoading(false);
     }
-  }, [createForm, loadMarket, resetCreateForm, t]);
+  }, [loadMarket, t]);
 
   return (
     <HubPageShell
@@ -381,14 +335,10 @@ const ExpertMarketPage: React.FC = () => {
       })}
       toolbar={
         <div className='flex items-center justify-between w-full'>
-          <Tabs activeTab={tab} onChange={(key) => setTab(key as 'builtin' | 'custom' | 'mine')}>
+          <Tabs activeTab={tab} onChange={(key) => setTab(key as 'builtin' | 'mine')}>
             <Tabs.TabPane
               key='builtin'
-              title={t('expertMarket.tabBuiltin', { defaultValue: '内置目录' })}
-            />
-            <Tabs.TabPane
-              key='custom'
-              title={t('expertMarket.tabCustom', { defaultValue: '自定义专家' })}
+              title={t('expertMarket.tabBuiltin', { defaultValue: '专家目录' })}
             />
             <Tabs.TabPane
               key='mine'
@@ -408,12 +358,13 @@ const ExpertMarketPage: React.FC = () => {
             </Button>
             {tab !== 'mine' && (
               <Button
-                type='primary'
+                type='secondary'
                 size='small'
-                icon={<Plus size={16} />}
-                onClick={() => setCreateOpen(true)}
+                icon={<Shop size={16} />}
+                loading={syncLoading}
+                onClick={() => void performSync()}
               >
-                {t('expertMarket.createExpert', { defaultValue: '创建专家' })}
+                {t('expertMarket.syncExperts', { defaultValue: '同步云端专家' })}
               </Button>
             )}
           </div>
@@ -647,113 +598,6 @@ const ExpertMarketPage: React.FC = () => {
             </div>
           </div>
         )}
-      </Modal>
-
-      {/* 创建自定义专家弹窗 */}
-      <Modal
-        title={t('expertMarket.createTitle', { defaultValue: '创建自定义专家' })}
-        visible={createOpen}
-        onCancel={() => {
-          setCreateOpen(false);
-          resetCreateForm();
-        }}
-        onOk={() => void submitCreate()}
-        confirmLoading={createLoading}
-        okText={t('expertMarket.createSubmit', { defaultValue: '创建' })}
-        cancelText={t('common.cancel', { defaultValue: '取消' })}
-      >
-        <div className='flex flex-col gap-12px max-h-70vh overflow-y-auto pr-4px'>
-          <Input
-            placeholder={t('expertMarket.createName', { defaultValue: '专家名称 *' })}
-            value={createForm.name}
-            onChange={(v) => setCreateForm((f) => ({ ...f, name: v }))}
-            maxLength={40}
-            showWordLimit
-          />
-          <Input
-            placeholder={t('expertMarket.createTitleLabel', { defaultValue: '专家头衔 *' })}
-            value={createForm.title}
-            onChange={(v) => setCreateForm((f) => ({ ...f, title: v }))}
-            maxLength={80}
-            showWordLimit
-          />
-          <Select
-            placeholder={t('expertMarket.categoryPlaceholder', { defaultValue: '分类' })}
-            value={createForm.category || undefined}
-            onChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}
-            allowClear
-            options={CATEGORIES.map((c) => ({ label: c, value: c }))}
-          />
-          <Input
-            type='number'
-            min={0}
-            placeholder={t('expertMarket.createPrice', { defaultValue: '雇佣积分（0=免费）' })}
-            value={String(createForm.price_credits ?? 0)}
-            onChange={(v) => setCreateForm((f) => ({ ...f, price_credits: Number(v) || 0 }))}
-          />
-          <Input.TextArea
-            placeholder={t('expertMarket.createDescription', { defaultValue: '专家简介' })}
-            value={createForm.description}
-            onChange={(v) => setCreateForm((f) => ({ ...f, description: v }))}
-            rows={2}
-          />
-          <Input
-            placeholder={t('expertMarket.createTags', { defaultValue: '标签，用逗号分隔' })}
-            value={(createForm.tags ?? []).join(', ')}
-            onChange={(v) =>
-              setCreateForm((f) => ({
-                ...f,
-                tags: v.split(',').map((s) => s.trim()).filter(Boolean),
-              }))
-            }
-          />
-          <Select
-            placeholder={t('expertMarket.createPreset', { defaultValue: '人格预设' })}
-            value={createForm.persona_preset}
-            onChange={(v) => setCreateForm((f) => ({ ...f, persona_preset: v }))}
-            options={[
-              { label: '活泼 (lively)', value: 'lively' },
-              { label: '沉稳 (calm)', value: 'calm' },
-              { label: '俏皮 (sassy)', value: 'sassy' },
-            ]}
-          />
-          <Input.TextArea
-            placeholder={t('expertMarket.createPersona', { defaultValue: '人格自定义（系统提示词）' })}
-            value={createForm.persona_custom}
-            onChange={(v) => setCreateForm((f) => ({ ...f, persona_custom: v }))}
-            rows={4}
-          />
-          <Select
-            placeholder={t('expertMarket.createCharacter', { defaultValue: '默认形象' })}
-            value={createForm.default_character}
-            onChange={(v) => setCreateForm((f) => ({ ...f, default_character: v }))}
-            options={[
-              { label: 'Mochi', value: 'mochi' },
-              { label: 'Bubble', value: 'bubble' },
-              { label: 'Geek', value: 'geek' },
-            ]}
-          />
-          <Input
-            placeholder={t('expertMarket.createModelProvider', { defaultValue: '默认模型提供方，如 openai / deepseek' })}
-            value={createForm.default_model_provider}
-            onChange={(v) => setCreateForm((f) => ({ ...f, default_model_provider: v }))}
-          />
-          <Input
-            placeholder={t('expertMarket.createModel', { defaultValue: '默认模型，如 gpt-4o / deepseek-chat' })}
-            value={createForm.default_model}
-            onChange={(v) => setCreateForm((f) => ({ ...f, default_model: v }))}
-          />
-          <Input
-            placeholder={t('expertMarket.createSkills', { defaultValue: '默认技能，用逗号分隔' })}
-            value={(createForm.default_skills ?? []).join(', ')}
-            onChange={(v) =>
-              setCreateForm((f) => ({
-                ...f,
-                default_skills: v.split(',').map((s) => s.trim()).filter(Boolean),
-              }))
-            }
-          />
-        </div>
       </Modal>
     </HubPageShell>
   );

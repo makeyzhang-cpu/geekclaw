@@ -70,6 +70,7 @@ pub use repository::provider::{CreateProviderParams, UpdateProviderParams, Upser
 pub use repository::cloud_provider::{
     ICloudProviderRepository, SqliteCloudProviderRepository, UpsertCloudProviderParams,
 };
+pub use repository::expert::{IExpertRepository, SqliteExpertRepository, UpsertExpertParams};
 pub use repository::remote_agent::{CreateRemoteAgentParams, UpdateRemoteAgentParams};
 pub use repository::ssh_host::{
     CreateSshHostParams, ISshHostRepository, UpdateSshHostParams,

@@ -1955,6 +1955,15 @@ mod delete_guard_tests {
             self.deleted.store(true, Ordering::SeqCst);
             Ok(())
         }
+        async fn upsert_cloud_provider(
+            &self,
+            _params: nomifun_db::UpsertCloudProviderLocalParams<'_>,
+        ) -> Result<Provider, nomifun_db::DbError> {
+            unimplemented!("cloud provider sync is not exercised by these tests")
+        }
+        async fn delete_cloud_providers_not_in(&self, _keep_keys: &[String]) -> Result<u64, nomifun_db::DbError> {
+            unimplemented!("cloud provider sync is not exercised by these tests")
+        }
     }
 
     /// Empty stand-in for the delete path, which never reads model rows.

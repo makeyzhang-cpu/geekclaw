@@ -253,6 +253,35 @@ pub async fn one_shot_completion(
     streaming_completion(cfg, system, messages, max_tokens, |_| {}).await
 }
 
+/// Like [`one_shot_completion`] but bounded by `timeout`.
+///
+/// A completion with no deadline hangs forever if the upstream provider accepts
+/// the connection and then never sends another byte — a stall that no connect
+/// or header timeout reliably covers, particularly over SSE where the stream is
+/// already "open". Anything driving an interactive loop must use this instead
+/// of the unbounded variant, or a single wedged provider call hangs the whole
+/// supervisor with no user-visible way out.
+pub async fn one_shot_completion_timeout(
+    cfg: &Config,
+    system: &str,
+    messages: Vec<Message>,
+    max_tokens: u32,
+    timeout: std::time::Duration,
+) -> Result<String, AppError> {
+    match tokio::time::timeout(
+        timeout,
+        streaming_completion(cfg, system, messages, max_tokens, |_| {}),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(AppError::Timeout(format!(
+            "completion exceeded {}s without producing a response",
+            timeout.as_secs()
+        ))),
+    }
+}
+
 /// Like [`one_shot_completion`] but invokes `on_delta` for every text chunk
 /// as it streams in, so callers can fan deltas out (e.g. over WebSocket)
 /// while the full reply is still being assembled.
@@ -593,6 +622,15 @@ mod fallback_tests {
         }
         async fn delete(&self, _id: &str) -> Result<(), DbError> {
             unimplemented!("not used by these tests")
+        }
+        async fn upsert_cloud_provider(
+            &self,
+            _params: nomifun_db::UpsertCloudProviderLocalParams<'_>,
+        ) -> Result<Provider, nomifun_db::DbError> {
+            unimplemented!("cloud provider sync is not exercised by these tests")
+        }
+        async fn delete_cloud_providers_not_in(&self, _keep_keys: &[String]) -> Result<u64, nomifun_db::DbError> {
+            unimplemented!("cloud provider sync is not exercised by these tests")
         }
     }
 

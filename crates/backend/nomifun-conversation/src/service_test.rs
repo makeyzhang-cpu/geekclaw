@@ -15699,6 +15699,15 @@ impl IProviderRepository for StubProviderRepo {
     async fn delete(&self, _id: &str) -> Result<(), DbError> {
         Ok(())
     }
+    async fn upsert_cloud_provider(
+        &self,
+        _params: nomifun_db::UpsertCloudProviderLocalParams<'_>,
+    ) -> Result<Provider, nomifun_db::DbError> {
+        unimplemented!("cloud provider sync is not exercised by these tests")
+    }
+    async fn delete_cloud_providers_not_in(&self, _keep_keys: &[String]) -> Result<u64, nomifun_db::DbError> {
+        unimplemented!("cloud provider sync is not exercised by these tests")
+    }
 }
 
 /// Provider-model row stub: serves the fixed per-model catalog to the picker

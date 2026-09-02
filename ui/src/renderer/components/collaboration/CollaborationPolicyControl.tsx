@@ -15,6 +15,11 @@ type CollaborationPolicyControlProps = CollaborationPolicyValue & {
   onChange: (next: CollaborationPolicyValue) => void | Promise<void>;
   compact?: boolean;
   className?: string;
+  /// True while the parent is still persisting the previous change. The write
+  /// is async, so without this lock the user can pick a policy and press send
+  /// before it lands — the agent then gets built from the OLD value and the
+  /// selection appears to have had no effect.
+  pending?: boolean;
 };
 
 const DELEGATION_OPTIONS: TDelegationPolicy[] = ['disabled', 'automatic', 'prefer_parallel'];
@@ -26,6 +31,7 @@ const CollaborationPolicyControl: React.FC<CollaborationPolicyControlProps> = ({
   onChange,
   compact = false,
   className,
+  pending = false,
 }) => {
   const { t } = useTranslation();
   const titleId = React.useId();
@@ -58,6 +64,7 @@ const CollaborationPolicyControl: React.FC<CollaborationPolicyControlProps> = ({
                 className={`${styles.segmentedOption} ${active ? styles.segmentedOptionActive : ''}`}
                 role='radio'
                 aria-checked={active}
+                disabled={pending}
                 onClick={() =>
                   void onChange({
                     delegationPolicy: option,
@@ -80,7 +87,7 @@ const CollaborationPolicyControl: React.FC<CollaborationPolicyControlProps> = ({
           size='small'
           className={styles.decisionSwitch}
           checked={decisionPolicy === 'ask_user'}
-          disabled={delegationPolicy === 'disabled'}
+          disabled={delegationPolicy === 'disabled' || pending}
           aria-label={askUserLabel}
           onChange={(checked) =>
             void onChange({

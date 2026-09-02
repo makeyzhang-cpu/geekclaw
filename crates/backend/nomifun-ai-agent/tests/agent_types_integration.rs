@@ -196,6 +196,7 @@ async fn collect_idle_ignores_non_acp_agent_types() {
         model: None,
         conversation_id: id.into(),
         delegation_policy: Default::default(),
+        decision_policy: Default::default(),
         conversation_created_at: None,
         workspace_binding_lease: Some(
             nomifun_knowledge::WorkspaceBindingLease::acquire_unbound(

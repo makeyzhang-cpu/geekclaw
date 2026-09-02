@@ -4296,6 +4296,25 @@ impl IConversationRepository for SqliteConversationRepository {
         Ok(rows)
     }
 
+    async fn list_summoned_by_companion(
+        &self,
+        companion_id: &str,
+    ) -> Result<Vec<ConversationRow>, DbError> {
+        // `json_extract` yields NULL — never equal to the bound id — for rows
+        // whose `extra` is not a JSON object or carries no summon marker, so
+        // this needs no separate existence guard.
+        let rows = sqlx::query_as::<_, ConversationRow>(
+            "SELECT * FROM conversations \
+             WHERE json_extract(extra, '$.summon.companion_id') = ? \
+             ORDER BY updated_at DESC",
+        )
+        .bind(companion_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
     async fn list_associated(
         &self,
         user_id: &str,

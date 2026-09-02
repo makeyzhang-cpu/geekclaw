@@ -58,6 +58,30 @@ pub const WRITEBACK_EAGERNESS: &[&str] = &["conservative", "aggressive"];
 /// Excluded from the prompt TOC — unreviewed content is not authoritative
 /// navigation.
 pub const KB_INBOX_REL_DIR: &str = "_inbox";
+
+/// Hard cap on how much of a single document is handed to a model in one
+/// `knowledge_read`. A vault file is an arbitrary user artifact, so without a
+/// cap one large file silently consumes the entire context window. Enforced at
+/// the model boundary ([`truncate_document_content`]) rather than inside
+/// [`KnowledgeService::read_file`], because write-back and snapshot diffing
+/// legitimately need the complete bytes.
+pub const KNOWLEDGE_READ_MAX_CHARS: usize = 96_000;
+
+/// Cap `content` at [`KNOWLEDGE_READ_MAX_CHARS`], appending a marker so the
+/// model knows the document continues and can keep reading instead of
+/// assuming it saw everything.
+pub fn truncate_document_content(content: String) -> String {
+    let total = content.chars().count();
+    if total <= KNOWLEDGE_READ_MAX_CHARS {
+        return content;
+    }
+    let mut out: String = content.chars().take(KNOWLEDGE_READ_MAX_CHARS).collect();
+    out.push_str(&format!(
+        "\n\n…[文档已截断：已返回前 {KNOWLEDGE_READ_MAX_CHARS} 字符，全文共 {total} 字符。如需剩余部分请继续分段阅读。]"
+    ));
+    out
+}
+
 const TURN_WRITEBACK_LLM_TIMEOUT: Duration = Duration::from_secs(45);
 const KNOWLEDGE_PATH_INSPECTION_TIMEOUT: Duration = Duration::from_secs(6);
 const KNOWLEDGE_FILE_IO_TIMEOUT: Duration = Duration::from_secs(20);
@@ -6018,17 +6042,84 @@ const LIST_BASES_CONCURRENCY: usize = 8;
 /// gathered so far being dropped (empty) rather than hanging the agent tool.
 const SEARCH_WALK_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// Split a lowercased query into non-empty, deduped whitespace terms. For CJK
-/// (no spaces) this yields the whole query as one term, which still
-/// substring-matches — adequate for the keyword tier.
+/// A CJK ideograph / kana / hangul syllable — scripts that carry no word
+/// separators and therefore need n-gram expansion to be searchable.
+fn is_cjk_char(ch: char) -> bool {
+    matches!(ch,
+        '\u{3400}'..='\u{4DBF}'   // CJK Unified Ideographs Extension A
+        | '\u{4E00}'..='\u{9FFF}' // CJK Unified Ideographs
+        | '\u{F900}'..='\u{FAFF}' // CJK Compatibility Ideographs
+        | '\u{3040}'..='\u{30FF}' // Hiragana + Katakana
+        | '\u{AC00}'..='\u{D7AF}' // Hangul Syllables
+    )
+}
+
+/// Emit search terms for one maximal run of same-class characters.
+///
+/// Latin/numeric runs are emitted verbatim. CJK runs are expanded into
+/// bigrams (plus the whole run when it is short enough to be a real phrase):
+/// a bare whitespace split would leave "退款流程" as a single term requiring
+/// an exact contiguous substring, so a document titled "如何申请退款的流程"
+/// would not match at all. Bigrams turn that into a partial-overlap match —
+/// the document hits on 退款 and 流程 — while still demanding two real
+/// adjacent characters from the query, which keeps precision acceptable.
+fn emit_query_terms(
+    run: &str,
+    is_cjk: bool,
+    seen: &mut HashSet<String>,
+    out: &mut Vec<String>,
+) {
+    if run.is_empty() {
+        return;
+    }
+    if !is_cjk {
+        if seen.insert(run.to_owned()) {
+            out.push(run.to_owned());
+        }
+        return;
+    }
+    let chars: Vec<char> = run.chars().collect();
+    // The whole run is a high-precision signal; beyond a handful of
+    // characters it stops being a plausible phrase and only adds noise.
+    if chars.len() <= 6 && seen.insert(run.to_owned()) {
+        out.push(run.to_owned());
+    }
+    for w in chars.windows(2) {
+        let term: String = w.iter().collect();
+        if seen.insert(term.clone()) {
+            out.push(term);
+        }
+    }
+}
+
+/// Split a lowercased query into non-empty, deduped search terms, expanding
+/// CJK runs into bigrams. See [`emit_query_terms`] for the rationale.
 fn query_terms(query_lc: &str) -> Vec<String> {
     let mut seen = HashSet::new();
-    query_lc
-        .split_whitespace()
-        .filter(|t| !t.is_empty())
-        .filter(|t| seen.insert(t.to_string()))
-        .map(str::to_owned)
-        .collect()
+    let mut out = Vec::new();
+
+    for raw in query_lc.split_whitespace() {
+        if raw.is_empty() {
+            continue;
+        }
+        let mut run = String::new();
+        let mut run_cjk: Option<bool> = None;
+        for ch in raw.chars() {
+            let cjk = is_cjk_char(ch);
+            if let Some(prev) = run_cjk {
+                if prev != cjk {
+                    emit_query_terms(&run, prev, &mut seen, &mut out);
+                    run.clear();
+                }
+            }
+            run_cjk = Some(cjk);
+            run.push(ch);
+        }
+        if let Some(cjk) = run_cjk {
+            emit_query_terms(&run, cjk, &mut seen, &mut out);
+        }
+    }
+    out
 }
 
 /// First markdown heading (`# ...`) text, trimmed of leading `#`/space, or "".
@@ -6050,11 +6141,14 @@ fn score_md(
     let heading_lc = heading.to_lowercase();
     let content_lc = content.to_lowercase();
     let mut score: u32 = 0;
+    // Contiguous full-query hits outrank n-gram noise: now that CJK queries
+    // expand into bigrams, a document matching several loose bigrams would
+    // otherwise tie with one containing the actual phrase.
     if path_lc.contains(query_lc) || heading_lc.contains(query_lc) {
-        score += 8;
+        score += 16;
     }
     if content_lc.contains(query_lc) {
-        score += 5;
+        score += 12;
     }
     for t in terms {
         if path_lc.contains(t.as_str()) {
@@ -9729,8 +9823,11 @@ mod tests {
         for (i, name) in expected.iter().enumerate() {
             let content = std::fs::read_to_string(snap_dir.join(name))
                 .unwrap_or_else(|e| panic!("{name} must exist: {e}"));
+            // `snapshot_markdown` writes the URL as a blockquote/bold
+            // front-matter line; match that exact shape, not a looser
+            // `source_url:` substring that also matches prose inside a body.
             assert!(
-                content.contains(&format!("source_url: {}", urls[i])),
+                content.contains(&format!("> **source_url**: {}", urls[i])),
                 "{name} must hold entry #{i}: {content}"
             );
         }

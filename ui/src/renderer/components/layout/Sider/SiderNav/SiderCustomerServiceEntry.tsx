@@ -28,7 +28,7 @@ const SiderCustomerServiceEntry: React.FC<SiderCustomerServiceEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const title = t('customerService.siderTitle', { defaultValue: '客服' });
+  const title = t('customerService.siderTitle', { defaultValue: 'AI客服' });
 
   if (collapsed) {
     return (

@@ -9,7 +9,6 @@ use nomifun_ai_agent::registry::AgentRegistry;
 use nomifun_ai_agent::runtime_registry::AgentRuntimeRegistry;
 use nomifun_ai_agent::types::AgentRuntimeBuildOptions;
 use nomifun_api_types::{AutoWorkState, AutoWorkTargetKind, Requirement, RequirementStatus, SendMessageRequest};
-use nomifun_api_types::StartConsensusRequest;
 use nomifun_common::{AppError, ConversationId, TerminalId, UserId};
 use nomifun_team::TeamConsensusService;
 use nomifun_conversation::{
@@ -82,9 +81,14 @@ pub struct AutoWorkRunnerDeps {
     /// in lock-step with `AgentFactoryDeps::requirement_mcp_config` so the prompt
     /// never names a tool the session lacks.
     pub requirement_mcp_enabled: bool,
-    /// #74: optional team-consensus engine. When set, a requirement bound to a
-    /// team (`extra.team_id`) launches a team consensus run instead of a
-    /// conversation/terminal turn. `None` keeps the legacy behaviour.
+    /// Optional team-consensus engine.
+    ///
+    /// Currently **inert**: the requirement→consensus bridge that used to
+    /// consume it was removed because it finalized a requirement as `done` the
+    /// moment a discussion started, so the work vanished from the board and the
+    /// consensus result was never written back. The slot is kept so the
+    /// assembly site needs no change when a rebuild adds a result channel that
+    /// can carry a decision back to the requirement.
     pub consensus: Option<Arc<TeamConsensusService>>,
 }
 
@@ -122,6 +126,14 @@ struct LiveProgress {
 }
 
 impl LiveProgress {
+    /// Seed from the durable counter so a boot-resumed loop does not restart
+    /// its `max_requirements` quota from zero.
+    fn new(completed: u32) -> Self {
+        Self {
+            current_claim: Mutex::new(None),
+            completed_count: AtomicU32::new(completed),
+        }
+    }
     fn set_current(&self, claim: Option<LiveClaim>) {
         *self.current_claim.lock().expect("progress lock") = claim;
     }
@@ -137,6 +149,11 @@ impl LiveProgress {
     }
     fn incr_completed(&self) -> u32 {
         self.completed_count.fetch_add(1, Ordering::SeqCst) + 1
+    }
+    /// Mirror the durable counter after a persisted bump so the API readout
+    /// and the in-memory cap check cannot drift apart.
+    fn set_completed(&self, completed: u32) {
+        self.completed_count.store(completed, Ordering::SeqCst);
     }
     fn completed(&self) -> u32 {
         self.completed_count.load(Ordering::SeqCst)
@@ -286,12 +303,19 @@ impl AutoWorkRunner {
 
     /// Start (or restart) the autowork loop for a target bound to `tag`.
     /// Stops after `max_requirements` completions when set.
+    ///
+    /// `resume_progress` distinguishes a boot-time resume of a persisted
+    /// binding (`true` — inherit the durable completion count) from an explicit
+    /// user enable (`false` — start a fresh run at zero). The count is
+    /// persisted because an in-memory-only counter let every process restart
+    /// hand out a full new `max_requirements` quota.
     pub async fn start(
         &self,
         kind: AutoWorkTargetKind,
         target_id: String,
         tag: String,
         max_requirements: Option<u32>,
+        resume_progress: bool,
     ) {
         if !valid_target_id(kind, &target_id) {
             error!(target_id, ?kind, "Refusing to start AutoWork for an invalid target id");
@@ -310,7 +334,23 @@ impl AutoWorkRunner {
         let cancelled = Arc::new(AtomicBool::new(false));
         let cleanup_handoff = Arc::new(AtomicBool::new(false));
         let cleanup_barrier = Arc::new(tokio::sync::Mutex::new(()));
-        let progress = Arc::new(LiveProgress::default());
+        let resumed_completed = if resume_progress {
+            self.deps.service.read_autowork_completed(kind, &target_id).await
+        } else {
+            if let Err(error) = self
+                .deps
+                .service
+                .reset_autowork_progress(kind, &target_id)
+                .await
+            {
+                warn!(
+                    target_id, ?kind, tag, error = %error,
+                    "AutoWork: failed to reset the durable completion counter"
+                );
+            }
+            0
+        };
+        let progress = Arc::new(LiveProgress::new(resumed_completed));
         let cancelled_for_task = cancelled.clone();
         let progress_for_task = progress.clone();
         let deps = self.deps.clone();
@@ -681,6 +721,40 @@ impl AutoWorkRunner {
                     return;
                 }
             };
+            // Park the previous process's ambiguous claims BEFORE any resumed
+            // loop can re-claim them. The periodic sweeper's first tick is 60s
+            // away, and in that window a fresh loop would happily pick up a
+            // requirement whose prior execution state is unknown — the exact
+            // "executed twice after a crash" hazard the sweeper exists for.
+            // Every target we are about to resume counts as active, so its own
+            // still-valid claims are left alone.
+            let active_conversations: Vec<String> = groups
+                .iter()
+                .flat_map(|group| group.bindings.iter())
+                .filter(|binding| binding.kind == AutoWorkTargetKind::Conversation)
+                .map(|binding| binding.target_id.clone())
+                .collect();
+            let active_terminals: Vec<String> = groups
+                .iter()
+                .flat_map(|group| group.bindings.iter())
+                .filter(|binding| binding.kind == AutoWorkTargetKind::Terminal)
+                .map(|binding| binding.target_id.clone())
+                .collect();
+            match this
+                .deps
+                .service
+                .repo()
+                .sweep_expired_leases(
+                    &active_conversations,
+                    &active_terminals,
+                    nomifun_common::now_ms(),
+                )
+                .await
+            {
+                Ok(n) if n > 0 => info!(parked = n, "AutoWork boot sweep parked ambiguous claims"),
+                Ok(_) => {}
+                Err(error) => warn!(error = %error, "AutoWork boot sweep failed"),
+            }
             for group in groups {
                 for binding in group.bindings {
                     // Skip if already running (idempotent re-entry / racing toggle).
@@ -694,8 +768,10 @@ impl AutoWorkRunner {
                         .await
                         .ok()
                         .and_then(|(_, _, m)| m);
+                    // Boot resume → inherit the durable completion count so a
+                    // restart cannot hand out a second full quota.
                     this
-                        .start(binding.kind, binding.target_id.clone(), group.tag.clone(), max)
+                        .start(binding.kind, binding.target_id.clone(), group.tag.clone(), max, true)
                         .await;
                     resumed += 1;
                 }
@@ -1271,63 +1347,20 @@ async fn run_loop(
         let claimed = claimed.requirement;
         let req_id = claimed.requirement_id.clone();
 
-        // #74 requirement→consensus bridge: a requirement bound to a team
-        // (`extra.team_id`) launches a team consensus run instead of a
-        // conversation/terminal turn. This branch is inert unless BOTH the
-        // binding and the engine are present, so the legacy AutoWork path is
-        // completely untouched for ordinary requirements.
-        if let Some(team_id) = deps.service.team_id_for_requirement(&req_id).await {
-            if let Some(consensus) = &deps.consensus {
-                let topic = format!("需求「{}」：{}", claimed.title, claimed.content);
-                let engine = consensus.clone();
-                let note = match engine
-                    .start(
-                        &deps.authoritative_user_id,
-                        &team_id,
-                        StartConsensusRequest {
-                            topic,
-                            max_rounds: None,
-                            provider_id: None,
-                            model: None,
-                            chairman_prompt: None,
-                            member_prompts: None,
-                        },
-                    )
-                    .await
-                {
-                    Ok(_) => Some("已发起团队共识".to_string()),
-                    Err(error) => {
-                        warn!(
-                            target_id,
-                            tag,
-                            requirement_id = %req_id,
-                            error = %error,
-                            "AutoWork requirement→consensus trigger failed"
-                        );
-                        Some(format!("发起团队共识失败：{error}"))
-                    }
-                };
-                // Consume the claim: the requirement's purpose (triggering the
-                // consensus run) is complete. `turn_errored=false` finalizes it
-                // as done so the loop never re-pends this requirement and spins.
-                let _ = deps
-                    .service
-                    .finalize_claim_if_needed(
-                        &req_id,
-                        claim_generation,
-                        &claim_token,
-                        owner_id,
-                        kind,
-                        false,
-                        note,
-                        false,
-                    )
-                    .await;
-            }
-            progress.set_current(None);
-            emit_autowork_progress(&deps, kind, target_id, tag, &progress, false);
-            continue;
-        }
+        // The #74 requirement→consensus bridge used to live here: a requirement
+        // bound to a team launched a consensus run and was then finalized as
+        // `done`, because "triggering the discussion" counted as the work. That
+        // made the requirement disappear from the board while the consensus
+        // output went nowhere — the result was never written back, so the loop
+        // reported success and produced nothing the user could act on.
+        //
+        // Team consensus ships without a real vote (the chairman emits one
+        // `CONSENSUS_REACHED` line), without a review surface, and without any
+        // result channel, so it is not fit to consume a requirement. The bridge
+        // is removed rather than gated: a team-bound requirement now takes the
+        // ordinary turn path below, which actually does the work and records a
+        // completion note. The engine itself stays wired for a future rebuild
+        // that can carry a decision back to the requirement.
 
         progress.set_current(Some(LiveClaim {
             requirement_id: req_id.clone(),
@@ -1654,7 +1687,21 @@ async fn run_loop(
         progress.set_current(None);
 
         if final_status == Some(RequirementStatus::Done) {
-            let done_n = progress.incr_completed();
+            // The durable counter is the source of truth: an in-memory-only
+            // count reset on every restart, handing out a fresh quota.
+            let done_n = match deps.service.bump_autowork_progress(kind, target_id).await {
+                Ok(n) => {
+                    progress.set_completed(n);
+                    n
+                }
+                Err(error) => {
+                    warn!(
+                        target_id, tag, error = %error,
+                        "AutoWork: failed to persist the completion counter; falling back to the in-memory count"
+                    );
+                    progress.incr_completed()
+                }
+            };
             if let Some(max) = max_requirements
                 && done_n >= max
             {
@@ -1823,6 +1870,11 @@ async fn inject_and_wait(
         model,
         conversation_id: conversation_id.to_string(),
         delegation_policy,
+        // Mirror the interactive path: the session's "拿不准时问我" setting
+        // applies to unattended work too, so an automated turn stops at real
+        // ambiguity the same way a live one does.
+        decision_policy: nomifun_conversation::runtime_options::decision_policy_from_conversation_row(&row)
+            .unwrap_or_default(),
         extra,
         // Stamp/validate the geekclaw session against this conversation instance so
         // a reused integer id never resumes a stale (e.g. deleted) conversation.

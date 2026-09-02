@@ -24,7 +24,7 @@ use nomifun_db::ConversationRowUpdate;
 use nomifun_db::models::ConversationRow;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::convert::string_to_enum;
 use crate::service::{ConversationService, parse_conv_id};
@@ -141,6 +141,71 @@ impl ConversationService {
         }
         self.commit_summon_extra(user_id, &row, extra, "companion summon release")
             .await
+    }
+
+    /// Release every conversation that summoned `companion_id`.
+    ///
+    /// Companion deletion calls this through a cleanup hook. Without it the
+    /// durable marker outlives the companion: the factory keeps resolving a
+    /// companion that no longer exists, and the session carries a phantom
+    /// summon the UI can no longer release — the companion is gone from the
+    /// roster, so there is nothing left to un-select.
+    ///
+    /// Deliberately does *not* recycle runtimes the way the user-driven paths
+    /// do. A work conversation that merely borrowed the companion may be
+    /// mid-turn, and killing it to honour a deletion elsewhere is worse than
+    /// dropping the marker quietly; the next build simply sees no summon.
+    /// Each row is independent so one unwritable conversation cannot strand
+    /// the rest.
+    pub async fn clear_summons_for_companion(
+        &self,
+        companion_id: &str,
+    ) -> Result<usize, AppError> {
+        let rows = self
+            .conversation_repo
+            .list_summoned_by_companion(companion_id)
+            .await
+            .map_err(|error| {
+                AppError::Internal(format!("list conversations summoning companion failed: {error}"))
+            })?;
+        let mut released = 0usize;
+        for row in rows {
+            let mut extra = match parse_extra(&row) {
+                Ok(extra) => extra,
+                Err(error) => {
+                    warn!(error = %error, conversation_id = %row.conversation_id,
+                        "summon release skipped: conversation extra is unreadable");
+                    continue;
+                }
+            };
+            if extra
+                .as_object_mut()
+                .and_then(|map| map.remove("summon"))
+                .is_none()
+            {
+                continue;
+            }
+            let Ok(conv_id) = parse_conv_id(&row.conversation_id) else {
+                warn!(conversation_id = %row.conversation_id, "summon release skipped: invalid conversation id");
+                continue;
+            };
+            let updates = ConversationRowUpdate {
+                extra: Some(serde_json::to_string(&extra).map_err(|error| {
+                    AppError::Internal(format!("Failed to serialize merged extra: {error}"))
+                })?),
+                updated_at: Some(now_ms()),
+                ..Default::default()
+            };
+            if let Err(error) = self.conversation_repo.update(conv_id, &updates).await {
+                warn!(error = %error, conversation_id = %row.conversation_id,
+                    "summon release for a deleted companion failed");
+                continue;
+            }
+            released += 1;
+            info!(conversation_id = %row.conversation_id, companion_id,
+                "released the summon of a deleted companion");
+        }
+        Ok(released)
     }
 
     /// Shared admission for summon mutations: ownership, execution-attempt

@@ -622,6 +622,7 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
             pool: services.database.pool().clone(),
             user_repo: services.user_repo.clone(),
             companion_service: services.companion_service.clone(),
+            knowledge_service: services.knowledge_service.clone(),
             owner_user_id: services.authoritative_user_id.clone(),
         },
     };
@@ -1590,18 +1591,23 @@ pub fn build_companion_state(
     let skill_resolver = Arc::new(nomifun_conversation::skill_resolver::ExtensionSkillResolver::new(
         services.skill_paths.clone(),
     ));
-    let conv_service = ConversationService::new(
-        services.authoritative_user_id.clone(),
-        services.work_dir.clone(),
-        services.event_bus.clone(),
-        skill_resolver,
-        services.agent_runtime_registry.clone(),
-        conv_repo,
-        agent_metadata_repo,
-        acp_session_repo,
-        services.execution_conversation_boundary.clone(),
-    )
-    .with_runtime_state(services.conversation_runtime_state.clone());
+    // Shared, not just cloned: the companion-delete summon-cleanup hook below
+    // needs the *same* service instance this router serves, not a duplicate
+    // with its own runtime-state handles.
+    let conv_service = Arc::new(
+        ConversationService::new(
+            services.authoritative_user_id.clone(),
+            services.work_dir.clone(),
+            services.event_bus.clone(),
+            skill_resolver,
+            services.agent_runtime_registry.clone(),
+            conv_repo,
+            agent_metadata_repo,
+            acp_session_repo,
+            services.execution_conversation_boundary.clone(),
+        )
+        .with_runtime_state(services.conversation_runtime_state.clone()),
+    );
     conv_service.with_mcp_server_repo(Arc::new(nomifun_db::SqliteMcpServerRepository::new(
         services.database.pool().clone(),
     )));
@@ -1639,11 +1645,17 @@ pub fn build_companion_state(
         Arc::new(CompanionChannelModelSync {
             manager: channel_manager,
         }),
+        // Drop `extra.summon` from every work conversation that had summoned
+        // this companion. Without it the marker outlives the companion and the
+        // session keeps a phantom summon that can no longer be released.
+        Arc::new(CompanionSummonCleanup {
+            conversations: conv_service.clone(),
+        }),
     ]);
 
     services
         .companion_service
-        .attach_companion(Arc::new(conv_service), services.agent_runtime_registry.clone());
+        .attach_companion(conv_service.clone(), services.agent_runtime_registry.clone());
     CompanionRouterState::new(services.companion_service.clone())
 }
 
@@ -1652,6 +1664,32 @@ pub fn build_companion_state(
 /// propagated (hook contract —the companion is already gone).
 struct CompanionKnowledgeCleanup {
     knowledge: Arc<nomifun_knowledge::KnowledgeService>,
+}
+
+/// Companion-delete cascade hook: releases `extra.summon` on every work
+/// conversation that had summoned the deleted companion. Failures are logged,
+/// never propagated (hook contract — the companion is already gone).
+struct CompanionSummonCleanup {
+    conversations: Arc<nomifun_conversation::ConversationService>,
+}
+
+#[async_trait::async_trait]
+impl nomifun_companion::service::CompanionCleanupHook for CompanionSummonCleanup {
+    async fn on_companion_deleted(&self, companion_id: &str) {
+        match self.conversations.clear_summons_for_companion(companion_id).await {
+            Ok(0) => {}
+            Ok(released) => tracing::info!(
+                companion_id,
+                released,
+                "released summons left behind by a deleted companion"
+            ),
+            Err(e) => tracing::warn!(
+                companion_id,
+                error = %e,
+                "failed to list conversations summoned by a deleted companion"
+            ),
+        }
+    }
 }
 
 #[async_trait::async_trait]

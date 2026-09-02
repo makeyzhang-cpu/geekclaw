@@ -137,6 +137,11 @@ pub(crate) fn strip_clone_instance_state(extra: &mut serde_json::Value) {
         "current_model_id",
         "cached_config_options",
         "pending_config_options",
+        // In-session companion summon. It borrows another persona's skills and
+        // hand-picked memories into this one session, so carrying it into a
+        // clone makes the "new isolated conversation" start already possessed
+        // by a companion the user never summoned there.
+        "summon",
         // Other engines' persisted resume/validation state.
         "sessionKey",
         "session_key",
@@ -5087,6 +5092,12 @@ impl ConversationService {
                 AppError::Internal(format!("Failed to serialize execution model pool: {error}"))
             })?)),
         };
+        // Same "did it actually change" test as delegation: the value is
+        // persisted either way, but only a real change justifies tearing down
+        // and rebuilding the live runtime.
+        let decision_policy_changed = req
+            .decision_policy
+            .is_some_and(|policy| existing.decision_policy != policy.as_str());
         let decision_policy = req
             .decision_policy
             .map(|policy| policy.as_str().to_owned());
@@ -5119,11 +5130,16 @@ impl ConversationService {
 
         self.conversation_repo.update(parse_conv_id(id)?, &updates).await?;
 
-        if model_changed || workspace_changed || delegation_policy_changed {
+        // `decision_policy` belongs in this set for the same reason as
+        // delegation: both are baked into the system prompt at build time, so
+        // an already-built runtime would keep the old behaviour until some
+        // other setting forced a rebuild.
+        if model_changed || workspace_changed || delegation_policy_changed || decision_policy_changed {
             info!(
                 model_changed,
                 workspace_changed,
                 delegation_policy_changed,
+                decision_policy_changed,
                 "Conversation updated, terminating Agent runtime so the change takes effect on the next message"
             );
             Self::terminate_runtime_with_proof(
@@ -12181,6 +12197,7 @@ impl ConversationService {
             ));
         }
         let delegation_policy = crate::runtime_options::delegation_policy_from_conversation_row(row)?;
+        let decision_policy = crate::runtime_options::decision_policy_from_conversation_row(row)?;
 
         let mut extra: serde_json::Value =
             serde_json::from_str(&row.extra).map_err(|e| AppError::Internal(format!("Invalid extra JSON: {e}")))?;
@@ -12236,6 +12253,7 @@ impl ConversationService {
             model,
             conversation_id: row.conversation_id.clone(),
             delegation_policy,
+            decision_policy,
             extra,
             // Stamp/validate the geekclaw session against this conversation instance.
             conversation_created_at: Some(row.created_at),

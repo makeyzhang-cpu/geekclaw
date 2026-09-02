@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nomifun_common::{
-    CompanionId, CronJobId, DelegationPolicy, RemoteAgentId, UserId,
+    CompanionId, CronJobId, DecisionPolicy, DelegationPolicy, RemoteAgentId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -404,6 +404,16 @@ pub struct NomiBuildExtra {
     /// a same-named value in open-ended JSON is never authoritative.
     #[serde(default = "default_delegation_policy")]
     pub delegation_policy: DelegationPolicy,
+    /// Conversation-level decision intent. `AskUser` ("拿不准时问我") tells the
+    /// model to stop and surface options at genuine ambiguity rather than
+    /// picking one and continuing. Advisory only — like `delegation_policy`, it
+    /// shapes the prompt and never grants or withholds tool authority.
+    ///
+    /// This field is what makes the toggle reachable: before it existed the
+    /// policy lived only in the conversation row and was never handed to the
+    /// factory, so the model could not see it no matter what the user selected.
+    #[serde(default)]
+    pub decision_policy: DecisionPolicy,
     /// In-session companion summon (spec §设计 B): skills + selected memories
     /// of one companion loaded read-only into an ordinary work conversation.
     /// `None` = not summoned (today's behavior, zero regression).

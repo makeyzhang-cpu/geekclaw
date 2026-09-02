@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use nomifun_common::{AgentType, ConversationId, DelegationPolicy, ProviderWithModel, UserId};
+use nomifun_common::{
+    AgentType, ConversationId, DecisionPolicy, DelegationPolicy, ProviderWithModel, UserId,
+};
 use nomifun_knowledge::WorkspaceBindingLease;
 
 fn deserialize_user_id<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -101,6 +103,12 @@ pub struct AgentRuntimeBuildOptions {
     /// JSON so execution policy never has two authorities.
     #[serde(default)]
     pub delegation_policy: DelegationPolicy,
+    /// Typed conversation-level decision policy ("拿不准时问我"). Sibling of
+    /// `delegation_policy`: sourced from the first-class conversation column
+    /// and surfaced to the factory, which turns `AskUser` into a system-prompt
+    /// instruction to stop and ask instead of guessing.
+    #[serde(default)]
+    pub decision_policy: DecisionPolicy,
     /// Type-specific extra parameters (JSON object).
     #[serde(default)]
     pub extra: serde_json::Value,
@@ -329,6 +337,7 @@ mod tests {
             }),
             conversation_id: "0190f5fe-7c00-7a00-8000-000000000001".into(),
             delegation_policy: DelegationPolicy::Automatic,
+            decision_policy: Default::default(),
             extra: json!({ "backend": "claude" }),
             conversation_created_at: None,
             workspace_binding_lease: None,

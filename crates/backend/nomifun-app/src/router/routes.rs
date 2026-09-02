@@ -689,6 +689,9 @@ pub fn create_router_with_all_state(
         cloud_provider_repo: Arc::new(
             nomifun_db::SqliteCloudProviderRepository::new(services.database.pool().clone()),
         ),
+        expert_repo: Arc::new(
+            nomifun_db::SqliteExpertRepository::new(services.database.pool().clone()),
+        ),
     };
 
     let auth_mw_state = AuthState {

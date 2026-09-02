@@ -640,6 +640,7 @@ async fn cj5b_run_now_legacy_workspace_uses_runtime_edge_whitespace_code() {
             run_count: 0,
             retry_count: 0,
             max_retries: 3,
+            consensus_target: None,
         })
         .await
         .unwrap();

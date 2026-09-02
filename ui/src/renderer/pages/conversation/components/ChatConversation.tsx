@@ -263,6 +263,11 @@ const NomiConversationPanel: React.FC<{
     delegationPolicy: conversation.delegation_policy ?? 'automatic',
     decisionPolicy: conversation.decision_policy ?? 'automatic',
   });
+  // True while a policy change is being persisted. The control is locked during
+  // that window so the user cannot press send before the write lands — the
+  // agent is built from the stored value, so an unpersisted selection would
+  // simply be ignored.
+  const [policySaving, setPolicySaving] = useState(false);
   const [selectedCollaborationTemplate, setSelectedCollaborationTemplate] =
     useState<AppliedCollaborationTemplate | null>(null);
   useEffect(() => {
@@ -419,6 +424,7 @@ const NomiConversationPanel: React.FC<{
   const onCollaborationPolicyChange = useCallback(
     async (next: CollaborationPolicyValue) => {
       setCollaborationPolicy(next);
+      setPolicySaving(true);
       try {
         await ipcBridge.conversation.update.invoke({
           conversation_id: conversation.id,
@@ -429,9 +435,22 @@ const NomiConversationPanel: React.FC<{
         });
       } catch (error) {
         console.error('[ChatConversation] Failed to persist collaboration policy:', error);
+        // Restore the server's value immediately. Without this the optimistic
+        // selection lingers until the effect above re-syncs from the
+        // conversation row, which the user sees as the toggle quietly flipping
+        // itself back a moment later — with no explanation.
+        setCollaborationPolicy({
+          delegationPolicy: conversation.delegation_policy ?? 'automatic',
+          decisionPolicy: conversation.decision_policy ?? 'automatic',
+        });
+        Message.error(
+          t('collaboration.policy.saveFailed', { defaultValue: '协作策略保存失败，请重试' }),
+        );
+      } finally {
+        setPolicySaving(false);
       }
     },
-    [conversation.id],
+    [conversation.id, conversation.delegation_policy, conversation.decision_policy, t],
   );
 
   const collaborationPolicyNode = (
@@ -440,6 +459,7 @@ const NomiConversationPanel: React.FC<{
       delegationPolicy={collaborationPolicy.delegationPolicy}
       decisionPolicy={collaborationPolicy.decisionPolicy}
       onChange={onCollaborationPolicyChange}
+      pending={policySaving}
       compact
     />
   );

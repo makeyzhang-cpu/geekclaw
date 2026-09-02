@@ -50,7 +50,7 @@ use tracing::{debug, info, warn};
 
 use crate::service::{
     KnowledgeBinding, KnowledgeSearchHit, KnowledgeService, WriteOp, WriteRequest, WriteSurface, WriteTargetSpec,
-    decode_doc_handle, encode_doc_handle, resolve_write_policy,
+    decode_doc_handle, encode_doc_handle, resolve_write_policy, truncate_document_content,
 };
 use crate::broker::KnowledgeBroker;
 
@@ -475,6 +475,19 @@ pub(crate) async fn dispatch_search<I: AsRef<str>>(
         Err(error) => return serde_json::json!({ "error": format!("invalid knowledge base id: {error}") }),
     };
     match service.search_bases(&kb_ids, query, limit).await {
+        // An empty result used to be an opaque "no hits", which models
+        // routinely misread as "this knowledge base is empty" and then answer
+        // from memory instead of retrying. Say what happened and how to
+        // recover — notably that a 20s sweep budget can lapse on a huge vault.
+        Ok(hits) if hits.is_empty() => serde_json::json!({
+            "result": format!(
+                "未找到与「{query}」匹配的文档。\n\
+                 说明：知识库检索是关键词匹配（中文按连续 2 字片段切分，非语义检索），\
+                 且单次全库扫描有 20 秒预算——库很大或位于网络盘时可能超时而返回空。\n\
+                 建议：改用更短、更核心的关键词重试（例如用「退款」而不是「退款的完整流程是怎样的」），\
+                 或换用文档标题中可能出现的词。"
+            )
+        }),
         Ok(hits) => serde_json::json!({ "result": render_hits(query, &hits) }),
         Err(e) => serde_json::json!({ "error": e.to_string() }),
     }
@@ -490,7 +503,9 @@ pub(crate) async fn dispatch_read<I: AsRef<str>>(service: &KnowledgeService, kb_
         return json!({ "error": "handle points to a base not in scope" });
     }
     match service.read_file(kb_id.as_str(), &rel_path).await {
-        Ok(content) => json!({ "result": content.content }),
+        // Capped: a vault file has no size guarantee and an uncapped read
+        // silently evicts the rest of the agent's context.
+        Ok(content) => json!({ "result": truncate_document_content(content.content) }),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
@@ -713,8 +728,13 @@ mod tests {
         std::fs::write(root.join("a.md"), "# A\nunrelated content\n").unwrap();
 
         let out = dispatch_search(&svc, &[info.knowledge_base_id], "完全不存在的主题词", 8).await;
+        // A miss is a result, not an error: models treat an error as "the tool
+        // is broken" and an empty string as "the base is empty", then answer
+        // from memory. The reply has to name the query and say why it missed.
+        assert!(out.get("error").is_none(), "a miss must not be an error: {out}");
         let result = out.get("result").and_then(Value::as_str).unwrap_or_else(|| panic!("got {out}"));
-        assert!(result.contains("No matches"), "got: {result}");
+        assert!(result.contains("完全不存在的主题词"), "must echo the query: {result}");
+        assert!(result.contains("关键词"), "must explain the match model: {result}");
     }
 
     // ── Signed scope HTTP boundary ───────────────────────────────────────

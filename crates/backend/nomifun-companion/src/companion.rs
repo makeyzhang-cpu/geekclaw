@@ -562,7 +562,7 @@ pub(crate) async fn sync_managed_workspace_skills(
     if skill_names.is_empty() && load_manifest(&nomi_dir).managed.is_empty() {
         return Vec::new();
     }
-    let resolved = match nomifun_extension::materialize_skills_for_agent(
+    let resolved_raw = match nomifun_extension::materialize_skills_for_agent(
         skill_paths,
         conversation_id,
         skill_names,
@@ -575,6 +575,29 @@ pub(crate) async fn sync_managed_workspace_skills(
             return Vec::new();
         }
     };
+
+    // Two configured skills can resolve to the same directory name (a
+    // user-authored skill shadowing a builtin, for example). Everything
+    // downstream is keyed by name — the link target, the manifest map — so
+    // without this the second one silently overwrites the first and the
+    // agent ends up with a body it never asked for. Keep the first and say
+    // which one lost.
+    let mut resolved: Vec<_> = Vec::with_capacity(resolved_raw.len());
+    {
+        let mut seen = std::collections::HashSet::new();
+        for skill in resolved_raw {
+            if !seen.insert(skill.name.clone()) {
+                tracing::warn!(
+                    skill = %skill.name,
+                    source = %skill.source_path.display(),
+                    conversation_id,
+                    "duplicate companion skill name resolved; keeping the first occurrence and skipping this one"
+                );
+                continue;
+            }
+            resolved.push(skill);
+        }
+    }
 
     let old_manifest = load_manifest(&nomi_dir);
     let desired: std::collections::HashSet<&str> = resolved

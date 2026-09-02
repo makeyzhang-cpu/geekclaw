@@ -17,7 +17,8 @@ use nomifun_auth::{
     trust_resolve_middleware,
 };
 use nomifun_db::{
-    ICloudProviderRepository, IProviderRepository, IUserRepository, SqliteCloudProviderRepository,
+    ICloudProviderRepository, IExpertRepository, IProviderRepository, IUserRepository,
+    SqliteCloudProviderRepository, SqliteExpertRepository,
     SqliteProviderRepository, SqliteUserRepository, init_database_memory,
 };
 
@@ -44,6 +45,8 @@ async fn test_app_with_local(local: bool) -> (Router, TestContext) {
         Arc::new(SqliteProviderRepository::new(db.pool().clone())) as Arc<dyn IProviderRepository>;
     let cloud_provider_repo =
         Arc::new(SqliteCloudProviderRepository::new(db.pool().clone())) as Arc<dyn ICloudProviderRepository>;
+    let expert_repo =
+        Arc::new(SqliteExpertRepository::new(db.pool().clone())) as Arc<dyn IExpertRepository>;
     // 32-byte test key (sufficient for the struct; cloud-provider tests don't run here).
     let encryption_key = [0u8; 32];
 
@@ -55,6 +58,7 @@ async fn test_app_with_local(local: bool) -> (Router, TestContext) {
         provider_repo,
         encryption_key,
         cloud_provider_repo,
+        expert_repo,
     };
 
     // Mirror `create_router`: the global trust middleware resolves local trust

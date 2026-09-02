@@ -28,7 +28,8 @@ use nomifun_api_types::{
 use nomifun_common::{AppError, now_ms};
 use nomifun_common::constants::SESSION_MAX_AGE_SECONDS;
 use nomifun_db::{
-    DbError, ICloudProviderRepository, IProviderRepository, IUserRepository, SqliteCloudProviderRepository,
+    DbError, ICloudProviderRepository, IExpertRepository, IProviderRepository, IUserRepository,
+    SqliteCloudProviderRepository,
     models::{ModelPricing, Order, SubscriptionPlan, User},
 };
 
@@ -55,6 +56,10 @@ use crate::cloud_provider::{
     create_admin_cloud_provider_handler, delete_admin_cloud_provider_handler, list_admin_cloud_providers_handler,
     list_public_cloud_providers_handler, sync_cloud_providers_handler, update_admin_cloud_provider_handler,
 };
+use crate::expert_catalog::{
+    create_admin_expert_handler, delete_admin_expert_handler, list_admin_experts_handler,
+    list_public_experts_handler, sync_experts_handler, update_admin_expert_handler,
+};
 
 /// Shared state for all auth route handlers.
 #[derive(Clone)]
@@ -71,6 +76,8 @@ pub struct AuthRouterState {
     pub encryption_key: [u8; 32],
     /// Central cloud-managed provider catalog repo (admin CRUD + member read).
     pub cloud_provider_repo: Arc<dyn ICloudProviderRepository>,
+    /// Expert digital-twin catalog repo (admin CRUD + member read + desktop sync).
+    pub expert_repo: Arc<dyn IExpertRepository>,
 }
 
 fn into_public_user(user: User) -> Result<PublicUser, AppError> {
@@ -200,6 +207,10 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         // cloud providers (with plaintext keys) using the stored cloud JWT and
         // re-encrypts them into the local providers table as `source = 'cloud'`.
         .route("/api/cloud-providers/sync", post(sync_cloud_providers_handler))
+        // Expert digital-twin catalog sync: desktop shell only. Pulls the enabled
+        // expert marketplace from the cloud using the stored cloud JWT and upserts
+        // it into the local expert_catalog table as `source = 'cloud'`.
+        .route("/api/experts/sync", post(sync_experts_handler))
         .route_layer(from_fn(require_local_trust_middleware))
         .route_layer(from_fn_with_state(api_limiter.clone(), api_rate_limit_middleware))
         .with_state(state.clone());
@@ -249,6 +260,11 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         // Member read-only (authenticated): public cloud providers with plaintext
         // keys, for the desktop to pull and re-encrypt locally on sync.
         .route("/api/store/cloud-providers", get(list_public_cloud_providers_handler))
+        // Admin console: expert digital-twin catalog (admin-gated). Members consume
+        // the enabled copy via /api/store/experts (desktop sync source).
+        .route("/api/admin/experts", get(list_admin_experts_handler).post(create_admin_expert_handler))
+        .route("/api/admin/experts/{id}", put(update_admin_expert_handler).delete(delete_admin_expert_handler))
+        .route("/api/store/experts", get(list_public_experts_handler))
         // Consumer: digital-twin TTS via admin-configured 火山引擎 (auth only).
         .route("/api/voice/speak", post(voice_speak_handler))
         .route_layer(from_fn_with_state(

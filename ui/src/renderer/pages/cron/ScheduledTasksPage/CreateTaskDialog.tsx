@@ -37,7 +37,6 @@ import {
   resolveCronConversationTarget,
   type ConversationExecutionMode,
 } from './cronConversationTarget';
-import type { Team } from '@/common/types/agent/teamTypes';
 
 const FormItem = Form.Item;
 const TextArea = Input.TextArea;
@@ -159,11 +158,12 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   // before each run so accumulated history does not pile up across ticks.
   const [clearContextEachRun, setClearContextEachRun] = useState(false);
 
-  // #74: top-level target kind. "team" jobs trigger a team-consensus run at
-  // trigger time instead of a conversation, and carry `consensus_target` rather
-  // than an agent_config / execution_mode.
-  const [targetType, setTargetType] = useState<'conversation' | 'team'>('conversation');
-  const [targetTeamId, setTargetTeamId] = useState<string | undefined>(undefined);
+  // Cron jobs are always conversation-targeted now. The "team consensus" target
+  // was removed because the engine behind it has no real vote, no review
+  // surface, and no result channel — a scheduled run would deliberate and then
+  // drop the outcome. Typed as the union so the render guards below stay
+  // meaningful to the type checker rather than being collapsed away.
+  const targetType: 'conversation' | 'team' = 'conversation';
 
   // Existing conversations (for the "指定会话 / reuse a session" execution mode).
   const { conversations } = useConversationListSync();
@@ -171,9 +171,6 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   // All cron jobs — drives the "already-bound conversations are hidden"
   // filtering on the specified-conversation picker below.
   const { jobs: allCronJobs } = useAllCronJobs();
-
-  // #74: teams available for the team-consensus target.
-  const { data: teams } = useSWR<Team[]>('all-teams', () => ipcBridge.teams.list.invoke());
 
   // ── Bound-conversation filtering ─────────────────────────────────────────
   // A conversation already bound by ANY cron job (paused or not) is hidden
@@ -232,8 +229,6 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
 
       setExecutionMode(editJob.execution_mode);
       setSpecifiedConversationId(undefined);
-      setTargetType('conversation');
-      setTargetTeamId(undefined);
       const agentKey = getAgentKeyFromJob(editJob, cliAgents);
       setSelectedAgent(agentKey);
       form.setFieldsValue({
@@ -255,8 +250,6 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
       setCustomCronExpr('');
       setExecutionMode(initialSpecifiedConversationId ? 'specified' : 'new_conversation');
       setSpecifiedConversationId(initialSpecifiedConversationId);
-      setTargetType('conversation');
-      setTargetTeamId(undefined);
       setModelId(undefined);
       setProviderId(undefined);
       setConfigOptions(undefined);
@@ -499,39 +492,11 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
 
       const schedule = createCronSchedule(scheduleInfo.expr, scheduleInfo.description);
 
-      // ─── #74 团队共识目标 ─────────────────────────────────────────────
-      // 以 prompt 作为议题，触发该团队的共识循环；不创建普通会话，不传
-      // agent_config / execution_mode / conversation 目标。后端在
-      // consensus_target 存在时会跳过模型/会话校验（见 cron service add_job）。
-      if (targetType === 'team') {
-        if (!targetTeamId) {
-          Message.error(t('cron.page.form.teamRequired', { defaultValue: '请选择要触发的团队' }));
-          return;
-        }
-        setSubmitting(true);
-        try {
-          const params: ICreateCronJobParams = {
-            name: values.name,
-            description: values.description,
-            schedule,
-            prompt: values.prompt,
-            agent_type: 'geekclaw',
-            created_by: 'user',
-            consensus_target: JSON.stringify({
-              team_id: targetTeamId,
-              topic: values.prompt ?? values.name,
-            }),
-          };
-          await ipcBridge.cron.addJob.invoke(params);
-          Message.success(t('cron.page.createSuccess'));
-          onClose();
-        } catch (err) {
-          Message.error(getConversationCreateErrorMessage(err, t));
-        } finally {
-          setSubmitting(false);
-        }
-        return;
-      }
+      // The #74 "team consensus" target was removed from this form: the engine
+      // behind it has no real vote (the chairman emits a single
+      // CONSENSUS_REACHED line), no review surface, and no result channel, so a
+      // scheduled run would deliberate and then drop the outcome. Cron jobs are
+      // conversation-target only now.
 
       const conversationTarget = resolveCronConversationTarget(execution_mode, specifiedConversationId);
 
@@ -764,53 +729,6 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
           {/* Description — optional. */}
           <FormItem label={t('cron.page.form.description')} field='description'>
             <Input placeholder={t('cron.page.form.descriptionPlaceholder')} />
-          </FormItem>
-
-          {/* #74 目标类型：常规会话 / 团队共识 */}
-          <FormItem label={t('cron.page.form.targetType', { defaultValue: '目标类型' })}>
-            <Radio.Group
-              value={targetType}
-              disabled={isEditMode}
-              onChange={(value) => setTargetType(value as 'conversation' | 'team')}
-              className='flex flex-wrap items-center gap-20px'
-            >
-              <Radio value='conversation' className='m-0 min-w-0 cursor-pointer'>
-                <span className='pl-4px text-14px font-medium text-t-primary'>
-                  {t('cron.page.form.targetConversation', { defaultValue: '会话任务' })}
-                </span>
-              </Radio>
-              <Radio value='team' className='m-0 min-w-0 cursor-pointer'>
-                <span className='pl-4px text-14px font-medium text-t-primary'>
-                  {t('cron.page.form.targetTeam', { defaultValue: '团队共识' })}
-                </span>
-              </Radio>
-            </Radio.Group>
-            {targetType === 'team' && (
-              <>
-                <Select
-                  showSearch
-                  value={targetTeamId}
-                  onChange={(value) => setTargetTeamId(typeof value === 'string' ? value : undefined)}
-                  placeholder={t('cron.page.form.selectTeamPlaceholder', { defaultValue: '选择要触发的团队' })}
-                  className='mt-10px'
-                  notFoundContent={t('cron.page.form.noTeams', { defaultValue: '暂无团队，请先到团队 Agent 创建' })}
-                >
-                  {(teams ?? []).map((team) => (
-                    <Option key={team.team_id} value={team.team_id}>
-                      {team.name}
-                    </Option>
-                  ))}
-                </Select>
-                <div className='mt-10px rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-2 px-14px py-12px'>
-                  <p className='m-0 text-12px leading-18px text-t-primary'>
-                    {t('cron.page.form.teamTargetHint', {
-                      defaultValue:
-                        '触发时将以 prompt 作为议题，启动该团队的共识循环（多专家多轮研讨），不执行普通会话。',
-                    })}
-                  </p>
-                </div>
-              </>
-            )}
           </FormItem>
 
           {targetType === 'conversation' && (

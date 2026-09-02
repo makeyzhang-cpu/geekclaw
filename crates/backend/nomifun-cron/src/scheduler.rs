@@ -565,6 +565,17 @@ fn spawn_cron_timer(
                 planned_at.max(now_ms()),
             );
             let Some(next_at) = next else {
+                // Was a bare `break`: an expression that can never produce
+                // another run (or one the parser rejects at runtime) killed
+                // the timer with zero signal — the job silently stopped
+                // firing and looked "enabled but broken" in the UI.
+                tracing::error!(
+                    job_id = %job_id,
+                    schedule_revision,
+                    expr = %expr,
+                    tz = ?tz,
+                    "Cron expression produced no next run time; the schedule is disabled"
+                );
                 break;
             };
             let delay = delay_until(next_at);

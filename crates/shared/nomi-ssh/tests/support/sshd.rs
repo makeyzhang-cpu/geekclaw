@@ -371,7 +371,7 @@ fn set_mode(_path: &PathBuf, _mode: u32) {}
 
 /// Convenience: connect a `SshConnection` to the fixture using its client key
 /// under AcceptNew. Panics on failure (tests want that).
-pub async fn connect(sshd: &TestSshd) -> nomi_ssh::connection::SshConnection {
+pub async fn connect(sshd: &TestSshd) -> geekclaw_ssh::connection::SshConnection {
     use geekclaw_ssh::connection::{HostKeyPolicy, SshConnection};
     use geekclaw_ssh::credential::{Auth, SshCredential};
     let cred = SshCredential {

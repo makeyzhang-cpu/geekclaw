@@ -12,7 +12,7 @@
 //! `None`; malformed persisted values are errors and never degrade into an
 //! empty provider/model sentinel.
 
-use nomifun_common::{AppError, DelegationPolicy, ProviderWithModel};
+use nomifun_common::{AppError, DecisionPolicy, DelegationPolicy, ProviderWithModel};
 use nomifun_db::models::ConversationRow;
 
 use crate::convert::parse_provider_with_model;
@@ -24,6 +24,16 @@ pub fn delegation_policy_from_conversation_row(row: &ConversationRow) -> Result<
     row.delegation_policy
         .parse()
         .map_err(|error| AppError::Internal(format!("Invalid conversation delegation policy: {error}")))
+}
+
+/// Parse the authoritative conversation-level decision policy for runtime
+/// construction — the "拿不准时问我" toggle. Rejects unknown persisted values
+/// for the same reason delegation does: a silently widened default would change
+/// how the Agent behaves without the user asking.
+pub fn decision_policy_from_conversation_row(row: &ConversationRow) -> Result<DecisionPolicy, AppError> {
+    row.decision_policy
+        .parse()
+        .map_err(|error| AppError::Internal(format!("Invalid conversation decision policy: {error}")))
 }
 
 /// Resolve a conversation row's canonical stored model.

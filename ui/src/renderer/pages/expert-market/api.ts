@@ -13,7 +13,7 @@
 
 import { httpRequest } from '@/common/adapter/httpBridge';
 
-export type ExpertScope = 'all' | 'builtin' | 'custom';
+export type ExpertScope = 'all' | 'builtin';
 
 export interface ExpertSummary {
   expert_id: string;
@@ -28,19 +28,10 @@ export interface ExpertSummary {
   is_owned: boolean;
 }
 
-export interface CreateExpertPayload {
-  name: string;
-  title: string;
-  description?: string;
-  tags: string[];
-  category?: string;
-  price_credits?: number;
-  persona_custom?: string;
-  persona_preset?: string;
-  default_character?: string;
-  default_model?: string;
-  default_model_provider?: string;
-  default_skills?: string[];
+export interface ExpertSyncResult {
+  synced: number;
+  pruned: number;
+  total_local: number;
 }
 
 export interface ExpertDetail {
@@ -104,11 +95,6 @@ export async function listExperts(
   return res ?? [];
 }
 
-/** 创建自定义专家。 */
-export async function createExpert(payload: CreateExpertPayload): Promise<ExpertSummary> {
-  return httpRequest<ExpertSummary>('POST', '/api/experts', payload);
-}
-
 /** 专家详情（id = slug 或 expert_id）。 */
 export async function getExpert(id: string): Promise<ExpertDetail> {
   return httpRequest<ExpertDetail>('GET', `/api/experts/${encodeURIComponent(id)}`);
@@ -123,4 +109,9 @@ export async function hireExpert(id: string): Promise<HireResponse> {
 export async function myExperts(): Promise<MyExpert[]> {
   const res = await httpRequest<MyExpert[]>('GET', '/api/experts/mine');
   return res ?? [];
+}
+
+/** 从云端管理后台同步专家目录到本地（桌面端消费入口）。 */
+export async function syncExperts(): Promise<ExpertSyncResult> {
+  return httpRequest<ExpertSyncResult>('POST', '/api/experts/sync');
 }
