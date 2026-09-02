@@ -1,11 +1,11 @@
 {
   "version": "5.0.14",
-  "notes": "GeekClaw v5.0.13 发布说明\n\n优化：\n- AI外贸工作台：文案更新为一站式 B2B 外贸 AI 工作平台定位（聚合 AI 外贸专家团队、AI 获客 Agent、千人千面的 AI 邮件触达和 AI WhatsApp 触达、AI CRM、AI 企业智脑、企业数字资产管理为一体）；移除页面下方重复的「登录入口」区块（与卡片内「在浏览器中打开」功能重复）。\n\n升级提示：\n- 已安装 5.0.12 的用户可直接在应用内「检查更新」升级到本版本（5.0.12 已切换至 makeyzhang-cpu/geekclaw 仓库并更新签名密钥）。",
-  "pub_date": "2026-09-01T15:43:29.453Z",
+  "notes": "GeekClaw v5.0.14 发布说明\n\n新功能：\n- 云端托管模型通道：管理员在云端后台配置大模型 API 接口后，套餐会员可在桌面端一键同步使用（无需自行填 Key），同步后为只读云端接口。\n- 管理后台「注册用户管理」新增「恢复为默认密码」：一键将用户密码重置为默认密码 A12345678，该用户所有登录状态（含桌面端）立即失效并强制重新登录。\n- 网页端（geekclaw.ai/login 授权页）新增「修改密码」入口：用户可自助修改登录密码，修改后所有会话（含桌面端）同步失效。\n\n优化：\n- AI外贸工作台定位更新为「AI驱动B2B外贸自动化获客、AI邮件和AIWhatsApp精准触达自动化」。\n\n修复：\n- 修复 v3 数据库契约白名单缺失导致升级后启动失败、本地数据被误隔离的严重问题。\n- 修复订阅/订单支付页面若干类型定义与运行时不一致的问题。\n\n升级提示：\n- 已安装 5.0.13 的用户可直接在应用内「检查更新」升级到本版本。",
+  "pub_date": "2026-09-02T11:34:21.814Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVhDTHdiYjZsR2pxcFRHMW9HWVV6MklGazRlOWdzemJ0MHBmWU4rUUVlMTVMNDJqSS9nRFZkUk5NT3k3Si8yYUlMQmtUY29MSWhPTzBkK2JzUHFDOGdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Mjc3MDc2CWZpbGU6R2Vla0NsYXdfNS4wLjEzX3g2NC1zZXR1cC5leGUKYkE0ZkQ1dFNncFBZTVg0cjh0dGJrUHdISTg1UkVOY0Z5SGxrMmhDMkpSUEt2ZkpldUR0U3pDZGhuWS9KV1ovZ2RzUTVLelhYTXp3eU9ONHFGK3hOQmc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.13/GeekClaw_5.0.13_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWM5dzlZZ0I1RU5ncTd3ZWxsSGJIUEtiSjF1Um05akVNRk1TWVRsdzdVREZpcTlxZ3RJeEozUXNPK3V1aGVrQzVtOG9LWmdXOGZPNHhuSWZmYlI2QWd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzQ4MzcyCWZpbGU6R2Vla0NsYXdfNS4wLjE0X3g2NC1zZXR1cC5leGUKZ252dlV0cFVoVUprSzhoWTd4aHdjT2VReXQxM3E2RGU0QzVKM3RZb09TOXhPdmdKcG9BaEh3TTVWTVJpL2JhdUd2ajhNbkxMc0t1SSttdnZDTWUzRFE9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.14/GeekClaw_5.0.14_x64-setup.exe"
     }
   }
 }
