@@ -31,6 +31,7 @@ pub(crate) const PRODUCT_TABLES: &[&str] = &[
     "channel_sessions",
     "channel_users",
     "client_preferences",
+    "cloud_provider_catalog",
     "companion_access_token",
     "conversation_artifacts",
     "conversation_creation_keys",

@@ -16,6 +16,7 @@ pub mod knowledge;
 pub mod mcp_server;
 pub mod oauth_token;
 pub mod provider;
+pub mod cloud_provider;
 pub mod provider_connection;
 pub mod provider_model;
 pub mod preset;

@@ -66,7 +66,10 @@ pub use repository::cron::{
 };
 pub use repository::mcp_server::{CreateMcpServerParams, UpdateMcpServerParams};
 pub use repository::oauth_token::UpsertOAuthTokenParams;
-pub use repository::provider::{CreateProviderParams, UpdateProviderParams};
+pub use repository::provider::{CreateProviderParams, UpdateProviderParams, UpsertCloudProviderLocalParams};
+pub use repository::cloud_provider::{
+    ICloudProviderRepository, SqliteCloudProviderRepository, UpsertCloudProviderParams,
+};
 pub use repository::remote_agent::{CreateRemoteAgentParams, UpdateRemoteAgentParams};
 pub use repository::ssh_host::{
     CreateSshHostParams, ISshHostRepository, UpdateSshHostParams,

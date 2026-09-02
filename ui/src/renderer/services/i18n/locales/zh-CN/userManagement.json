@@ -33,11 +33,15 @@
   "userEnabled": "用户已启用",
   "userDisabled": "用户已禁用",
   "roleUpdated": "角色已更新",
+  "resetPassword": "恢复为默认密码",
+  "passwordReset": "已重置为默认密码 A12345678，该用户所有登录状态已失效（含桌面端），请通知其重新登录后尽快修改密码",
   "errors": {
     "fetchUsers": "获取用户列表失败",
     "toggleFailed": "操作失败",
     "roleUpdateFailed": "角色更新失败",
     "createInviteFailed": "创建邀请码失败",
-    "cannotDisableSelf": "不能禁用自己的账户"
+    "cannotDisableSelf": "不能禁用自己的账户",
+    "resetFailed": "重置密码失败",
+    "cannotResetSelf": "不能重置自己的密码，请使用修改密码功能"
   }
 }

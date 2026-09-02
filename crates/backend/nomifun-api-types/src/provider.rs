@@ -159,6 +159,14 @@ pub struct ProviderResponse {
     pub sort_order: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Provenance: `local` (user-created) or `cloud` (synced from the managed
+    /// catalog). `None` preserves wire compat with older clients/servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Stable dedup key for cloud-synced providers (matches a
+    /// `cloud_provider_catalog.provider_key`). `None` for local providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_key: Option<String>,
 }
 
 /// Request body for `POST /api/providers`.
@@ -525,6 +533,8 @@ mod tests {
             sort_order: 0,
             created_at: 1712345678000,
             updated_at: 1712345678000,
+            source: None,
+            cloud_key: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["provider_id"], PROVIDER_ID);
@@ -562,6 +572,8 @@ mod tests {
             sort_order: 0,
             created_at: 0,
             updated_at: 0,
+            source: None,
+            cloud_key: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["api_key"], "sk-secret-xyz");

@@ -84,6 +84,11 @@
   cursor: not-allowed;
 }
 
+.um-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .um-btn-primary {
   background: var(--primary-6, #165dff);
   color: #fff;

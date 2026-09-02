@@ -390,6 +390,19 @@ export interface IProvider {
    */
   models_detail?: ProviderModelResponse[];
   is_full_url?: boolean;
+  /**
+   * 供应商来源。'cloud' = 由中央云端托管目录同步而来（只读，密钥由管理员托管）；
+   * 缺省 / 'local' = 用户在本地自行配置。
+   * Provider provenance. `'cloud'` = synced from the central cloud catalog
+   * (read-only, key managed by the admin); absent/`'local'` = local user config.
+   */
+  source?: string;
+  /**
+   * 云端去重键，关联本地行与其云端目录条目。仅当 `source === 'cloud'` 时存在。
+   * Stable dedup key linking the local row to its cloud catalog entry. Present
+   * only when `source === 'cloud'`.
+   */
+  cloud_key?: string;
 }
 
 export type TProviderWithModel = Omit<IProvider, 'models'> & {

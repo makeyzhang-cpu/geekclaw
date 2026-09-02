@@ -151,6 +151,27 @@ const UserManagementPage: React.FC = () => {
     [t, loadUsers]
   );
 
+  const handleResetPassword = useCallback(
+    async (userId: string) => {
+      setActingId(userId);
+      try {
+        await apiFetch('POST', `/api/auth/users/${userId}/reset-password`);
+        Message.success(t('userManagement.passwordReset'));
+      } catch (err) {
+        const e = err as ApiError;
+        console.error('Failed to reset password', e);
+        Message.error(
+          e.status === 400
+            ? t('userManagement.errors.cannotResetSelf')
+            : t('userManagement.errors.resetFailed')
+        );
+      } finally {
+        setActingId(null);
+      }
+    },
+    [t]
+  );
+
   const handleCreateInvitation = useCallback(async () => {
     setActingId('__create__');
     try {
@@ -243,14 +264,24 @@ const UserManagementPage: React.FC = () => {
                 {u.user_id === myId ? (
                   <span className='um-muted'>{t('userManagement.changeRole')}</span>
                 ) : (
-                  <button
-                    type='button'
-                    className='um-btn'
-                    disabled={actingId === u.user_id}
-                    onClick={() => void handleToggleActive(u.user_id, !u.is_active)}
-                  >
-                    {u.is_active ? t('userManagement.disable') : t('userManagement.enable')}
-                  </button>
+                  <span className='um-actions'>
+                    <button
+                      type='button'
+                      className='um-btn'
+                      disabled={actingId === u.user_id}
+                      onClick={() => void handleToggleActive(u.user_id, !u.is_active)}
+                    >
+                      {u.is_active ? t('userManagement.disable') : t('userManagement.enable')}
+                    </button>
+                    <button
+                      type='button'
+                      className='um-btn'
+                      disabled={actingId === u.user_id}
+                      onClick={() => void handleResetPassword(u.user_id)}
+                    >
+                      {t('userManagement.resetPassword')}
+                    </button>
+                  </span>
                 )}
               </td>
             </tr>
@@ -265,7 +296,7 @@ const UserManagementPage: React.FC = () => {
         </tbody>
       </table>
     ),
-    [users, actingId, myId, t, handleRoleChange, handleToggleActive]
+    [users, actingId, myId, t, handleRoleChange, handleToggleActive, handleResetPassword]
   );
 
   const invitationsPanel = useMemo(

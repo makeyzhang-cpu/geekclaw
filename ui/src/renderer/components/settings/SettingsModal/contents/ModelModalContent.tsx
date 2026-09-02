@@ -27,7 +27,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { isBackendHttpError } from '@/common/adapter/httpBridge';
@@ -102,6 +102,9 @@ const getApiKeyCount = (api_key: string): number => {
   if (!api_key) return 0;
   return api_key.split(/[,\n]/).filter((k) => k.trim().length > 0).length;
 };
+
+/** A provider synced from the central cloud catalog is read-only (key managed by admin). */
+const isCloudProvider = (provider: IProvider): boolean => provider.source === 'cloud';
 
 /**
  * 权威 per-model 行：优先 `models_detail`（provider_models 投影）；无投影时
@@ -878,6 +881,40 @@ const ModelModalContent: React.FC = () => {
     }
   }, [addPlatformModalCtrl]);
 
+  // Sync cloud-managed providers (read-only, admin-keyed) into the local table.
+  // Triggered automatically once when the panel opens (e.g. right after cloud
+  // sign-in) and manually via the header button. Not signed in → 401, ignored.
+  const [syncing, setSyncing] = useState(false);
+  const syncCloudProviders = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const result = await ipcBridge.mode.syncCloudProviders.invoke();
+      void mutate();
+      message.success(
+        t('settings.cloudProviderSynced', {
+          defaultValue: `已同步云端模型（新增 ${result.synced} 个，本地共 ${result.total_local} 个）`,
+        })
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // 未登录云端 → 401；自动同步的失败静默忽略
+      if (!msg.includes('401') && !msg.toLowerCase().includes('unauthorized')) {
+        console.error('Failed to sync cloud providers:', error);
+        message.error(t('settings.cloudProviderSyncFailed', { defaultValue: '同步云端模型失败' }));
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, [mutate, message, t]);
+
+  const didAutoSync = useRef(false);
+  useEffect(() => {
+    if (didAutoSync.current) return;
+    didAutoSync.current = true;
+    void syncCloudProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [addModelModalCtrl, addModelModalContext] = AddModelModal.useModal({
     onSubmit(platform) {
       updatePlatform(platform, () => {
@@ -923,6 +960,16 @@ const ModelModalContent: React.FC = () => {
               className='rd-100px border-1px border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary'
             >
               {t('settings.addModel')}
+            </Button>
+            <Button
+              type='outline'
+              shape='round'
+              loading={syncing}
+              icon={<Info theme='outline' size='16' />}
+              onClick={() => void syncCloudProviders()}
+              className='rd-100px border-1px border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary'
+            >
+              {t('settings.syncCloudProviders', { defaultValue: '同步云端模型' })}
             </Button>
           </div>
         </div>
@@ -973,6 +1020,8 @@ const ModelModalContent: React.FC = () => {
               const isExpanded = collapseKey[platform.id] ?? false;
               const modelRows = modelRowsFor(platform);
               const hasDetail = Boolean(platform.models_detail && platform.models_detail.length > 0);
+              // 云端同步来的供应商 = 只读（密钥由管理员托管），禁止本地编辑/删除/克隆
+              const locked = isCloudProvider(platform);
               return (
                 <SortableProviderCard key={key} provider={platform}>
                   {({ attributes, listeners, setActivatorNodeRef, isDragging }) => (
@@ -1028,7 +1077,7 @@ const ModelModalContent: React.FC = () => {
                             <span className='mx-6px'>|</span>
                             <span
                               className='cursor-pointer hover:text-t-primary transition-colors'
-                              onClick={() => editModalCtrl.open({ data: platform })}
+                              onClick={() => !locked && editModalCtrl.open({ data: platform })}
                             >
                               {t('settings.apiKeyCount')}（{getApiKeyCount(platform.api_key)}）
                             </span>
@@ -1042,7 +1091,12 @@ const ModelModalContent: React.FC = () => {
                             checked={platform.enabled !== false}
                             onChange={() => toggleProviderEnabled(platform)}
                           />
-                          <div className='flex items-center gap-4px'>
+                          {locked ? (
+                            <Tag size='small' color='green' bordered className='shrink-0 select-none'>
+                              {t('settings.cloudProviderBadge', { defaultValue: '云端' })}
+                            </Tag>
+                          ) : (
+                            <div className='flex items-center gap-4px'>
                             <Button
                               size='mini'
                               className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
@@ -1074,6 +1128,7 @@ const ModelModalContent: React.FC = () => {
                               />
                             </Tooltip>
                           </div>
+                          )}
                         </div>
                       </div>
                     }
@@ -1182,7 +1237,9 @@ const ModelModalContent: React.FC = () => {
                                     color={getProtocolColor(modelProtocol)}
                                     className='cursor-pointer select-none shrink-0'
                                     onClick={() => {
-                                      void updateModelRow(platform, model, { protocol: getNextProtocol(modelProtocol) });
+                                      if (!locked) {
+                                        void updateModelRow(platform, model, { protocol: getNextProtocol(modelProtocol) });
+                                      }
                                     }}
                                   >
                                     {getProtocolLabel(modelProtocol)}
@@ -1190,6 +1247,7 @@ const ModelModalContent: React.FC = () => {
                                 )}
 
                                 {/* 每模型上下文窗口 / Per-model context window */}
+                                {!locked && (
                                 <ModelContextLimitEditor
                                   value={modelContextLimit}
                                   onSave={(value) => {
@@ -1198,8 +1256,10 @@ const ModelModalContent: React.FC = () => {
                                     });
                                   }}
                                 />
+                                )}
 
                                 {/* 每模型类别编辑 / Per-model modality editor */}
+                                {!locked && (
                                 <ModelModalityEditor
                                   profile={modelProfile}
                                   onSave={async (tasks, traits) => {
@@ -1215,8 +1275,10 @@ const ModelModalContent: React.FC = () => {
                                     }
                                   }}
                                 />
+                                )}
 
                                 {/* 高级：协议/连接档案/params / Advanced: protocol, connection_role, params */}
+                                {!locked && (
                                 <ModelAdvancedEditor
                                   providerId={platform.id}
                                   protocol={row.protocol}
@@ -1224,6 +1286,7 @@ const ModelModalContent: React.FC = () => {
                                   params={row.params}
                                   onSave={(patch) => updateModelRow(platform, model, patch, true)}
                                 />
+                                )}
 
                                 {/* 模型启用开关（行级）/ Model enable switch (row-level) */}
                                 <Switch
@@ -1236,12 +1299,14 @@ const ModelModalContent: React.FC = () => {
                                 />
 
                                 {/* 每模型描述编辑（驱动智能协作选择）/ Per-model collaboration description */}
+                                {!locked && (
                                 <ModelDescriptionEditor
                                   description={modelDescription}
                                   onSave={(text) => {
                                     void updateModelRow(platform, model, { description: text || null });
                                   }}
                                 />
+                                )}
                               </div>
 
                               {/* 描述次级行（空态隐藏）/ Description secondary line (hidden when empty) */}
@@ -1267,6 +1332,7 @@ const ModelModalContent: React.FC = () => {
                                 />
                               </Tooltip>
 
+                              {!locked && (
                               <Popconfirm
                                 title={t('settings.deleteModelConfirm')}
                                 onOk={() => removeModel(platform, model)}
@@ -1277,6 +1343,7 @@ const ModelModalContent: React.FC = () => {
                                   icon={<DeleteFour theme='outline' size='18' strokeWidth={2} />}
                                 />
                               </Popconfirm>
+                              )}
                             </div>
                           </div>
                           {index < arr.length - 1 && <Divider className='!my-0 !border-[var(--color-border-2)]/70' />}

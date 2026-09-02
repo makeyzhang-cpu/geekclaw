@@ -21,6 +21,23 @@ pub trait IProviderRepository: Send + Sync {
 
     /// Deletes a provider by ID. Returns `DbError::NotFound` if the ID doesn't exist.
     async fn delete(&self, id: &str) -> Result<(), DbError>;
+
+    /// Idempotently upsert a cloud-synced provider row keyed by `cloud_key`.
+    ///
+    /// An existing `source = 'cloud'` row with the same `cloud_key` is updated
+    /// in place (its `provider_id` is preserved); otherwise a new row with a
+    /// fresh UUIDv7 `provider_id` is created. The per-model surface is
+    /// re-materialized from `models` on every sync.
+    async fn upsert_cloud_provider(
+        &self,
+        params: UpsertCloudProviderLocalParams<'_>,
+    ) -> Result<Provider, DbError>;
+
+    /// Remove local `source = 'cloud'` providers whose `cloud_key` is NOT in
+    /// `keep_keys`. Returns the number of providers deleted (their
+    /// `provider_models` rows are cascade-cleared). Pass an empty slice to
+    /// clear every cloud provider (admin removed them all server-side).
+    async fn delete_cloud_providers_not_in(&self, keep_keys: &[String]) -> Result<u64, DbError>;
 }
 
 /// Parameters for creating a new provider.
@@ -80,5 +97,25 @@ pub struct UpdateProviderParams<'a> {
     pub model_enabled: Option<Option<&'a str>>,
     pub bedrock_config: Option<Option<&'a str>>,
     pub is_full_url: Option<bool>,
+    pub sort_order: Option<i64>,
+}
+
+/// Parameters for upserting a cloud-synced provider row on the desktop.
+///
+/// `api_key_encrypted` is expected to already be encrypted with the *local*
+/// data-encryption key (the sync handler decrypts the cloud plaintext and
+/// re-encrypts locally before calling this). `cloud_key` is the stable dedup
+/// key; an existing row with the same `cloud_key` is updated in place,
+/// otherwise a fresh UUIDv7 `provider_id` is minted.
+pub struct UpsertCloudProviderLocalParams<'a> {
+    pub cloud_key: &'a str,
+    pub platform: &'a str,
+    pub name: &'a str,
+    pub base_url: &'a str,
+    /// Already encrypted with the local data-encryption key.
+    pub api_key_encrypted: &'a str,
+    pub is_full_url: bool,
+    /// JSON array of model names.
+    pub models: &'a str,
     pub sort_order: Option<i64>,
 }

@@ -27,7 +27,10 @@ use nomifun_api_types::{
 };
 use nomifun_common::{AppError, now_ms};
 use nomifun_common::constants::SESSION_MAX_AGE_SECONDS;
-use nomifun_db::{DbError, IUserRepository, models::{ModelPricing, Order, SubscriptionPlan, User}};
+use nomifun_db::{
+    DbError, ICloudProviderRepository, IProviderRepository, IUserRepository, SqliteCloudProviderRepository,
+    models::{ModelPricing, Order, SubscriptionPlan, User},
+};
 
 use crate::allinpay::{
     PAYTYPE_ALIPAY, PAYTYPE_WECHAT, ALLINPAY_DEFAULT_API_URL,
@@ -48,6 +51,10 @@ use crate::validation::{validate_password, validate_username};
 use crate::error::AuthError;
 use crate::aliyun_sms::{generate_sms_code, send_verification_sms};
 use crate::{CookieConfig, JwtService};
+use crate::cloud_provider::{
+    create_admin_cloud_provider_handler, delete_admin_cloud_provider_handler, list_admin_cloud_providers_handler,
+    list_public_cloud_providers_handler, sync_cloud_providers_handler, update_admin_cloud_provider_handler,
+};
 
 /// Shared state for all auth route handlers.
 #[derive(Clone)]
@@ -56,6 +63,14 @@ pub struct AuthRouterState {
     pub user_repo: Arc<dyn IUserRepository>,
     pub cookie_config: Arc<CookieConfig>,
     pub qr_token_store: Arc<QrTokenStore>,
+    /// Local `providers` table repo (reads/writes the desktop's own providers,
+    /// including cloud-synced rows with `source = 'cloud'`).
+    pub provider_repo: Arc<dyn IProviderRepository>,
+    /// Data-encryption key for API keys at rest. On the cloud (web) backend this
+    /// is the cloud key; on the desktop (local) backend it's the local machine key.
+    pub encryption_key: [u8; 32],
+    /// Central cloud-managed provider catalog repo (admin CRUD + member read).
+    pub cloud_provider_repo: Arc<dyn ICloudProviderRepository>,
 }
 
 fn into_public_user(user: User) -> Result<PublicUser, AppError> {
@@ -86,6 +101,7 @@ fn into_public_user(user: User) -> Result<PublicUser, AppError> {
 /// - `POST /api/auth/users/{id}/role` (admin)
 /// - `POST /api/auth/users/{id}/disable` (admin)
 /// - `POST /api/auth/users/{id}/enable` (admin)
+/// - `POST /api/auth/users/{id}/reset-password` (admin: reset to default password)
 /// - `POST /api/auth/invitations` (admin)
 /// - `GET /api/auth/invitations` (admin)
 /// - `DELETE /api/auth/invitations/{code}` (admin)
@@ -180,6 +196,10 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         // A2A 跨境电商独立站：开通授权状态以云端管理后台为准（本地 trust 代理，
         // 带云端 JWT 转发）。云端未授权时前端显示开通引导，不开通不可用。
         .route("/api/store/a2a/storefront/status", get(store_a2a_storefront_status_proxy_handler))
+        // Cloud-managed model provider sync: desktop shell only. Pulls public
+        // cloud providers (with plaintext keys) using the stored cloud JWT and
+        // re-encrypts them into the local providers table as `source = 'cloud'`.
+        .route("/api/cloud-providers/sync", post(sync_cloud_providers_handler))
         .route_layer(from_fn(require_local_trust_middleware))
         .route_layer(from_fn_with_state(api_limiter.clone(), api_rate_limit_middleware))
         .with_state(state.clone());
@@ -203,6 +223,7 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         .route("/api/auth/users/{id}/disable", post(disable_handler))
         .route("/api/auth/users/{id}/enable", post(enable_handler))
         .route("/api/auth/users/{id}/plan", post(set_plan_handler))
+        .route("/api/auth/users/{id}/reset-password", post(reset_password_admin_handler))
         .route("/api/auth/invitations", post(create_invitation_handler).get(list_invitations_handler))
         .route("/api/auth/invitations/{code}", delete(delete_invitation_handler))
     // Admin billing control plane.
@@ -221,6 +242,13 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         .route("/api/admin/plans", get(list_admin_plans_handler).post(create_plan_handler))
         .route("/api/admin/plans/{plan_id}", put(update_plan_handler).delete(delete_plan_handler))
         .route("/api/admin/orders", get(list_admin_orders_handler))
+        // Admin console: cloud-managed model provider catalog (admin-gated).
+        // Members consume the synced copy via /api/store/cloud-providers below.
+        .route("/api/admin/cloud-providers", get(list_admin_cloud_providers_handler).post(create_admin_cloud_provider_handler))
+        .route("/api/admin/cloud-providers/{provider_key}", put(update_admin_cloud_provider_handler).delete(delete_admin_cloud_provider_handler))
+        // Member read-only (authenticated): public cloud providers with plaintext
+        // keys, for the desktop to pull and re-encrypt locally on sync.
+        .route("/api/store/cloud-providers", get(list_public_cloud_providers_handler))
         // Consumer: digital-twin TTS via admin-configured 火山引擎 (auth only).
         .route("/api/voice/speak", post(voice_speak_handler))
         .route_layer(from_fn_with_state(
@@ -463,6 +491,7 @@ fn build_authorize_html(config_json: &str) -> String {
     <div class="tabs">
       <div class="tab active" id="tab-login" onclick="switchTab('login')">登录</div>
       <div class="tab" id="tab-register" onclick="switchTab('register')">注册</div>
+      <div class="tab" id="tab-passwd" onclick="switchTab('passwd')">修改密码</div>
     </div>
 
     <form class="pane active" id="pane-login" onsubmit="return doLogin(event)">
@@ -490,6 +519,18 @@ fn build_authorize_html(config_json: &str) -> String {
       <button class="primary" type="submit">注册并授权桌面端</button>
     </form>
 
+    <form class="pane" id="pane-passwd" onsubmit="return doChangePassword(event)">
+      <label>用户名</label>
+      <input id="cp-user" type="text" autocomplete="username" placeholder="用户名" required/>
+      <label>当前密码</label>
+      <input id="cp-old" type="password" autocomplete="current-password" placeholder="当前密码" required/>
+      <label>新密码</label>
+      <input id="cp-new" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位）" required/>
+      <label>确认新密码</label>
+      <input id="cp-new2" type="password" autocomplete="new-password" placeholder="再次输入新密码" required/>
+      <button class="primary" type="submit">修改密码</button>
+    </form>
+
     <div class="msg" id="msg"></div>
   </div>
 
@@ -498,8 +539,10 @@ const OAUTH = __CONFIG__;
 function switchTab(name){
   document.getElementById('tab-login').classList.toggle('active', name==='login');
   document.getElementById('tab-register').classList.toggle('active', name==='register');
+  document.getElementById('tab-passwd').classList.toggle('active', name==='passwd');
   document.getElementById('pane-login').classList.toggle('active', name==='login');
   document.getElementById('pane-register').classList.toggle('active', name==='register');
+  document.getElementById('pane-passwd').classList.toggle('active', name==='passwd');
 }
 function setMsg(text, isErr){
   const el=document.getElementById('msg');
@@ -565,6 +608,29 @@ async function doRegister(e){
     const data=await res.json().catch(function(){return {};});
     if(data&&data.token){setMsg('注册成功，正在返回桌面端…');bounce(data.token);return;}
     setMsg((data&&(data.message||data.error||data.reason))||'注册失败（可能需要邀请码）',true);
+  }catch(err){setMsg('网络错误，请稍后重试',true);}
+}
+async function doChangePassword(e){
+  e.preventDefault();
+  setMsg('');
+  const u=document.getElementById('cp-user').value.trim();
+  const oldp=document.getElementById('cp-old').value;
+  const p1=document.getElementById('cp-new').value;
+  const p2=document.getElementById('cp-new2').value;
+  if(!u||!oldp){setMsg('请输入用户名和当前密码',true);return;}
+  if(p1.length<8){setMsg('新密码至少 8 位',true);return;}
+  if(p1!==p2){setMsg('两次输入的新密码不一致',true);return;}
+  try{
+    // 1) Sign in to obtain a short-lived Bearer token (session cookie is set too).
+    const loginRes=await fetch('/api/auth/login',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:oldp})});
+    const loginData=await loginRes.json().catch(function(){return {};});
+    const token=loginData&&loginData.token;
+    if(!token){setMsg((loginData&&(loginData.message||loginData.error||loginData.reason))||'用户名或当前密码错误',true);return;}
+    // 2) Change the password with the freshly issued token.
+    const res=await fetch('/api/auth/change-password',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({current_password:oldp,new_password:p1})});
+    const data=await res.json().catch(function(){return {};});
+    if(res.ok){setMsg('密码修改成功，请使用新密码重新登录（桌面端也需重新登录）',false);return;}
+    setMsg((data&&(data.message||data.error||data.reason))||'密码修改失败',true);
   }catch(err){setMsg('网络错误，请稍后重试',true);}
 }
 </script>
@@ -1015,7 +1081,7 @@ fn error_response(status: StatusCode, code: &'static str, message: impl Into<Str
 
 /// Reject any caller who is not an admin. Layer this after `auth_middleware`
 /// so `CurrentUser` is always present.
-fn ensure_admin(current_user: &CurrentUser) -> Result<(), AppError> {
+pub(crate) fn ensure_admin(current_user: &CurrentUser) -> Result<(), AppError> {
     if current_user.role != "admin" {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
@@ -1326,6 +1392,69 @@ async fn set_active_handler(
     } else {
         "User disabled"
     })))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/users/{id}/reset-password — admin: reset to default password
+// ---------------------------------------------------------------------------
+
+/// Default password applied by the admin "reset to default password" action.
+const DEFAULT_RESET_PASSWORD: &str = "A12345678";
+
+/// Admin-triggered password reset to the fixed default password.
+///
+/// Mirrors the self-service [`change_password_handler`] semantics: after the
+/// new hash is persisted the JWT secret is rotated and re-persisted, so every
+/// session of the target user — including the credential cached by the
+/// desktop app — is invalidated and the user must sign in again with the
+/// default password.
+async fn reset_password_admin_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(user_id): Path<String>,
+) -> Result<Json<ApiResponse<()>>, AppError> {
+    ensure_admin(&current_user)?;
+    // Guard: admins change their own password via /api/auth/change-password.
+    if user_id == current_user.id.as_str() {
+        return Err(AppError::BadRequest(
+            "Cannot reset your own password; use change password instead".into(),
+        ));
+    }
+
+    // Target must exist (clean 404 instead of a generic DB error).
+    state
+        .user_repo
+        .find_by_id(&user_id)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {e}")))?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
+
+    // Hash the default password on a blocking thread (bcrypt).
+    let password = DEFAULT_RESET_PASSWORD.to_string();
+    let new_hash = tokio::task::spawn_blocking(move || hash_password(&password))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {e}")))??;
+
+    state
+        .user_repo
+        .update_password(&user_id, &new_hash)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {e}")))?;
+
+    // Rotate JWT secret to invalidate all existing sessions (desktop sync).
+    let new_secret = state
+        .jwt_service
+        .rotate_secret()
+        .map_err(|e| AppError::Internal(format!("Secret rotation error: {e}")))?;
+    state
+        .user_repo
+        .update_jwt_secret(&user_id, &new_secret)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {e}")))?;
+
+    Ok(Json(ApiResponse::message(
+        "Password reset to default; all sessions of this user have been signed out",
+    )))
 }
 
 async fn disable_handler(
@@ -2461,7 +2590,7 @@ async fn store_billing_me_proxy_handler(State(state): State<AuthRouterState>) ->
 // ---------------------------------------------------------------------------
 
 const KV_CLOUD_OAUTH_STATE: &str = "cloud_oauth_state";
-const KV_CLOUD_AUTH_TOKEN: &str = "cloud_auth_token";
+pub(crate) const KV_CLOUD_AUTH_TOKEN: &str = "cloud_auth_token";
 
 /// Cloud login page path. MUST be confirmed with the web team — the cloud must serve a
 /// real login/register page at this path that honours `redirect_uri` (incl. the
@@ -2474,7 +2603,7 @@ const CLOUD_OAUTH_REDIRECT_URI: &str = "geekclaw%3A%2F%2Fauth%2Fcallback";
 /// First-party public OAuth client id for the desktop app (no secret — public client).
 const CLOUD_OAUTH_CLIENT_ID: &str = "geekclaw-desktop";
 
-fn cloud_store_base() -> String {
+pub(crate) fn cloud_store_base() -> String {
     std::env::var("GEEKCLAW_STORE_API_BASE")
         .unwrap_or_else(|_| "https://www.geekclaw.ai".to_string())
         .trim_end_matches('/')

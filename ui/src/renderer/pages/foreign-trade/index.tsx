@@ -52,7 +52,7 @@ const ForeignTradePage: React.FC = () => {
                 </span>
               </div>
               <h2 className='mt-16px text-16px font-600 text-t-primary'>{t('foreignTrade.cardTitle', { defaultValue: 'GeekFlow 外贸工作台' })}</h2>
-              <p className='mt-8px text-13px leading-20px text-t-secondary'>{t('foreignTrade.cardDesc', { defaultValue: 'AI 驱动的跨境电商运营中枢，覆盖选品、Listing、店铺与营销自动化。' })}</p>
+              <p className='mt-8px text-13px leading-20px text-t-secondary'>{t('foreignTrade.cardDesc', { defaultValue: 'AI驱动B2B外贸自动化获客、AI邮件和AIWhatsApp精准触达自动化' })}</p>
               <div className='mt-16px flex items-center gap-12px'>
                 <span className='text-13px font-500 text-primary-6 group-hover:underline'>
                   {t('foreignTrade.enter', { defaultValue: '进入平台' })} →

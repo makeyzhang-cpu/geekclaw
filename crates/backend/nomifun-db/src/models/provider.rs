@@ -26,6 +26,12 @@ pub struct Provider {
     pub is_full_url: bool,
     /// Lower values have higher priority in provider selection.
     pub sort_order: i64,
+    /// Provenance: `local` (user-created) or `cloud` (synced from the central
+    /// managed catalog). Cloud rows are read-only to the user.
+    pub source: String,
+    /// Stable dedup key for cloud-synced rows, matching a
+    /// `cloud_provider_catalog.provider_key`. `None` for local providers.
+    pub cloud_key: Option<String>,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
 }

@@ -44,6 +44,7 @@ fn test_user() -> User {
         credits: 0,
         invite_code: None,
         invited_by: None,
+        phone: None,
     }
 }
 
@@ -156,6 +157,100 @@ impl IUserRepository for StubUserRepo {
         _: &str,
         _: i64,
     ) -> Result<Vec<CreditTransaction>, DbError> {
+        unreachable!()
+    }
+    async fn create_order(&self, _: &nomifun_db::models::Order) -> Result<nomifun_db::models::Order, DbError> {
+        unreachable!()
+    }
+    async fn get_order_by_reqsn(&self, _: &str) -> Result<Option<nomifun_db::models::Order>, DbError> {
+        unreachable!()
+    }
+    async fn list_orders(&self) -> Result<Vec<(nomifun_db::models::Order, Option<String>)>, DbError> {
+        unreachable!()
+    }
+    async fn mark_order_paid(&self, _: &str, _: &str) -> Result<bool, DbError> {
+        unreachable!()
+    }
+    async fn mark_order_failed(&self, _: &str, _: &str) -> Result<bool, DbError> {
+        unreachable!()
+    }
+    async fn list_subscription_plans(
+        &self,
+        _: bool,
+    ) -> Result<Vec<nomifun_db::models::SubscriptionPlan>, DbError> {
+        unreachable!()
+    }
+    async fn get_subscription_plan_by_plan_id(
+        &self,
+        _: &str,
+    ) -> Result<Option<nomifun_db::models::SubscriptionPlan>, DbError> {
+        unreachable!()
+    }
+    async fn create_subscription_plan(
+        &self,
+        _: &nomifun_db::models::SubscriptionPlan,
+    ) -> Result<nomifun_db::models::SubscriptionPlan, DbError> {
+        unreachable!()
+    }
+    async fn update_subscription_plan(
+        &self,
+        _: &nomifun_db::models::SubscriptionPlan,
+    ) -> Result<bool, DbError> {
+        unreachable!()
+    }
+    async fn delete_subscription_plan(&self, _: &str) -> Result<bool, DbError> {
+        unreachable!()
+    }
+    async fn get_kv(&self, _: &str) -> Result<Option<String>, DbError> {
+        unreachable!()
+    }
+    async fn set_kv(&self, _: &str, _: &str) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn create_user_with_phone(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<User, DbError> {
+        unreachable!()
+    }
+    async fn find_by_phone(&self, _: &str) -> Result<Option<User>, DbError> {
+        unreachable!()
+    }
+    async fn create_sms_code(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: TimestampMs,
+    ) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn get_latest_valid_sms_code(
+        &self,
+        _: &str,
+        _: &str,
+        _: TimestampMs,
+    ) -> Result<Option<(i64, String)>, DbError> {
+        unreachable!()
+    }
+    async fn mark_sms_code_used(&self, _: i64) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn ensure_invite_code(&self, _: &str) -> Result<String, DbError> {
+        unreachable!()
+    }
+    async fn get_user_by_invite_code(&self, _: &str) -> Result<Option<User>, DbError> {
+        unreachable!()
+    }
+    async fn set_invited_by(&self, _: &str, _: &str) -> Result<(), DbError> {
+        unreachable!()
+    }
+    async fn count_invited_by(&self, _: &str) -> Result<i64, DbError> {
+        unreachable!()
+    }
+    async fn sum_credit_tx_by_type(&self, _: &str, _: &str) -> Result<i64, DbError> {
         unreachable!()
     }
 }

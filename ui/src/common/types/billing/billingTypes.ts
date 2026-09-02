@@ -85,32 +85,37 @@ export interface ListUsersResponse {
   users: UserListItem[];
 }
 
-/** POST /api/billing/subscribe 响应：收银二维码 + 订单号。 */
+/**
+ * POST /api/billing/subscribe（云端为 /api/store/subscribe）响应内层载荷。
+ *
+ * 注意：`httpBridge.httpRequest` 会自动剥掉 `{ success, data }` 信封并返回
+ * 内层 `data`，因此这里描述的是拆壳后的形状（`reqsn` 等字段在顶层），
+ * 绝不能再访问 `.success` / `.data`。`error` / `message` 仅在后端于 200
+ * 响应内直接返回错误信封（无 `data` 包装）时作为兜底存在。
+ */
 export interface SubscribeResponse {
-  success: boolean;
-  message?: string;
-  data?: {
-    reqsn: string;
-    amount_fen: number;
-    plan: string;
-    period: string;
-    payinfo: Record<string, string>;
-  };
+  reqsn: string;
+  amount_fen: number;
+  plan: string;
+  period: string;
+  payinfo: Record<string, string>;
   error?: string;
+  message?: string;
 }
 
-/** GET /api/billing/order/{reqsn} 响应：订单支付状态。 */
+/**
+ * GET /api/billing/order/{reqsn}（云端为 /api/store/order/{reqsn}）响应内层
+ * 载荷。与 `SubscribeResponse` 同理：`httpRequest` 已拆壳，字段在顶层。
+ */
 export interface OrderStatusResponse {
-  success: boolean;
-  data?: {
-    reqsn: string;
-    status: string;
-    plan: string;
-    period: string;
-    amount_fen: number;
-    qr_payinfo?: string | null;
-  };
+  reqsn: string;
+  status: string;
+  plan: string;
+  period: string;
+  amount_fen: number;
+  qr_payinfo?: string | null;
   error?: string;
+  message?: string;
 }
 
 /** POST /api/billing/subscribe 请求体。 */

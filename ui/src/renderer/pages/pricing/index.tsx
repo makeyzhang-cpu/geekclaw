@@ -368,13 +368,10 @@ const PricingPage: React.FC = () => {
           // genuine backend failure or an error envelope returned inside a 200
           // (no `data` wrapper) — in both cases surface the real message
           // instead of swallowing it as a generic "创建订单失败".
-          const envelope = res as Record<string, unknown> | null;
           const backendMsg =
-            envelope && (typeof envelope.error === 'string'
-              ? envelope.error
-              : typeof envelope.message === 'string'
-                ? envelope.message
-                : null);
+            (typeof res?.error === 'string' && res.error) ||
+            (typeof res?.message === 'string' && res.message) ||
+            null;
           throw new Error(backendMsg || '创建订单失败');
         }
         const { reqsn, amount_fen, plan, period, payinfo } = res;

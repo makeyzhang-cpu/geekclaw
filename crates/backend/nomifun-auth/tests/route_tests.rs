@@ -16,7 +16,10 @@ use nomifun_auth::{
     AuthPolicy, AuthRouterState, CookieConfig, JwtService, QrTokenStore, TrustState, auth_routes, hash_password,
     trust_resolve_middleware,
 };
-use nomifun_db::{IUserRepository, SqliteUserRepository, init_database_memory};
+use nomifun_db::{
+    ICloudProviderRepository, IProviderRepository, IUserRepository, SqliteCloudProviderRepository,
+    SqliteProviderRepository, SqliteUserRepository, init_database_memory,
+};
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -37,12 +40,21 @@ async fn test_app_with_local(local: bool) -> (Router, TestContext) {
         same_site: "Lax",
     });
     let qr_token_store = Arc::new(QrTokenStore::new());
+    let provider_repo =
+        Arc::new(SqliteProviderRepository::new(db.pool().clone())) as Arc<dyn IProviderRepository>;
+    let cloud_provider_repo =
+        Arc::new(SqliteCloudProviderRepository::new(db.pool().clone())) as Arc<dyn ICloudProviderRepository>;
+    // 32-byte test key (sufficient for the struct; cloud-provider tests don't run here).
+    let encryption_key = [0u8; 32];
 
     let state = AuthRouterState {
         jwt_service: jwt_service.clone(),
         user_repo: user_repo.clone(),
         cookie_config,
         qr_token_store: qr_token_store.clone(),
+        provider_repo,
+        encryption_key,
+        cloud_provider_repo,
     };
 
     // Mirror `create_router`: the global trust middleware resolves local trust

@@ -167,6 +167,7 @@ mod tests {
             provider_id: None,
             model: Some("gpt-x".into()),
             knowledge_base_ids: r#"["0190f5fe-7c00-7a00-8000-000000000002"]"#.into(),
+            business_endpoints: "[]".into(),
             enabled: true,
             max_concurrent: 8,
             audit_retention_days: 30,

@@ -684,6 +684,11 @@ pub fn create_router_with_all_state(
         user_repo: services.user_repo.clone(),
         cookie_config: services.cookie_config.clone(),
         qr_token_store: services.qr_token_store.clone(),
+        provider_repo: services.provider_repo.clone(),
+        encryption_key: services.encryption_key,
+        cloud_provider_repo: Arc::new(
+            nomifun_db::SqliteCloudProviderRepository::new(services.database.pool().clone()),
+        ),
     };
 
     let auth_mw_state = AuthState {

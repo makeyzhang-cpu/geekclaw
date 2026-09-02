@@ -82,6 +82,7 @@ fn make_job() -> CronJobRow {
         updated_at: now,
         next_run_at: Some(now + 60_000),
         last_run_at: None,
+        consensus_target: None,
         last_status: None,
         last_error: None,
         run_count: 0,

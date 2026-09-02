@@ -49,6 +49,16 @@ export interface ProviderResponse {
   sort_order: number;
   created_at: number;
   updated_at: number;
+  /**
+   * Provider provenance. `'cloud'` = synced from the central cloud catalog
+   * (read-only, API key managed by the admin); absent/`'local'` = user config.
+   */
+  source?: string;
+  /**
+   * Stable dedup key linking a local row to its cloud catalog entry. Present
+   * only when `source === 'cloud'`.
+   */
+  cloud_key?: string;
 }
 
 export interface CreateProviderRequest {
@@ -100,6 +110,8 @@ export function fromProviderResponse(response: ProviderResponse): IProvider {
     models_detail: response.models_detail,
     is_full_url: response.is_full_url,
     sort_order: response.sort_order,
+    source: response.source,
+    cloud_key: response.cloud_key,
   };
 }
 
@@ -181,6 +193,19 @@ export type ProviderHealthCheckErrorKind =
   | 'connection_error'
   | 'api_error'
   | 'unknown';
+
+/**
+ * Result of `POST /api/cloud-providers/sync`: counts of cloud providers pulled
+ * into the local `providers` table as `source = 'cloud'`.
+ */
+export interface CloudProviderSyncResult {
+  /** Cloud providers upserted into the local providers table this sync. */
+  synced: number;
+  /** Stale local cloud providers pruned (removed server-side). */
+  pruned: number;
+  /** Total cloud-sourced provider rows now present locally. */
+  total_local: number;
+}
 
 export interface ProviderHealthCheckRequest {
   provider_id: ProviderId;

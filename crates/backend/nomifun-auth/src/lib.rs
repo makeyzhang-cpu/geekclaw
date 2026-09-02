@@ -1,6 +1,7 @@
 //! JWT authentication, password hashing, CSRF protection, rate limiting, and auth middleware.
 mod allinpay;
 mod aliyun_sms;
+mod cloud_provider;
 mod companion_token;
 mod cookie;
 mod csrf;
@@ -74,3 +75,9 @@ pub use qr_token::QrTokenStore;
 
 // Routes
 pub use routes::{AuthRouterState, auth_routes};
+
+// Cloud-managed model provider catalog (admin CRUD + member sync)
+pub use cloud_provider::{
+    AdminCloudProviderRequest, CloudProviderAdminView, CloudProviderPublicView, CloudProviderService,
+    CloudProviderSyncResult,
+};

@@ -97,6 +97,7 @@ import {
   type ResolveModelsRequest,
   type ResolveModelsResponse,
   type UpdateProviderRequest,
+  type CloudProviderSyncResult,
 } from '../types/provider/providerApi';
 import type {
   CheckManagedModelHealthRequest,
@@ -1380,6 +1381,13 @@ export const mode = {
     ),
     fromProviderResponse
   ),
+  /**
+   * Pull public cloud-managed providers (with plaintext keys) from the central
+   * backend and re-encrypt them into the local `providers` table as
+   * `source = 'cloud'`. Local-only endpoint (desktop shell); requires a stored
+   * cloud JWT, so it no-ops (401) when the user isn't signed into the cloud.
+   */
+  syncCloudProviders: httpPost<CloudProviderSyncResult, void>('/api/cloud-providers/sync'),
   fetchProviderModels: httpPost<FetchModelsResponse, { provider_id: ProviderId; try_fix?: boolean }>(
     (p) => `/api/providers/${p.provider_id}/models`,
     (p) => ({ try_fix: p.try_fix })

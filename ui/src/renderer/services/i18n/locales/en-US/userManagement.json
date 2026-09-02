@@ -17,13 +17,13 @@
   "admin": "Admin",
   "user": "User",
   "active": "Active",
-    "disabled": "Disabled",
-    "expired": "Expired",
-    "used": "Used",
-    "revoke": "Revoke",
-    "copied": "Copied",
-    "days": "days",
-    "changeRole": "Change Role",
+  "disabled": "Disabled",
+  "expired": "Expired",
+  "used": "Used",
+  "revoke": "Revoke",
+  "copied": "Copied",
+  "days": "days",
+  "changeRole": "Change Role",
   "enable": "Enable",
   "disable": "Disable",
   "confirm": "Confirm",
@@ -38,6 +38,10 @@
     "toggleFailed": "Operation failed",
     "roleUpdateFailed": "Failed to update role",
     "createInviteFailed": "Failed to create invitation",
-    "cannotDisableSelf": "You cannot disable your own account"
-  }
+    "cannotDisableSelf": "You cannot disable your own account",
+    "resetFailed": "Failed to reset password",
+    "cannotResetSelf": "You cannot reset your own password; use change password instead"
+  },
+  "resetPassword": "Reset to Default Password",
+  "passwordReset": "Password reset to default A12345678. All sessions of this user (including the desktop app) have been signed out — ask them to log in again and change the password soon."
 }

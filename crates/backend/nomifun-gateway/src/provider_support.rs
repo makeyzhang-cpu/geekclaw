@@ -332,6 +332,8 @@ mod tests {
             bedrock_config: None,
             is_full_url: false,
             sort_order: 0,
+            source: "local".to_string(),
+            cloud_key: None,
             created_at: 0,
             updated_at: 0,
         };

@@ -556,6 +556,7 @@ mod tests {
             provider_id: None,
             model: Some("model-a".into()),
             knowledge_base_ids: "[]".into(),
+            business_endpoints: "[]".into(),
             enabled: true,
             max_concurrent: 8,
             audit_retention_days: 30,

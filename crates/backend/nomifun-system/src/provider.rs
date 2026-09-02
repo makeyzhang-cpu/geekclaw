@@ -494,6 +494,8 @@ impl ProviderService {
             sort_order: row.sort_order,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            source: Some(row.source.clone()),
+            cloud_key: row.cloud_key.clone(),
         })
     }
 }

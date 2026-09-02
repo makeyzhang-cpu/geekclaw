@@ -7,7 +7,7 @@ use crate::models::Provider;
 use crate::repository::{
     provider_preference_delete_action, IProviderRepository, ProviderPreferenceDeleteAction,
 };
-use crate::repository::provider::{CreateProviderParams, UpdateProviderParams};
+use crate::repository::provider::{CreateProviderParams, UpdateProviderParams, UpsertCloudProviderLocalParams};
 
 const PROVIDER_HARD_BINDING_DELETE_CONFLICT: &str =
     "provider is still referenced by an executable Agent binding";
@@ -469,6 +469,8 @@ impl IProviderRepository for SqliteProviderRepository {
             bedrock_config: params.bedrock_config.map(String::from),
             is_full_url: params.is_full_url,
             sort_order,
+            source: "local".to_string(),
+            cloud_key: None,
             created_at: now,
             updated_at: now,
         })
@@ -790,11 +792,179 @@ impl IProviderRepository for SqliteProviderRepository {
         transaction.commit().await?;
         Ok(())
     }
+
+    async fn upsert_cloud_provider(
+        &self,
+        params: UpsertCloudProviderLocalParams<'_>,
+    ) -> Result<Provider, DbError> {
+        let now = nomifun_common::now_ms();
+        let mut transaction = self.pool.begin().await?;
+
+        let existing: Option<Provider> = sqlx::query_as::<_, Provider>(
+            "SELECT * FROM providers WHERE cloud_key = ?",
+        )
+        .bind(params.cloud_key)
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        let provider_id = match &existing {
+            Some(p) => p.provider_id.clone(),
+            None => nomifun_common::ProviderId::new().into_string(),
+        };
+
+        let sort_order = match params.sort_order {
+            Some(value) => value,
+            None => match &existing {
+                Some(p) => p.sort_order,
+                None => sqlx::query_scalar::<_, i64>(
+                    "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM providers",
+                )
+                .fetch_one(&mut *transaction)
+                .await?,
+            },
+        };
+
+        if existing.is_some() {
+            sqlx::query(
+                "UPDATE providers SET \
+                    platform = ?, name = ?, base_url = ?, api_key_encrypted = ?, \
+                    is_full_url = ?, source = 'cloud', cloud_key = ?, sort_order = ?, updated_at = ? \
+                 WHERE provider_id = ?",
+            )
+            .bind(params.platform)
+            .bind(params.name)
+            .bind(params.base_url)
+            .bind(params.api_key_encrypted)
+            .bind(params.is_full_url)
+            .bind(params.cloud_key)
+            .bind(sort_order)
+            .bind(now)
+            .bind(&provider_id)
+            .execute(&mut *transaction)
+            .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO providers \
+                    (provider_id, platform, name, base_url, api_key_encrypted, enabled, \
+                     bedrock_config, is_full_url, sort_order, source, cloud_key, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, 1, NULL, ?, ?, 'cloud', ?, ?, ?)",
+            )
+            .bind(&provider_id)
+            .bind(params.platform)
+            .bind(params.name)
+            .bind(params.base_url)
+            .bind(params.api_key_encrypted)
+            .bind(params.is_full_url)
+            .bind(sort_order)
+            .bind(params.cloud_key)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        sync_provider_models_tx(
+            &mut transaction,
+            &provider_id,
+            Some(params.models),
+            [
+                (ModelMapColumn::Enabled, None, false),
+                (ModelMapColumn::Protocol, None, false),
+                (ModelMapColumn::ContextLimit, None, false),
+                (ModelMapColumn::Description, None, false),
+            ],
+            now,
+        )
+        .await?;
+
+        transaction.commit().await?;
+
+        let id = match &existing {
+            Some(p) => p.id,
+            None => sqlx::query_scalar::<_, i64>("SELECT id FROM providers WHERE provider_id = ?")
+                .bind(&provider_id)
+                .fetch_one(&self.pool)
+                .await?,
+        };
+
+        Ok(Provider {
+            id,
+            provider_id,
+            platform: params.platform.to_string(),
+            name: params.name.to_string(),
+            base_url: params.base_url.to_string(),
+            api_key_encrypted: params.api_key_encrypted.to_string(),
+            enabled: true,
+            bedrock_config: None,
+            is_full_url: params.is_full_url,
+            sort_order,
+            source: "cloud".to_string(),
+            cloud_key: Some(params.cloud_key.to_string()),
+            created_at: existing.as_ref().map(|p| p.created_at).unwrap_or(now),
+            updated_at: now,
+        })
+    }
+
+    async fn delete_cloud_providers_not_in(&self, keep_keys: &[String]) -> Result<u64, DbError> {
+        let ids = collect_cloud_to_prune(&self.pool, keep_keys).await?;
+        delete_providers_by_ids(&self.pool, &ids).await
+    }
 }
 
 /// Detect SQLite UNIQUE constraint violation (codes 2067 / 1555).
 fn is_unique_violation(err: &dyn sqlx::error::DatabaseError) -> bool {
     err.code().is_some_and(|c| c == "2067" || c == "1555")
+}
+
+/// Find any `source = 'cloud'` providers whose `cloud_key` is NOT in
+/// `keep_keys` and delete them (cascade-clearing their `provider_models`).
+/// An empty `keep_keys` removes every cloud provider.
+async fn collect_cloud_to_prune(
+    pool: &SqlitePool,
+    keep_keys: &[String],
+) -> Result<Vec<String>, DbError> {
+    let ids = if keep_keys.is_empty() {
+        sqlx::query_scalar::<_, String>(
+            "SELECT provider_id FROM providers WHERE source = 'cloud'",
+        )
+        .fetch_all(pool)
+        .await?
+    } else {
+        let placeholders = vec!["?"; keep_keys.len()].join(", ");
+        let sql = format!(
+            "SELECT provider_id FROM providers \
+             WHERE source = 'cloud' \
+               AND (cloud_key IS NULL OR cloud_key NOT IN ({placeholders}))"
+        );
+        let mut query = sqlx::query_scalar::<_, String>(&sql);
+        for key in keep_keys {
+            query = query.bind(key);
+        }
+        query.fetch_all(pool).await?
+    };
+    Ok(ids)
+}
+
+async fn delete_providers_by_ids(pool: &SqlitePool, ids: &[String]) -> Result<u64, DbError> {
+    let mut count: u64 = 0;
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let mut transaction = pool.begin().await?;
+    for provider_id in ids {
+        sqlx::query("DELETE FROM provider_models WHERE provider_id = ?")
+            .bind(provider_id)
+            .execute(&mut *transaction)
+            .await?;
+        let affected = sqlx::query("DELETE FROM providers WHERE provider_id = ?")
+            .bind(provider_id)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+        count += affected;
+    }
+    transaction.commit().await?;
+    Ok(count)
 }
 
 /// Merge partial update params into an existing provider, returning a new instance.
@@ -820,6 +990,8 @@ fn merge_update(existing: Provider, params: UpdateProviderParams<'_>) -> Provide
             .map_or(existing.bedrock_config, |v| v.map(String::from)),
         is_full_url: params.is_full_url.unwrap_or(existing.is_full_url),
         sort_order: params.sort_order.unwrap_or(existing.sort_order),
+        source: existing.source,
+        cloud_key: existing.cloud_key,
         created_at: existing.created_at,
         updated_at: now,
     }
