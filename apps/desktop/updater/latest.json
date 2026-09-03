@@ -1,11 +1,11 @@
 {
   "version": "5.0.17",
-  "notes": "GeekClaw v5.0.16\n\n本次更新包含 v5.0.15 与 v5.0.16 两轮改进合并发布。\n\n新功能\n- 模型管理新增「本地私有模型」配置入口，一键配置 Ollama / LM Studio / vLLM 等 OpenAI-compatible 本地模型服务（预填 http://localhost:11434/v1）\n- 专家数字分身市场升级：专家数据统一由云端管理后台管理与配置，桌面端专注消费使用\n- 数字分身伙伴与会话体验优化\n\n优化\n- 侧边栏导航调整：「定时任务」移至增强工具/MCP 下，「龙虾盒子」移至 Work++ 工作平台/A2A跨境电商下\n- 客服模块品牌统一：Bytedesk 更名为 GeekLink，左侧功能栏「客服」改为「AI客服」\n- 云端模型同步失败提示增强：未登录云端账号时明确提示，其他错误显示具体原因\n- 官网地址统一修正为 https://www.geekclaw.ai\n\n修复\n- 修复云端模型同步目录为空导致同步无反馈的问题（云端已上架 GeekClawAI004 托管模型，含 72 个主流模型）",
-  "pub_date": "2026-09-02T23:06:20.538Z",
+  "notes": "GeekClaw v5.0.17\n\n修复\n- 云端模型同步 / 专家市场同步失败：上游返回 401/403（云端登录失效）时，此前被错误包装成 502 Bad Gateway，导致前端无法识别。现在正确返回 401，前端明确提示「请重新登录云端账号」。\n- 触发场景：云端 admin 修改密码后 JWT secret 轮换，桌面端保存的旧 token 立即失效，同步时报此错。重新登录云端账号即可恢复。\n\n优化\n- 侧边栏结构调整：【数据空间】及其下的【知识库】、【数字资产】整组移动到【Work++工作平台】的【龙虾盒子】下方。\n- 同步失败提示增强：手动同步时若未登录/登录失效，给出明确的登录引导，不再只显示笼统的「同步失败」。\n\n说明\n- 若同步仍失败，请先确认已登录云端账号；admin 密码于 2026-09-02 修改过，需重新登录一次。",
+  "pub_date": "2026-09-03T00:36:34.374Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWJ0NVI4QXl4cmkvWlFzNDFSUU9jc092UkhFNFVOUlhhbDB2SnYxMnA5ZU8xcVc3TGw3N1hQcGVHRHc0VEY1UEFrNXh4TXh2RzdDU3YzcWx3WXl3NFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzYzNzg4CWZpbGU6R2Vla0NsYXdfNS4wLjE2X3g2NC1zZXR1cC5leGUKQ1BpRzlxYkYzdUt1TmRvejVRTUhMbWF2SktHOVB1TlFhY0loaFNMSk9RZFpqSytleTBZdi9jemg1Mit5R3ZmVzI4ZWRibStHTnJPMzAydmgrZUFQQmc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.16/GeekClaw_5.0.16_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVM5RXRESkhvMlRkcjAraC90NlpkRTVONERUNGRXeU9za2pEUW1OTmZkQ1BhSjZsQ0R2ejAxbmwrYkxqdmEvNzc5VUZzT0xJWjVXTjZIL1FNMFdMcWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzkyNzgzCWZpbGU6R2Vla0NsYXdfNS4wLjE3X3g2NC1zZXR1cC5leGUKajBOQVlFK3hWYk9DQkprNVhYVnhWSjNRV1Q4S2ZMZHdiYzlWREFaaDVqRTAzMVVFSzhrRVBGK3p1STUrOWlIbUIrdENYNUxQczN3dTdoYXByVmFVRHc9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.17/GeekClaw_5.0.17_x64-setup.exe"
     }
   }
 }
