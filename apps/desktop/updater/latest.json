@@ -1,11 +1,11 @@
 {
-  "version": "5.0.19",
-  "notes": "GeekClaw v5.0.19\n\n新增\n- 管理后台「注册账号管理」支持管理员直接修改用户密码：用户列表操作列新增「修改密码」，可直接指定新密码（需符合密码强度规则），修改后该用户所有会话立即失效、需重新登录。\n- 云端模型 / 专家市场同步失败自动重登：同步时若检测到云端登录已失效（401/403），自动打开浏览器引导重新登录云端账号，登录成功后自动重试一次同步，不再仅弹提示。\n\n优化\n- 同步体验：云端 token 失效时优先静默恢复，减少手动操作。\n\n说明\n- 若重登后仍提示需登录，请在设置中手动重新登录云端账号。\n- 桌面端已原生接管云端已配置的 AI 客服模型通道（5.0.18 起），无需单独配 key。",
-  "pub_date": "2026-09-03T12:50:05.379Z",
+  "version": "5.0.21",
+  "notes": "GeekClaw v5.0.21 — 原生 AI 客服上线\n\n本版本带来全新的原生 AI 客服能力，并包含 v5.0.20 的全部稳定性修复（v5.0.20 因构建环境故障跳过发布，其修复随本版本一并交付）。\n\n【新功能】原生 AI 客服对话（GeekLink 外部依赖移除）\n- 客服页全新「对话」窗口：与 AI 客服直接聊天，回复由 GeekClaw 已配置的大模型原生生成，不再依赖任何外部客服服务\n- 首次启动自动创建内置「GeekClaw AI 客服」，开箱即用；模型自动选用当前已启用的对话模型\n- 对话历史自动保存，重启后继续上次的话题\n- 知识库检索 / 知识阅读 / 客服笔记三个只读工具，回答有据可依；终端 / 文件 / 电脑等高危能力从不注册\n- 花名册卡片与客服详情页均新增「对话」入口\n\n【修复】（承接 v5.0.20）\n- 账号安全：修改密码后旧会话（含桌面端）立即失效，防止旧令牌被继续使用\n- 管理员重置密码后强制目标用户重新登录\n- 登录与云状态校验的多处稳定性修复\n- 模型弹窗自动同步失败后自动重新登录\n- 弱密码提示误报修复\n\n【升级说明】\n- 从 5.0.x 直接在线更新即可；换用新更新密钥后首次需手动下载安装\n- 客服对话窗口位于左侧「AI 客服」页，点击客服卡片上的「对话」按钮即可开始",
+  "pub_date": "2026-09-03T14:49:14.504Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWNIS0hGR2lpZWZma2d0ZzJkejZicVo5cHlXVTFIMmtPcVQ1RTlaelpUMjAyRk93Z2d4YU5OMThraHltMGh6RnZDQTk0RU84VW5zY0tRNjFMTFJESXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDM5NTI3CWZpbGU6R2Vla0NsYXdfNS4wLjE5X3g2NC1zZXR1cC5leGUKN203Rk02ZVFpWVZ5STlROUJsWVoybURDNWpKTHpqbFdTeTNaYy9WdnFrU09Qdi9kWk0vajVoZ1c4UDJYc1RCeHFYQlNhaWFQajd1S3gxWGZRM2J3QVE9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.19/GeekClaw_5.0.19_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVVZZ0M1dmZLUjhJMm94eVBEbEFtTVU1dklLRjZGYmhIT2xmeExaSTVlNzF0akRYck02bGxBYk9zTHExZnBMRlo0RXNiYzZOMmNPN21vTjFXK09ZV0E0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDQ2ODkwCWZpbGU6R2Vla0NsYXdfNS4wLjIxX3g2NC1zZXR1cC5leGUKWlFvQmJ1NXY0MHFVRmh0S0pYZEg1ZXdhOWdxdmFGTDNMdlZ4cDNzdHhCV21PendXSy9lVjVaeitrbDU1Mks3ZHp0RzdVZVpGc2NDNkw0bFJWb2dMQkE9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.21/GeekClaw_5.0.21_x64-setup.exe"
     }
   }
 }
