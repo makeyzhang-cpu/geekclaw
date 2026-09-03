@@ -1,11 +1,11 @@
 {
-  "version": "5.0.17",
-  "notes": "GeekClaw v5.0.17\n\n修复\n- 云端模型同步 / 专家市场同步失败：上游返回 401/403（云端登录失效）时，此前被错误包装成 502 Bad Gateway，导致前端无法识别。现在正确返回 401，前端明确提示「请重新登录云端账号」。\n- 触发场景：云端 admin 修改密码后 JWT secret 轮换，桌面端保存的旧 token 立即失效，同步时报此错。重新登录云端账号即可恢复。\n\n优化\n- 侧边栏结构调整：【数据空间】及其下的【知识库】、【数字资产】整组移动到【Work++工作平台】的【龙虾盒子】下方。\n- 同步失败提示增强：手动同步时若未登录/登录失效，给出明确的登录引导，不再只显示笼统的「同步失败」。\n\n说明\n- 若同步仍失败，请先确认已登录云端账号；admin 密码于 2026-09-02 修改过，需重新登录一次。",
-  "pub_date": "2026-09-03T00:36:34.374Z",
+  "version": "5.0.18",
+  "notes": "GeekClaw v5.0.18\n\n优化\n- AI 客服（GeekLink）原生接管：内置 AI 坐席已接入 GeekClaw 云端已配置的模型通道，可自动接待访客咨询并实时给出中文回复，无需在客户端单独配置任何 API Key。\n- 坐席在线保活：客服坐席保持在线承载会话，建会话 → 收消息 → AI 应答 → 回发 全链路已端到端验证通过，客户服务的可用性与响应质量提升。\n\n说明\n- 本次版本主要对齐云端 AI 客服能力，桌面端安装包与升级通道同步至 5.0.18。",
+  "pub_date": "2026-09-03T11:45:04.311Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVM5RXRESkhvMlRkcjAraC90NlpkRTVONERUNGRXeU9za2pEUW1OTmZkQ1BhSjZsQ0R2ejAxbmwrYkxqdmEvNzc5VUZzT0xJWjVXTjZIL1FNMFdMcWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzkyNzgzCWZpbGU6R2Vla0NsYXdfNS4wLjE3X3g2NC1zZXR1cC5leGUKajBOQVlFK3hWYk9DQkprNVhYVnhWSjNRV1Q4S2ZMZHdiYzlWREFaaDVqRTAzMVVFSzhrRVBGK3p1STUrOWlIbUIrdENYNUxQczN3dTdoYXByVmFVRHc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.17/GeekClaw_5.0.17_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWEweVhJNC9Fa0FRTmtpSCszMnB0NDVjNmpiaVB1THJ1RVhqQjdDVDNDaDNqdHFabVBSNGV0VHEwR1R3TDMrM1hDby94TEg5MnhyeFZDU3pjYjlUTHdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDM1NzMyCWZpbGU6R2Vla0NsYXdfNS4wLjE4X3g2NC1zZXR1cC5leGUKMnFpdUt1S3BxalJnUWF6QTJYYlU2Mk9jS3hJNzJOVnF6ZjZyZ3dJUE56WndwM0hra1l0NCtzUFBER0dNMGxxSGhLUVJOeXJHUjJ4cFk4ZHBjL2diQ0E9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.18/GeekClaw_5.0.18_x64-setup.exe"
     }
   }
 }
