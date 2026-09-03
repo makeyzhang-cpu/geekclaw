@@ -51,10 +51,9 @@ interface SiderProps {
  * content-area secondary sidebar (`ConversationShell` / `ContentSider`),
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`): 常用 (会话 / 桌面伙伴),
- * 数据空间 (知识库 / 数字资产库), Work++工作平台 (Work++社区 / A2A跨境电商 / 龙虾盒子),
- * 增强工具 (设定 / Skill / MCP / 定时任务), 服务 (客服).
- *
- * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
+ * 创意工坊, Work++工作平台 (Work++社区 / AI 外贸工作台 / A2A跨境电商 / 龙虾盒子 / 数据空间(知识库 / 数字资产)),
+ * 增强工具 (设定 / Skill / MCP / 定时任务), 服务 (AI 客服).
+ * * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
  * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
  * of `Layout`, leaving this rail focused on primary destinations.
  */
@@ -167,25 +166,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkshopClick}
             />
-            {/* 数据空间 — data & storage (文件管理 reserved for later) */}
-            <SiderSectionHeader label={t('common.siderSection.data')} collapsed={collapsed} />
-            {/* Knowledge base */}
-            <SiderKnowledgeEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/knowledge')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleKnowledgeClick}
-              dot={pendingInboxCount > 0}
-            />
-            {/* Asset library — unified management of creative-workshop assets */}
-            <SiderAssetLibraryEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/assets')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleAssetLibraryClick}
-            />
             {/* Work++工作平台 — automation platforms */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
             {/* Work++社区 */}
@@ -226,6 +206,25 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               </span>
               <span className='collapsed-hidden text-14px font-[500] leading-24px'>龙虾盒子</span>
             </div>
+            {/* 数据空间 — data & storage (moved under 龙虾盒子 / Work++ 工作平台) */}
+            <SiderSectionHeader label={t('common.siderSection.data')} collapsed={collapsed} />
+            {/* Knowledge base */}
+            <SiderKnowledgeEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/knowledge')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleKnowledgeClick}
+              dot={pendingInboxCount > 0}
+            />
+            {/* Asset library — unified management of creative-workshop assets */}
+            <SiderAssetLibraryEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/assets')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleAssetLibraryClick}
+            />
             {/* 增强工具 — extension capabilities */}
             <SiderSectionHeader label={t('common.siderSection.tools')} collapsed={collapsed} />
             {/* Presets and skills are separate concepts and destinations. */}

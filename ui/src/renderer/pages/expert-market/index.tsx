@@ -321,7 +321,30 @@ const ExpertMarketPage: React.FC = () => {
       );
       void loadMarket();
     } catch (err) {
-      Message.error(String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      const lower = msg.toLowerCase();
+      const isUnauthorized =
+        msg.includes('401') ||
+        msg.includes('403') ||
+        lower.includes('unauthorized') ||
+        lower.includes('forbidden') ||
+        lower.includes('expired token') ||
+        lower.includes('登录已失效') ||
+        lower.includes('未登录云端');
+      if (isUnauthorized) {
+        Message.warning(
+          t('expertMarket.syncNeedLogin', {
+            defaultValue: '云端账号登录已失效，请重新登录云端账号后再同步',
+          })
+        );
+      } else {
+        Message.error(
+          t('expertMarket.syncFailedDetail', {
+            msg,
+            defaultValue: `同步云端专家失败：${msg}`,
+          })
+        );
+      }
     } finally {
       setSyncLoading(false);
     }

@@ -897,13 +897,22 @@ const ModelModalContent: React.FC = () => {
       );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      const isUnauthorized = msg.includes('401') || msg.toLowerCase().includes('unauthorized');
+      const lower = msg.toLowerCase();
+      // 后端会把云端 401/403（登录失效/token 过期）翻译成 Unauthorized 并带「云端账号登录已失效」字样
+      const isUnauthorized =
+        msg.includes('401') ||
+        msg.includes('403') ||
+        lower.includes('unauthorized') ||
+        lower.includes('forbidden') ||
+        lower.includes('expired token') ||
+        lower.includes('登录已失效') ||
+        lower.includes('未登录云端');
       if (isUnauthorized) {
-        // 未登录云端 → 401；自动同步时静默忽略，手动点击则提示登录
+        // 未登录云端 / 登录已失效：自动同步时静默忽略，手动点击则明确提示需重新登录
         if (isManual) {
           message.warning(
             t('settings.cloudProviderSyncNeedLogin', {
-              defaultValue: '请先登录云端账号，再同步云端模型',
+              defaultValue: '云端账号登录已失效，请重新登录云端账号后再同步',
             })
           );
         }

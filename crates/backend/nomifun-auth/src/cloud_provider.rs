@@ -370,6 +370,13 @@ pub async fn sync_cloud_providers_handler(
         .await
         .map_err(|e| AppError::Internal(format!("读取云端模型响应失败: {e}")))?;
     if !status.is_success() {
+        // 上游返回 401/403 通常是桌面端存的云端 JWT 失效（admin 改密轮换 secret 等），
+        // 翻译成 Unauthorized 让前端能精确识别「云端登录失效」，不要包成 BadGateway 误导为网络问题。
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(AppError::Unauthorized(
+                "云端账号登录已失效，请重新登录云端账号".into(),
+            ));
+        }
         return Err(AppError::BadGateway(format!("云端模型接口返回 {status}: {body}")));
     }
     let cloud: ApiResponse<Vec<CloudProviderPublicView>> = serde_json::from_str(&body)
