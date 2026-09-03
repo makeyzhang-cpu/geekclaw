@@ -53,6 +53,7 @@
     "emptyPassword": "密码不能为空",
     "passwordsDoNotMatch": "两次输入的密码不一致",
     "cannotChangeSelf": "不能修改自己的密码",
+    "passwordTooWeak": "密码强度不足（至少 8 位，且不能是常见弱密码）",
     "changePasswordFailed": "修改密码失败"
   }
 }

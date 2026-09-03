@@ -206,13 +206,22 @@ const UserManagementPage: React.FC = () => {
       closeChangePassword();
       await loadUsers();
     } catch (err) {
-      const e = err as ApiError;
+      // The backend returns 400 for both "cannot change your own password"
+      // (admin guard) and weak/invalid passwords (validate_password). Tell
+      // them apart from the message so the operator sees the real reason.
+      const e = err as { status?: number; backendMessage?: string; message?: string };
+      const msg = ((e?.backendMessage || e?.message || '') as string).toLowerCase();
       console.error('Failed to change password', e);
-      Message.error(
-        e.status === 400
-          ? t('userManagement.errors.cannotChangeSelf')
-          : t('userManagement.errors.changePasswordFailed')
-      );
+      if (e?.status === 400 && /own password|change your own/i.test(msg)) {
+        Message.error(t('userManagement.errors.cannotChangeSelf'));
+      } else if (
+        e?.status === 400 &&
+        /(least \d+ char|too common|exceed \d+|weak)/i.test(msg)
+      ) {
+        Message.error(t('userManagement.errors.passwordTooWeak'));
+      } else {
+        Message.error(t('userManagement.errors.changePasswordFailed'));
+      }
     } finally {
       setActingId(null);
     }

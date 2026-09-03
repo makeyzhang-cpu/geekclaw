@@ -43,7 +43,19 @@ pub struct TokenPayload {
 /// Thread-safe: the secret is behind a `RwLock` and the blacklist uses `DashMap`.
 pub struct JwtService {
     /// Current signing/verification secret (rotatable).
+    ///
+    /// This is the *global* fallback secret. Each user may instead carry their
+    /// own per-user secret (see [`JwtService::user_secrets`]); when present it
+    /// is used in preference to the global secret so that rotating one user's
+    /// secret (on password change) invalidates only that user's sessions
+    /// instead of every session in the deployment.
     secret: RwLock<String>,
+    /// Per-user signing/verification secrets, keyed by user id.
+    ///
+    /// Populated at boot from the `users.jwt_secret` column (see
+    /// `load_user_secret`) and on every password change (see
+    /// `rotate_user_secret`). Absence falls back to the global `secret`.
+    user_secrets: DashMap<UserId, String>,
     /// Blacklisted token hashes -> expiry timestamps.
     blacklist: DashMap<String, u64>,
 }
@@ -55,6 +67,7 @@ impl JwtService {
     pub fn new(secret: String) -> Self {
         Self {
             secret: RwLock::new(secret),
+            user_secrets: DashMap::new(),
             blacklist: DashMap::new(),
         }
     }
@@ -73,6 +86,8 @@ impl JwtService {
     pub fn sign_with_window(&self, user_id: &str, username: &str, iat: u64, exp: u64) -> Result<String, AuthError> {
         let user_id = UserId::parse(user_id)
             .map_err(|error| AuthError::TokenInvalid(format!("invalid user id: {error}")))?;
+        // Resolve the per-user secret BEFORE `user_id` is moved into `TokenPayload`.
+        let secret = self.per_user_secret(&user_id)?;
         let claims = TokenPayload {
             user_id,
             username: username.to_owned(),
@@ -81,11 +96,6 @@ impl JwtService {
             iss: JWT_ISSUER.to_owned(),
             aud: JWT_AUDIENCE.to_owned(),
         };
-
-        let secret = self
-            .secret
-            .read()
-            .map_err(|e| AuthError::TokenInvalid(format!("Secret lock poisoned: {e}")))?;
 
         encode(
             &Header::default(),
@@ -97,17 +107,20 @@ impl JwtService {
 
     /// Verify a JWT and return its payload.
     ///
-    /// Checks: blacklist, signature, expiration, issuer, audience.
+    /// Checks: blacklist, signature, expiration, issuer, audience. The secret
+    /// used for verification is the *per-user* secret when one is cached,
+    /// otherwise the global fallback secret. This lets a single user's password
+    /// change invalidate only that user's sessions.
     pub fn verify(&self, token: &str) -> Result<TokenPayload, AuthError> {
         let hash = token_hash(token);
         if self.blacklist.contains_key(&hash) {
             return Err(AuthError::TokenBlacklisted);
         }
 
-        let secret = self
-            .secret
-            .read()
-            .map_err(|e| AuthError::TokenInvalid(format!("Secret lock poisoned: {e}")))?;
+        // Peek the subject without verifying so we can pick the right secret.
+        let claims = peek_claims(token)
+            .ok_or_else(|| AuthError::TokenInvalid("Malformed JWT".into()))?;
+        let secret = self.per_user_secret(&claims.user_id)?;
 
         let mut validation = Validation::default();
         validation.set_issuer(&[JWT_ISSUER]);
@@ -120,6 +133,44 @@ impl JwtService {
             })?;
 
         Ok(token_data.claims)
+    }
+
+    /// Resolve the secret to sign/verify for a given user: their per-user
+    /// secret if cached, otherwise the global fallback secret.
+    fn per_user_secret(&self, user_id: &UserId) -> Result<String, AuthError> {
+        if let Some(s) = self.user_secrets.get(user_id) {
+            return Ok(s.clone());
+        }
+        let guard = self
+            .secret
+            .read()
+            .map_err(|e| AuthError::TokenInvalid(format!("Secret lock poisoned: {e}")))?;
+        Ok(guard.clone())
+    }
+
+    /// Load a user's persisted per-user secret into the in-memory cache.
+    ///
+    /// Called at boot for every user that has a `jwt_secret` row, so that
+    /// password-change session isolation survives a process restart.
+    pub fn load_user_secret(&self, user_id: &str, secret: &str) {
+        if let Ok(uid) = UserId::parse(user_id) {
+            self.user_secrets.insert(uid, secret.to_owned());
+        }
+    }
+
+    /// Rotate only the given user's secret, invalidating just that user's
+    /// existing sessions (not the whole deployment).
+    ///
+    /// Unlike [`JwtService::rotate_secret`], this does NOT touch the global
+    /// secret and does NOT clear the revocation blacklist, so other users are
+    /// unaffected. The caller is responsible for persisting the returned secret
+    /// to the user's `jwt_secret` row.
+    pub fn rotate_user_secret(&self, user_id: &str) -> Result<String, AuthError> {
+        let new_secret = generate_random_secret_string();
+        if let Ok(uid) = UserId::parse(user_id) {
+            self.user_secrets.insert(uid, new_secret.clone());
+        }
+        Ok(new_secret)
     }
 
     /// Add a token to the blacklist.
@@ -172,6 +223,33 @@ impl JwtService {
             .ok()
             .map(|data| data.claims.exp)
     }
+}
+
+/// Decode a token's claims WITHOUT verifying the signature or expiry, and
+/// without enforcing issuer/audience — used solely to discover the subject
+/// (`user_id`) so the correct per-user secret can be selected for verification.
+///
+/// We manually base64url-decode the payload segment rather than going through
+/// `jsonwebtoken::decode`, because the latter's `validate_signature` flag is a
+/// private field (and we have nothing to verify against yet — the secret
+/// depends on the subject we are about to read).
+fn peek_claims(token: &str) -> Option<TokenPayload> {
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64_url_decode(payload)?;
+    serde_json::from_slice::<TokenPayload>(&bytes).ok()
+}
+
+/// Decode a base64url (no-padding) string, falling back to standard base64 with
+/// padding restored. Mirrors `decode_jwt_claims` in `routes.rs`.
+fn base64_url_decode(input: &str) -> Option<Vec<u8>> {
+    let mut padded = input.to_string();
+    while padded.len() % 4 != 0 {
+        padded.push('=');
+    }
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&padded)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(&padded))
+        .ok()
 }
 
 /// True once a token is past half of its `iat → exp` lifetime.
@@ -397,6 +475,27 @@ mod tests {
         let token = service.sign(TEST_USER_ID, "admin").unwrap();
         let payload = service.verify(&token).unwrap();
         assert_eq!(payload.user_id.as_str(), TEST_USER_ID);
+    }
+
+    #[test]
+    fn rotate_user_secret_invalidates_only_that_user() {
+        let service = test_service();
+        // Both users signed under the global secret.
+        let token_a = service.sign(TEST_USER_ID, "admin").unwrap();
+        let token_b = service.sign(TEST_USER_ID_2, "user").unwrap();
+        assert!(service.verify(&token_a).is_ok());
+        assert!(service.verify(&token_b).is_ok());
+
+        // Rotate ONLY user A's secret.
+        service.rotate_user_secret(TEST_USER_ID).unwrap();
+
+        // User A's old token is now rejected (per-user secret changed).
+        assert!(service.verify(&token_a).is_err());
+        // User B is completely unaffected (global secret unchanged).
+        assert!(service.verify(&token_b).is_ok());
+        // New tokens for A verify fine under the new per-user secret.
+        let token_a_new = service.sign(TEST_USER_ID, "admin").unwrap();
+        assert!(service.verify(&token_a_new).is_ok());
     }
 
     #[test]

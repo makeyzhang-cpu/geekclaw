@@ -360,9 +360,9 @@ mod tests {
     }
 
     #[test]
-    fn factory_authenticated_action_limit_is_twenty() {
+    fn factory_authenticated_action_limit_is_sixty() {
         let limiter = RateLimiter::authenticated_action();
-        for _ in 0..20 {
+        for _ in 0..60 {
             assert!(limiter.check_and_increment("user:1").is_ok());
         }
         assert!(limiter.check_and_increment("user:1").is_err());

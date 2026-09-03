@@ -52,6 +52,10 @@ export const CloudAuthProvider: React.FC<React.PropsWithChildren> = ({ children 
   const [state, setState] = useState<CloudAuthState>({ authenticated: false });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  // Holds the in-flight login promise so concurrent callers (e.g. a sync
+  // retry and the login wall firing at once) share one browser OAuth flow
+  // instead of the second caller bailing out with `authenticated: false`.
+  const loginPromiseRef = useRef<Promise<CloudAuthState> | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isDesktop) {
@@ -64,21 +68,31 @@ export const CloudAuthProvider: React.FC<React.PropsWithChildren> = ({ children 
   }, []);
 
   const login = useCallback(async (): Promise<CloudAuthState> => {
-    if (!isDesktop || busyRef.current) return { authenticated: false };
+    if (!isDesktop) return { authenticated: false };
+    // A login is already running — join it rather than racing / short-circuiting.
+    if (busyRef.current && loginPromiseRef.current) {
+      return loginPromiseRef.current;
+    }
     busyRef.current = true;
     setBusy(true);
-    try {
-      await openCloudLogin();
-      const st = await waitForCloudAuth(90000);
-      setState(st);
-      return st;
-    } catch (error) {
-      console.error('[cloud-auth] login failed:', error);
-      return { authenticated: false };
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
+    const run = async (): Promise<CloudAuthState> => {
+      try {
+        await openCloudLogin();
+        const st = await waitForCloudAuth(90000);
+        setState(st);
+        return st;
+      } catch (error) {
+        console.error('[cloud-auth] login failed:', error);
+        return { authenticated: false };
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
+        loginPromiseRef.current = null;
+      }
+    };
+    const promise = run();
+    loginPromiseRef.current = promise;
+    return promise;
   }, []);
 
   const logout = useCallback(async () => {

@@ -839,13 +839,14 @@ async fn change_password_handler(
         .await
         .map_err(|e| AppError::Internal(format!("Database error: {e}")))?;
 
-    // Rotate JWT secret to invalidate all sessions
+    // Rotate ONLY this user's secret so their other sessions are invalidated
+    // without logging out every other user in the deployment.
     let new_secret = state
         .jwt_service
-        .rotate_secret()
+        .rotate_user_secret(current_user.id.as_str())
         .map_err(|e| AppError::Internal(format!("Secret rotation error: {e}")))?;
 
-    // Persist new secret to database
+    // Persist the new per-user secret to the database.
     state
         .user_repo
         .update_jwt_secret(current_user.id.as_str(), &new_secret)
@@ -1348,6 +1349,11 @@ async fn set_role_handler(
     body: Result<Json<SetRoleRequest>, JsonRejection>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
     ensure_admin(&current_user)?;
+    // Guard: an admin cannot change their own role (e.g. demote themselves and
+    // lose access). The last-active-admin check below still protects the org.
+    if user_id == current_user.id.as_str() {
+        return Err(AppError::BadRequest("Cannot change your own role".into()));
+    }
     let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
     let new_role = req.role.trim();
     if new_role != "admin" && new_role != "user" {
@@ -1463,7 +1469,7 @@ async fn reset_password_admin_handler(
     // Rotate JWT secret to invalidate all existing sessions (desktop sync).
     let new_secret = state
         .jwt_service
-        .rotate_secret()
+        .rotate_user_secret(&user_id)
         .map_err(|e| AppError::Internal(format!("Secret rotation error: {e}")))?;
     state
         .user_repo
@@ -1526,7 +1532,7 @@ async fn change_password_admin_handler(
     // Rotate JWT secret to invalidate all existing sessions (desktop sync).
     let new_secret = state
         .jwt_service
-        .rotate_secret()
+        .rotate_user_secret(&user_id)
         .map_err(|e| AppError::Internal(format!("Secret rotation error: {e}")))?;
     state
         .user_repo
@@ -2844,6 +2850,11 @@ struct CloudUserInfo {
     pub email: Option<String>,
     #[serde(default)]
     pub username: Option<String>,
+    /// Token expiry (seconds since UNIX epoch), if present. Used by the client
+    /// to detect an expired cloud token without being able to verify the
+    /// cloud's signature locally.
+    #[serde(default)]
+    pub exp: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2863,10 +2874,26 @@ async fn cloud_status_handler(
     match token {
         Some(t) if !t.is_empty() => {
             let user = decode_jwt_claims(&t);
-            Ok(Json(CloudStatusResponse {
-                authenticated: true,
-                user,
-            }))
+            // Best-effort expiry check: the cloud token is signed by the cloud
+            // backend, so we cannot verify its signature locally — but we can
+            // read its `exp` claim and report it expired so the client triggers
+            // a re-auth instead of believing a stale token is still valid.
+            let expired = user
+                .as_ref()
+                .and_then(|u| u.exp)
+                .map(|exp| exp <= (nomifun_common::now_ms() / 1000) as u64)
+                .unwrap_or(false);
+            if expired {
+                Ok(Json(CloudStatusResponse {
+                    authenticated: false,
+                    user: None,
+                }))
+            } else {
+                Ok(Json(CloudStatusResponse {
+                    authenticated: true,
+                    user,
+                }))
+            }
         }
         _ => Ok(Json(CloudStatusResponse {
             authenticated: false,
@@ -2897,6 +2924,7 @@ fn decode_jwt_claims(token: &str) -> Option<CloudUserInfo> {
             .get("username")
             .and_then(|x| x.as_str())
             .map(|s| s.to_string()),
+        exp: v.get("exp").and_then(|x| x.as_u64()),
     })
 }
 

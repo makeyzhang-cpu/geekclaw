@@ -910,35 +910,39 @@ const ModelModalContent: React.FC = () => {
         lower.includes('登录已失效') ||
         lower.includes('未登录云端');
       if (isUnauthorized) {
-        // 未登录云端 / 登录已失效：手动点击同步时自动打开浏览器重登并重试一次
+        // 未登录云端 / 登录已失效：自动重登一次并重试。
+        // 手动点击时额外提示「正在打开浏览器」；自动同步（isManual=false）不再静默忽略，
+        // 否则过期会话会默默拿不到云端模型、用户无从察觉。
         if (isManual) {
-          try {
-            message.info(
-              t('settings.cloudProviderReauthing', {
-                defaultValue: '云端账号登录已失效，正在打开浏览器请重新登录…',
+          message.info(
+            t('settings.cloudProviderReauthing', {
+              defaultValue: '云端账号登录已失效，正在打开浏览器请重新登录…',
+            })
+          );
+        }
+        let reauthed = false;
+        try {
+          const st = await login();
+          if (st.authenticated) {
+            const result = await ipcBridge.mode.syncCloudProviders.invoke();
+            void mutate();
+            message.success(
+              t('settings.cloudProviderSynced', {
+                defaultValue: `已同步云端模型（新增 ${result.synced} 个，本地共 ${result.total_local} 个）`,
               })
             );
-            const st = await login();
-            if (st.authenticated) {
-              const result = await ipcBridge.mode.syncCloudProviders.invoke();
-              void mutate();
-              message.success(
-                t('settings.cloudProviderSynced', {
-                  defaultValue: `已同步云端模型（新增 ${result.synced} 个，本地共 ${result.total_local} 个）`,
-                })
-              );
-              return;
-            }
-          } catch {
-            /* 重登或重试失败，落到下方提示 */
+            reauthed = true;
           }
+        } catch {
+          /* 重登或重试失败，落到下方提示 */
+        }
+        if (!reauthed) {
           message.warning(
             t('settings.cloudProviderSyncNeedLogin', {
               defaultValue: '云端账号登录已失效，请重新登录云端账号后再同步',
             })
           );
         }
-        // 自动同步（isManual=false）时静默忽略
       } else {
         console.error('Failed to sync cloud providers:', error);
         message.error(

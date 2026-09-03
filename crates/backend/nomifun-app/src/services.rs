@@ -2995,12 +2995,25 @@ impl AppServices {
         let runtime_registry_delete_hook: Arc<dyn OnConversationDelete> = runtime_registry_concrete;
         let conversation_runtime_state = Arc::new(ConversationRuntimeStateService::default());
 
+        // Build the JWT service. Preload each user's per-user secret so that
+        // password-change session isolation (rotate_user_secret) survives a
+        // process restart instead of forcing a one-time re-login for affected
+        // users.
+        let jwt_service = Arc::new(JwtService::new(secret.clone()));
+        if let Ok(all_users) = user_repo.list_users().await {
+            for u in all_users {
+                if let Some(s) = u.jwt_secret.as_ref().filter(|x| !x.is_empty()) {
+                    jwt_service.load_user_secret(u.user_id.as_str(), s);
+                }
+            }
+        }
+
         let services = Self {
             database,
             _boot_reconciliation_authority: None,
             provider_lifecycle,
             authoritative_user_id,
-            jwt_service: Arc::new(JwtService::new(secret.clone())),
+            jwt_service: jwt_service.clone(),
             user_repo,
             companion_token_repo,
             companion_token_validator,
