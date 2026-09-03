@@ -52,6 +52,16 @@
     "saved": "已保存",
     "notFound": "客服不存在或已删除"
   },
+  "chat": {
+    "openChat": "对话",
+    "back": "返回详情",
+    "placeholder": "输入消息，Enter 发送，Shift+Enter 换行",
+    "send": "发送",
+    "typing": "正在输入…",
+    "needModel": "该客服未配置对话模型 — 请先到详情页的「模型与知识库」中选择。",
+    "agentDisabled": "该客服已停用，启用后才能接待访客。",
+    "error": "回复失败，请稍后重试。"
+  },
   "sections": {
     "identity": "身份与话术",
     "modelKnowledge": "模型与知识库",

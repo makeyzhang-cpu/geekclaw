@@ -8,15 +8,19 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Spin, Tag } from '@arco-design/web-react';
-import { BookOne, Headset, Lock, Plus, SafeRetrieval } from '@icon-park/react';
+import { BookOne, Headset, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
 import { useCsAgents } from './useCsAgents';
 import CreateCsAgentModal from './CreateCsAgentModal';
 import type { ICsAgent } from '@/common/adapter/ipcBridge';
 import type { CsAgentId } from '@/common/types/ids';
 import { HUB_PAGE_TITLE_CLASS } from '@/renderer/components/layout/HubPageShell';
 
-/** 客服花名册卡片：名称 + 启停状态 + 模型/知识库指标。点击进入专属管理页。 */
-const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void }> = ({ agent, onOpen }) => {
+/** 客服花名册卡片：名称 + 启停状态 + 模型/知识库指标 + 直达对话入口。点击进入专属管理页。 */
+const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void; onChat: () => void }> = ({
+  agent,
+  onOpen,
+  onChat,
+}) => {
   const { t } = useTranslation();
   const modelReady = Boolean(agent.provider_id && agent.model);
   return (
@@ -50,19 +54,34 @@ const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void }> = ({ agent,
         </Tag>
       </div>
       <div className='flex items-center gap-14px text-12px text-t-tertiary'>
-        <span className='inline-flex items-center gap-5px'>
-          <SafeRetrieval theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
-          {modelReady
-            ? agent.model
-            : t('customerService.card.noModel', { defaultValue: '未配置模型' })}
+        <span className='inline-flex items-center gap-5px min-w-0'>
+          <SafeRetrieval theme='outline' size='14' fill='currentColor' className='block shrink-0' style={{ lineHeight: 0 }} />
+          <span className='truncate'>
+            {modelReady
+              ? agent.model
+              : t('customerService.card.noModel', { defaultValue: '未配置模型' })}
+          </span>
         </span>
-        <span className='inline-flex items-center gap-5px'>
+        <span className='inline-flex items-center gap-5px shrink-0'>
           <BookOne theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
           {t('customerService.card.kbCount', {
             defaultValue: '{{count}} 个知识库',
             count: agent.knowledge_base_ids.length,
           })}
         </span>
+        <Button
+          size='mini'
+          className='ml-auto shrink-0'
+          onClick={(e) => {
+            e.stopPropagation();
+            onChat();
+          }}
+        >
+          <span className='inline-flex items-center gap-4px'>
+            <Send theme='outline' size='13' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+            {t('customerService.chat.openChat', { defaultValue: '对话' })}
+          </span>
+        </Button>
       </div>
     </div>
   );
@@ -82,6 +101,7 @@ const CustomerServiceRosterPage: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
 
   const openAgent = (csAgentId: CsAgentId) => void navigate(`/customer-service/${csAgentId}`);
+  const openChat = (csAgentId: CsAgentId) => void navigate(`/customer-service/${csAgentId}/chat`);
 
   return (
     <div className='w-full min-h-full box-border overflow-y-auto px-16px py-20px'>
@@ -166,7 +186,12 @@ const CustomerServiceRosterPage: React.FC = () => {
         ) : (
           <div className='grid gap-16px' style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(320px, 100%), 1fr))' }}>
             {agents.map((agent) => (
-              <CsAgentCard key={agent.cs_agent_id} agent={agent} onOpen={() => openAgent(agent.cs_agent_id)} />
+              <CsAgentCard
+                key={agent.cs_agent_id}
+                agent={agent}
+                onOpen={() => openAgent(agent.cs_agent_id)}
+                onChat={() => openChat(agent.cs_agent_id)}
+              />
             ))}
           </div>
         )}

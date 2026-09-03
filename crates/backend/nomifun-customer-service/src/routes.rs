@@ -13,8 +13,9 @@ use nomifun_common::AppError;
 use nomifun_db::models::{
     CsAgentRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+use crate::dialogue::CsDialogueEngine;
 use crate::service::{CreateCsAgentInput, CreateCsNoteInput, CustomerServiceService, UpdateCsAgentInput};
 
 /// Router state for the customer-service domain.
@@ -24,6 +25,9 @@ pub struct CustomerServiceRouterState {
     /// Channel repository used ONLY to validate that binding targets name
     /// live bot rows (binding 的 plugin id 存在性由 route 层查渠道仓储).
     pub channel_repo: Arc<dyn nomifun_db::IChannelRepository>,
+    /// 原生 AI 对话引擎 — 与渠道消息循环（nomifun-channel 的 CsRouting 接缝）
+    /// 共用同一实例；桌面内置聊天窗的 `POST /chat` 只是它的另一个入口。
+    pub engine: Arc<CsDialogueEngine>,
 }
 
 pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
@@ -47,6 +51,7 @@ pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
             "/api/customer-service/dialogues/{cs_dialogue_id}/messages",
             get(list_dialogue_messages),
         )
+        .route("/api/customer-service/chat", axum::routing::post(chat))
         .with_state(state)
 }
 
@@ -234,6 +239,69 @@ async fn list_dialogue_messages(
     )))
 }
 
+// ── chat (built-in desktop lane) ────────────────────────────────────
+
+/// Built-in lane identifiers for the desktop chat window. The plugin/user
+/// ids are FIXED canonical UUIDv7-format values (they must satisfy the
+/// cs_dialogues CHECK constraints — short strings like "desktop" are
+/// rejected) so the desktop conversation resumes across restarts; chat_id
+/// is free-form. These ids are NOT channel_plugins rows — the desktop
+/// window is not an IM channel and never appears in any binding.
+pub const DESKTOP_CHANNEL_PLUGIN_ID: &str = "01978a3e-7c1d-7abc-9def-0123456789ab";
+pub const DESKTOP_CHANNEL_USER_ID: &str = "01978a3e-7c1d-7abc-9def-0123456789ac";
+pub const DESKTOP_CHAT_ID: &str = "desktop-chat";
+
+#[derive(Debug, Deserialize)]
+struct ChatRequest {
+    cs_agent_id: String,
+    text: String,
+    /// Optional lane overrides（渠道语义下由渠道层提供；桌面端省略用默认值）.
+    #[serde(default)]
+    channel_plugin_id: Option<String>,
+    #[serde(default)]
+    channel_user_id: Option<String>,
+    #[serde(default)]
+    chat_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChatResponse {
+    /// `None` = 该文本被合并进同 lane 的另一批次（由那个批次统一回复）。
+    reply: Option<String>,
+}
+
+/// 桌面内置聊天窗：一条访客消息 → 原生 AI 引擎的一个回合。
+///
+/// 回答由 GeekClaw 已配置的 LLM（agent 的 provider/model）经
+/// `CsDialogueEngine` 原生生成 — 无任何外部客服服务依赖。
+async fn chat(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    body: Result<Json<ChatRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<ChatResponse>>, AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let text = req.text.trim();
+    if text.is_empty() {
+        return Err(AppError::BadRequest("消息内容不能为空".into()));
+    }
+    let reply = state
+        .engine
+        .handle_visitor_message(
+            &req.cs_agent_id,
+            req.channel_plugin_id
+                .as_deref()
+                .unwrap_or(DESKTOP_CHANNEL_PLUGIN_ID),
+            req.channel_user_id
+                .as_deref()
+                .unwrap_or(DESKTOP_CHANNEL_USER_ID),
+            req.chat_id.as_deref().unwrap_or(DESKTOP_CHAT_ID),
+            text,
+        )
+        .await
+        .map_err(AppError::BadGateway)?;
+    Ok(Json(ApiResponse::ok(ChatResponse { reply })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,17 +309,68 @@ mod tests {
 
     use nomifun_db::models::NewChannelPluginRow;
     use nomifun_db::{
-        IChannelRepository, SqliteChannelRepository, SqliteCustomerServiceRepository,
+        IChannelRepository, ICustomerServiceRepository, SqliteChannelRepository,
+        SqliteCustomerServiceRepository,
     };
+    use nomifun_realtime::UserEventSink;
 
-    async fn setup() -> (nomifun_db::Database, CustomerServiceRouterState) {
+    struct NoopSink;
+    impl UserEventSink for NoopSink {
+        fn send_to_user(
+            &self,
+            _user_id: &str,
+            _event: nomifun_api_types::WebSocketMessage<serde_json::Value>,
+        ) {
+        }
+    }
+
+    /// Echo runner: the desktop lane needs a configured provider/model on
+    /// the agent, but the stub never touches a real provider.
+    struct EchoRunner;
+    #[async_trait::async_trait]
+    impl crate::TurnRunner for EchoRunner {
+        async fn run(
+            &self,
+            req: nomifun_ai_agent::OneShotTurnRequest,
+        ) -> Result<String, AppError> {
+            Ok(format!("echo: {}", req.user_text))
+        }
+    }
+
+    struct Fixture {
+        _db: nomifun_db::Database,
+        _tmp: tempfile::TempDir,
+        repo: Arc<dyn ICustomerServiceRepository>,
+    }
+
+    async fn setup() -> (Fixture, CustomerServiceRouterState) {
         let db = nomifun_db::init_database_memory().await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
         let service = Arc::new(CustomerServiceService::new(Arc::new(
             SqliteCustomerServiceRepository::new(db.pool().clone()),
         )));
         let channel_repo: Arc<dyn IChannelRepository> =
             Arc::new(SqliteChannelRepository::new(db.pool().clone()));
-        (db, CustomerServiceRouterState { service, channel_repo })
+
+        let emitter = nomifun_knowledge::KnowledgeEventEmitter::new(
+            Arc::new(NoopSink),
+            Arc::from("test-owner"),
+        );
+        let knowledge = Arc::new(nomifun_knowledge::KnowledgeService::new(
+            Arc::new(nomifun_db::SqliteKnowledgeRepository::new(db.pool().clone())),
+            tmp.path(),
+            emitter,
+        ));
+        let repo: Arc<dyn ICustomerServiceRepository> = Arc::new(
+            SqliteCustomerServiceRepository::new(db.pool().clone()),
+        );
+        let engine = Arc::new(CsDialogueEngine::new(
+            Arc::clone(&repo),
+            knowledge,
+            Arc::new(EchoRunner),
+        ));
+        let state = CustomerServiceRouterState { service, channel_repo, engine };
+        (Fixture { _db: db, _tmp: tmp, repo }, state)
     }
 
     fn user() -> CurrentUser {
@@ -299,6 +418,41 @@ mod tests {
             .await
             .unwrap()
             .cs_agent_id
+    }
+
+    /// Chat-ready agent: the engine requires provider/model on the row.
+    /// provider_id must satisfy the canonical UUIDv7 CHECK constraint.
+    async fn seed_chat_agent(state: &CustomerServiceRouterState) -> String {
+        state
+            .service
+            .create_agent(CreateCsAgentInput {
+                name: "AI 客服".into(),
+                provider_id: Some(nomifun_common::ProviderId::new().into_string()),
+                model: Some("test-model".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .cs_agent_id
+    }
+
+    async fn call_chat(
+        state: &CustomerServiceRouterState,
+        cs_agent_id: &str,
+        text: &str,
+    ) -> Result<Json<ApiResponse<ChatResponse>>, AppError> {
+        chat(
+            State(state.clone()),
+            Extension(user()),
+            Ok(Json(ChatRequest {
+                cs_agent_id: cs_agent_id.to_owned(),
+                text: text.to_owned(),
+                channel_plugin_id: None,
+                channel_user_id: None,
+                chat_id: None,
+            })),
+        )
+        .await
     }
 
     async fn put_bindings(
@@ -353,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn replace_bindings_accepts_cs_domain_bot_and_same_domain_rebind() {
-        let (_db, state) = setup().await;
+        let (_fx, state) = setup().await;
         let agent_a = seed_agent(&state).await;
         let agent_b = seed_agent(&state).await;
         let cs_bot = seed_bot(&state, "CS Bot", "customer_service").await;
@@ -372,6 +526,75 @@ mod tests {
                 .unwrap()
                 .as_deref(),
             Some(agent_b.as_str())
+        );
+    }
+
+    // ── chat (built-in desktop lane) ──────────────────────────────────
+
+    #[tokio::test]
+    async fn chat_replies_over_the_built_in_desktop_lane() {
+        let (fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+
+        let Json(response) = call_chat(&state, &agent, "  你好  ").await.unwrap();
+        let payload = response.data.expect("ok payload");
+        assert_eq!(payload.reply.as_deref(), Some("echo: 你好"));
+
+        // Transcript persisted under the built-in desktop lane, trimmed.
+        let dialogues = fx.repo.list_dialogues(&agent).await.unwrap();
+        assert_eq!(dialogues.len(), 1);
+        assert_eq!(dialogues[0].channel_plugin_id, DESKTOP_CHANNEL_PLUGIN_ID);
+        assert_eq!(dialogues[0].channel_user_id, DESKTOP_CHANNEL_USER_ID);
+        assert_eq!(dialogues[0].chat_id, DESKTOP_CHAT_ID);
+        let messages = fx
+            .repo
+            .list_messages(&dialogues[0].cs_dialogue_id)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!((messages[0].role.as_str(), messages[0].content.as_str()), ("visitor", "你好"));
+        assert_eq!(messages[1].role, "agent");
+    }
+
+    #[tokio::test]
+    async fn chat_resumes_the_same_lane_across_calls() {
+        let (fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+
+        call_chat(&state, &agent, "第一条").await.unwrap();
+        call_chat(&state, &agent, "第二条").await.unwrap();
+
+        // Same (desktop, local-user, desktop-chat) lane → one dialogue,
+        // four transcript rows.
+        let dialogues = fx.repo.list_dialogues(&agent).await.unwrap();
+        assert_eq!(dialogues.len(), 1);
+        let messages = fx
+            .repo
+            .list_messages(&dialogues[0].cs_dialogue_id)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn chat_rejects_blank_text() {
+        let (_fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+
+        let error = call_chat(&state, &agent, "   ").await.unwrap_err();
+        assert!(matches!(error, AppError::BadRequest(message) if message.contains("消息内容不能为空")));
+    }
+
+    #[tokio::test]
+    async fn chat_with_unknown_agent_returns_fixed_notice() {
+        let (_fx, state) = setup().await;
+
+        let error = call_chat(&state, "missing-agent", "hi")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, AppError::BadGateway(message)
+                if message == crate::dialogue::FALLBACK_ERROR_NOTICE)
         );
     }
 }

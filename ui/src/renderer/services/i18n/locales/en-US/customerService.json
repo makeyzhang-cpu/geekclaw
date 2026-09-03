@@ -52,6 +52,16 @@
     "saved": "Saved",
     "notFound": "Agent not found or deleted"
   },
+  "chat": {
+    "openChat": "Chat",
+    "back": "Back to detail",
+    "placeholder": "Type a message — Enter to send, Shift+Enter for a new line",
+    "send": "Send",
+    "typing": "Typing…",
+    "needModel": "No chat model configured — pick one in \"Model & knowledge\" on the detail page first.",
+    "agentDisabled": "This agent is disabled; enable it to serve visitors.",
+    "error": "Failed to reply, please try again later."
+  },
   "sections": {
     "identity": "Identity & voice",
     "modelKnowledge": "Model & knowledge",

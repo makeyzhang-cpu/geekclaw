@@ -21,7 +21,7 @@ import {
   Table,
   Tag,
 } from '@arco-design/web-react';
-import { Delete, Headset, Left, Plus } from '@icon-park/react';
+import { Delete, Headset, Left, Plus, Send } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import type { IBusinessEndpoint, ICsNote } from '@/common/adapter/ipcBridge';
 import { parseCsAgentId, type CsAgentId, type KnowledgeBaseId, type ProviderId } from '@/common/types/ids';
@@ -271,6 +271,16 @@ const CsAgentDetailPage: React.FC = () => {
           </span>
           <h1 className='m-0 text-18px font-700 text-t-primary truncate'>{agent.name}</h1>
           <div className='ml-auto flex items-center gap-10px'>
+            <Button
+              type='primary'
+              size='small'
+              onClick={() => void navigate(`/customer-service/${agent.cs_agent_id}/chat`)}
+            >
+              <span className='inline-flex items-center gap-4px'>
+                <Send theme='outline' size='13' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+                {t('customerService.chat.openChat', { defaultValue: '对话' })}
+              </span>
+            </Button>
             <span className='text-12px text-t-tertiary'>
               {t('customerService.detail.enabled', { defaultValue: '启用' })}
             </span>

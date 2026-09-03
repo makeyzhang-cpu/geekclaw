@@ -2762,6 +2762,48 @@ impl AppServices {
             }),
         ));
 
+        // First-boot seed: the built-in desktop AI support agent, so the
+        // customer-service roster is chat-ready out of the box. Best-effort
+        // — a failure only logs (never blocks startup) and the roster page
+        // remains fully usable for manual agent creation.
+        match customer_service_service.list_agents().await {
+            Ok(agents) if agents.is_empty() => {
+                let (provider_id, model) = pick_default_cs_model(
+                    provider_repo.clone() as Arc<dyn nomifun_db::IProviderRepository>,
+                    provider_model_repo.clone(),
+                )
+                .await;
+                let seed = nomifun_customer_service::CreateCsAgentInput {
+                    name: "GeekClaw AI 客服".into(),
+                    greeting: "您好，我是 GeekClaw 智能客服，很高兴为您服务！请问有什么可以帮您？"
+                        .into(),
+                    persona: "专业、友好、简洁，使用简体中文回复；对访客保持礼貌，不透露内部实现细节。"
+                        .into(),
+                    service_policy:
+                        "优先依据知识库与客服笔记中的资料回答；无法确认时如实告知，并建议联系人工处理；只回答访客当前的问题。"
+                            .into(),
+                    provider_id,
+                    model,
+                    ..Default::default()
+                };
+                match customer_service_service.create_agent(seed).await {
+                    Ok(agent) => tracing::info!(
+                        cs_agent_id = %agent.cs_agent_id,
+                        "seeded the built-in customer-service agent"
+                    ),
+                    Err(error) => tracing::warn!(
+                        %error,
+                        "failed to seed the built-in customer-service agent"
+                    ),
+                }
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                %error,
+                "customer-service agent list failed; skipping the built-in agent seed"
+            ),
+        }
+
         // 创意工坊 (Creative Workshop) + 生成引擎 (creation): the workshop service
         // owns canvas/asset index rows + on-disk docs/binaries; the creation
         // service owns the media generation task queue. Both are plain repo-backed
@@ -3268,6 +3310,42 @@ async fn reconcile_model_profiles(
     if seeded > 0 {
         tracing::info!("model-profile reconcile: seeded {seeded} inferred profile(s)");
     }
+}
+
+/// Best-effort default model pick for the seeded built-in customer-service
+/// agent: an enabled chat-capable model on an enabled provider, ordered by
+/// provider sort order, then model sort order. Returns `(None, None)` when
+/// nothing is usable — the agent is still created and the user configures
+/// its model later from the roster detail page.
+async fn pick_default_cs_model(
+    provider_repo: Arc<dyn IProviderRepository>,
+    provider_model_repo: Arc<dyn IProviderModelRepository>,
+) -> (Option<String>, Option<String>) {
+    let providers = provider_repo.list().await.unwrap_or_default();
+    let provider_order: std::collections::HashMap<&str, i64> = providers
+        .iter()
+        .filter(|provider| provider.enabled)
+        .map(|provider| (provider.provider_id.as_str(), provider.sort_order))
+        .collect();
+    let models = provider_model_repo.list().await.unwrap_or_default();
+    // (provider order, model order, !chat_capable, provider_id, model)
+    let mut candidates: Vec<(i64, i64, bool, String, String)> = models
+        .into_iter()
+        .filter(|row| row.enabled)
+        .filter_map(|row| {
+            let order = *provider_order.get(row.provider_id.as_str())?;
+            // `tasks` is a JSON array of task tags; matching the quoted
+            // element avoids substring false positives.
+            let chat_capable = row.tasks.contains("\"chat\"");
+            Some((order, row.sort_order, !chat_capable, row.provider_id, row.model))
+        })
+        .collect();
+    candidates.sort();
+    candidates
+        .into_iter()
+        .next()
+        .map(|(_, _, _, provider_id, model)| (Some(provider_id), Some(model)))
+        .unwrap_or((None, None))
 }
 
 /// Preference keys holding the speech-to-text tool config, in the order the

@@ -32,6 +32,7 @@ const TerminalCreatePage = React.lazy(() => import('@renderer/pages/terminal/Ter
 const NomiConfigPage = React.lazy(() => import('@renderer/pages/geekclaw'));
 const CustomerServiceRosterPage = React.lazy(() => import('@renderer/pages/customerService'));
 const CustomerServiceDetailPage = React.lazy(() => import('@renderer/pages/customerService/CsAgentDetailPage'));
+const CustomerServiceChatPage = React.lazy(() => import('@renderer/pages/customerService/CsChatPage'));
 const KnowledgeListPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeListPage'));
 const KnowledgeDetailPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeDetailPage'));
 // 创意工坊 / A2A 跨境电商 当前以 ComingSoon 占位，避免加载庞大的旧模块
@@ -270,6 +271,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           {/* 客服 (Customer Service) — a first-class domain separate from desktop companions. */}
           <Route path='/customer-service' element={withRouteFallback(CustomerServiceRosterPage)} />
           <Route path='/customer-service/:cs_agent_id' element={withRouteFallback(CustomerServiceDetailPage)} />
+          <Route path='/customer-service/:cs_agent_id/chat' element={withRouteFallback(CustomerServiceChatPage)} />
           <Route path='/knowledge' element={withRouteFallback(KnowledgeListPage)} />
           <Route path='/knowledge/:id' element={withRouteFallback(KnowledgeDetailPage)} />
           {/* 资产库 (Asset Library) — platform-level management of workshop assets. */}

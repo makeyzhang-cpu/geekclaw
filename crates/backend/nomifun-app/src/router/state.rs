@@ -602,6 +602,7 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
             channel_repo: Arc::new(nomifun_db::SqliteChannelRepository::new(
                 services.database.pool().clone(),
             )),
+            engine: services.cs_dialogue_engine.clone(),
         },
         workshop: build_workshop_state(services),
         creation: build_creation_state(services),

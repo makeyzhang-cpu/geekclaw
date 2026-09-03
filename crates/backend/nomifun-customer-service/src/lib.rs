@@ -13,4 +13,4 @@ pub mod tools;
 
 pub use dialogue::{CsDialogueEngine, LiveTurnRunner, TurnRunner};
 pub use routes::{CustomerServiceRouterState, customer_service_routes};
-pub use service::CustomerServiceService;
+pub use service::{CreateCsAgentInput, CreateCsNoteInput, CustomerServiceService};
