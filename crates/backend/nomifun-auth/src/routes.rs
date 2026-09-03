@@ -16,14 +16,15 @@ use std::collections::{BTreeMap, HashMap};
 use dashmap::DashMap;
 
 use nomifun_api_types::{
-    AdjustCreditsRequest, ApiResponse, AuthStatusResponse, BillingBalance, ChangePasswordRequest,
-    ChangeUsernameRequest, ChangeUsernameResponse, CreateInvitationRequest, CreateInvitationResponse,
-    CreditTransactionInfo, ErrorResponse, InvitationInfo, InvitationListResponse, ListUsersResponse,
-    LoginRequest, LoginResponse, ModelPriceInfo, ModelPriceListResponse, PublicUser, QrLoginRequest,
-    RegisterRequest, SetPlanRequest, SetRoleRequest, UpsertPricingRequest, UserListItem, RefreshResponse,
-    RefreshTokenRequest, UserInfoResponse, WebuiChangePasswordRequest, WebuiChangeUsernameRequest,
-    WebuiChangeUsernameResponse, WebuiGenerateQrTokenResponse, WebuiResetPasswordResponse, WsTokenResponse,
-    SendSmsRequest, PhoneRegisterRequest, PhoneLoginRequest, ResetPasswordPhoneRequest,
+    AdjustCreditsRequest, AdminChangePasswordRequest, ApiResponse, AuthStatusResponse, BillingBalance,
+    ChangePasswordRequest, ChangeUsernameRequest, ChangeUsernameResponse, CreateInvitationRequest,
+    CreateInvitationResponse, CreditTransactionInfo, ErrorResponse, InvitationInfo, InvitationListResponse,
+    ListUsersResponse, LoginRequest, LoginResponse, ModelPriceInfo, ModelPriceListResponse, PublicUser,
+    QrLoginRequest, RegisterRequest, SetPlanRequest, SetRoleRequest, UpsertPricingRequest, UserListItem,
+    RefreshResponse, RefreshTokenRequest, UserInfoResponse, WebuiChangePasswordRequest,
+    WebuiChangeUsernameRequest, WebuiChangeUsernameResponse, WebuiGenerateQrTokenResponse,
+    WebuiResetPasswordResponse, WsTokenResponse, SendSmsRequest, PhoneRegisterRequest, PhoneLoginRequest,
+    ResetPasswordPhoneRequest,
 };
 use nomifun_common::{AppError, now_ms};
 use nomifun_common::constants::SESSION_MAX_AGE_SECONDS;
@@ -109,6 +110,7 @@ fn into_public_user(user: User) -> Result<PublicUser, AppError> {
 /// - `POST /api/auth/users/{id}/disable` (admin)
 /// - `POST /api/auth/users/{id}/enable` (admin)
 /// - `POST /api/auth/users/{id}/reset-password` (admin: reset to default password)
+/// - `POST /api/auth/users/{id}/change-password` (admin: set custom password)
 /// - `POST /api/auth/invitations` (admin)
 /// - `GET /api/auth/invitations` (admin)
 /// - `DELETE /api/auth/invitations/{code}` (admin)
@@ -235,6 +237,7 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         .route("/api/auth/users/{id}/enable", post(enable_handler))
         .route("/api/auth/users/{id}/plan", post(set_plan_handler))
         .route("/api/auth/users/{id}/reset-password", post(reset_password_admin_handler))
+        .route("/api/auth/users/{id}/change-password", post(change_password_admin_handler))
         .route("/api/auth/invitations", post(create_invitation_handler).get(list_invitations_handler))
         .route("/api/auth/invitations/{code}", delete(delete_invitation_handler))
     // Admin billing control plane.
@@ -1470,6 +1473,69 @@ async fn reset_password_admin_handler(
 
     Ok(Json(ApiResponse::message(
         "Password reset to default; all sessions of this user have been signed out",
+    )))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/users/{id}/change-password — admin: set custom password
+// ---------------------------------------------------------------------------
+
+/// Admin-triggered password change to a custom password.
+///
+/// Mirrors the self-service [`change_password_handler`] semantics: after the
+/// new hash is persisted the JWT secret is rotated and re-persisted, so every
+/// session of the target user — including the credential cached by the
+/// desktop app — is invalidated and the user must sign in again.
+async fn change_password_admin_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(user_id): Path<String>,
+    body: Result<Json<AdminChangePasswordRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<()>>, AppError> {
+    ensure_admin(&current_user)?;
+    // Guard: admins change their own password via /api/auth/change-password.
+    if user_id == current_user.id.as_str() {
+        return Err(AppError::BadRequest(
+            "Cannot change your own password here; use change password instead".into(),
+        ));
+    }
+
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    validate_password(&req.new_password)?;
+
+    // Target must exist (clean 404 instead of a generic DB error).
+    state
+        .user_repo
+        .find_by_id(&user_id)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {e}")))?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
+
+    // Hash the new password on a blocking thread (bcrypt).
+    let password = req.new_password.clone();
+    let new_hash = tokio::task::spawn_blocking(move || hash_password(&password))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {e}")))??;
+
+    state
+        .user_repo
+        .update_password(&user_id, &new_hash)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {e}")))?;
+
+    // Rotate JWT secret to invalidate all existing sessions (desktop sync).
+    let new_secret = state
+        .jwt_service
+        .rotate_secret()
+        .map_err(|e| AppError::Internal(format!("Secret rotation error: {e}")))?;
+    state
+        .user_repo
+        .update_jwt_secret(&user_id, &new_secret)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {e}")))?;
+
+    Ok(Json(ApiResponse::message(
+        "Password changed; all sessions of this user have been signed out",
     )))
 }
 

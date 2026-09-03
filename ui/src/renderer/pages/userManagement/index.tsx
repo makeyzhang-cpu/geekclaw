@@ -68,6 +68,9 @@ const UserManagementPage: React.FC = () => {
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [createdExpiresAt, setCreatedExpiresAt] = useState<number | null>(null);
   const [expiryDays, setExpiryDays] = useState(7);
+  const [changePwUser, setChangePwUser] = useState<UserItem | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const myId = user?.id;
 
@@ -171,6 +174,49 @@ const UserManagementPage: React.FC = () => {
     },
     [t]
   );
+
+  const openChangePassword = useCallback((user: UserItem) => {
+    setChangePwUser(user);
+    setNewPassword('');
+    setConfirmPassword('');
+  }, []);
+
+  const closeChangePassword = useCallback(() => {
+    setChangePwUser(null);
+    setNewPassword('');
+    setConfirmPassword('');
+  }, []);
+
+  const handleChangePassword = useCallback(async () => {
+    if (!changePwUser) return;
+    if (!newPassword) {
+      Message.error(t('userManagement.errors.emptyPassword'));
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Message.error(t('userManagement.errors.passwordsDoNotMatch'));
+      return;
+    }
+    setActingId(changePwUser.user_id);
+    try {
+      await apiFetch('POST', `/api/auth/users/${changePwUser.user_id}/change-password`, {
+        new_password: newPassword,
+      });
+      Message.success(t('userManagement.passwordChanged'));
+      closeChangePassword();
+      await loadUsers();
+    } catch (err) {
+      const e = err as ApiError;
+      console.error('Failed to change password', e);
+      Message.error(
+        e.status === 400
+          ? t('userManagement.errors.cannotChangeSelf')
+          : t('userManagement.errors.changePasswordFailed')
+      );
+    } finally {
+      setActingId(null);
+    }
+  }, [changePwUser, newPassword, confirmPassword, t, closeChangePassword, loadUsers]);
 
   const handleCreateInvitation = useCallback(async () => {
     setActingId('__create__');
@@ -277,6 +323,14 @@ const UserManagementPage: React.FC = () => {
                       type='button'
                       className='um-btn'
                       disabled={actingId === u.user_id}
+                      onClick={() => openChangePassword(u)}
+                    >
+                      {t('userManagement.changePassword')}
+                    </button>
+                    <button
+                      type='button'
+                      className='um-btn'
+                      disabled={actingId === u.user_id}
                       onClick={() => void handleResetPassword(u.user_id)}
                     >
                       {t('userManagement.resetPassword')}
@@ -296,7 +350,7 @@ const UserManagementPage: React.FC = () => {
         </tbody>
       </table>
     ),
-    [users, actingId, myId, t, handleRoleChange, handleToggleActive, handleResetPassword]
+    [users, actingId, myId, t, handleRoleChange, handleToggleActive, handleResetPassword, openChangePassword]
   );
 
   const invitationsPanel = useMemo(
@@ -433,6 +487,71 @@ const UserManagementPage: React.FC = () => {
       </div>
 
       <div className='um-body'>{tab === 'users' ? usersTable : invitationsPanel}</div>
+
+      {changePwUser && (
+        <div className='um-modal-overlay' onClick={closeChangePassword}>
+          <div className='um-modal' onClick={(e) => e.stopPropagation()}>
+            <h3 className='um-modal-title'>
+              {t('userManagement.changePasswordTitle', {
+                defaultValue: '修改密码',
+                username: changePwUser.username,
+              })}
+            </h3>
+            <div className='um-modal-row'>
+              <label className='um-modal-label'>{t('userManagement.username')}：</label>
+              <span className='um-muted'>{changePwUser.username}</span>
+            </div>
+            <div className='um-modal-row'>
+              <label className='um-modal-label' htmlFor='um-new-password'>
+                {t('userManagement.newPassword', { defaultValue: '新密码' })}
+              </label>
+              <input
+                id='um-new-password'
+                type='password'
+                className='um-input'
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder={t('userManagement.newPasswordPlaceholder', {
+                  defaultValue: '请输入新密码',
+                })}
+              />
+            </div>
+            <div className='um-modal-row'>
+              <label className='um-modal-label' htmlFor='um-confirm-password'>
+                {t('userManagement.confirmPassword', { defaultValue: '确认新密码' })}
+              </label>
+              <input
+                id='um-confirm-password'
+                type='password'
+                className='um-input'
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder={t('userManagement.confirmPasswordPlaceholder', {
+                  defaultValue: '请再次输入新密码',
+                })}
+              />
+            </div>
+            <div className='um-modal-actions'>
+              <button
+                type='button'
+                className='um-btn'
+                onClick={closeChangePassword}
+                disabled={actingId === changePwUser.user_id}
+              >
+                {t('userManagement.cancel')}
+              </button>
+              <button
+                type='button'
+                className='um-btn um-btn-primary'
+                disabled={actingId === changePwUser.user_id}
+                onClick={() => void handleChangePassword()}
+              >
+                {t('userManagement.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -149,6 +149,13 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+/// Admin-set password request body for `POST /api/auth/users/{id}/change-password`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminChangePasswordRequest {
+    pub new_password: String,
+}
+
 /// Change username request body for `POST /api/auth/change-username`.
 ///
 /// Unlike the local-only `/api/webui/change-username`, this authenticated

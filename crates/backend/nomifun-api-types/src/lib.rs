@@ -86,15 +86,15 @@ pub use preset::{
     SetPresetStateRequest, SkillBinding, UpdatePresetRequest, UpdatePresetTagRequest,
 };
 pub use auth::{
-    AdjustCreditsRequest, AuthStatusResponse, BillingBalance, ChangePasswordRequest,
-    ChangeUsernameRequest, ChangeUsernameResponse, CreateInvitationRequest, CreateInvitationResponse,
-    CreditTransactionInfo, InvitationInfo, InvitationListResponse, ListUsersResponse, LoginRequest,
-    LoginResponse, ModelPriceInfo, ModelPriceListResponse, PublicUser, QrLoginRequest,
-    RefreshResponse, RefreshTokenRequest, RegisterRequest, SetPlanRequest, SetRoleRequest,
-    UpsertPricingRequest, UserListItem, UserInfoResponse,
-    WebuiChangePasswordRequest, WebuiChangeUsernameRequest, WebuiChangeUsernameResponse,
-    WebuiGenerateQrTokenResponse, WebuiResetPasswordResponse, WsTokenResponse,
-    SendSmsRequest, PhoneRegisterRequest, PhoneLoginRequest, ResetPasswordPhoneRequest,
+    AdjustCreditsRequest, AdminChangePasswordRequest, AuthStatusResponse, BillingBalance,
+    ChangePasswordRequest, ChangeUsernameRequest, ChangeUsernameResponse, CreateInvitationRequest,
+    CreateInvitationResponse, CreditTransactionInfo, InvitationInfo, InvitationListResponse,
+    ListUsersResponse, LoginRequest, LoginResponse, ModelPriceInfo, ModelPriceListResponse, PublicUser,
+    QrLoginRequest, RefreshResponse, RefreshTokenRequest, RegisterRequest, SetPlanRequest,
+    SetRoleRequest, UpsertPricingRequest, UserListItem, UserInfoResponse, WebuiChangePasswordRequest,
+    WebuiChangeUsernameRequest, WebuiChangeUsernameResponse, WebuiGenerateQrTokenResponse,
+    WebuiResetPasswordResponse, WsTokenResponse, SendSmsRequest, PhoneRegisterRequest,
+    PhoneLoginRequest, ResetPasswordPhoneRequest,
 };
 pub use channel::{
     ApprovePairingRequest, BridgeResponse, CHANNEL_OWNER_DOMAIN_COMPANION,

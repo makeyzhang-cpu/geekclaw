@@ -22,6 +22,7 @@ import {
 import { Plus, Search, Shop } from '@icon-park/react';
 import classNames from 'classnames';
 import HubPageShell from '@renderer/components/layout/HubPageShell';
+import { useCloudAuth } from '@renderer/hooks/context/CloudAuthContext';
 import {
   ExpertDetail,
   ExpertScope,
@@ -307,6 +308,7 @@ const ExpertMarketPage: React.FC = () => {
   );
 
   const filteredMine = useMemo(() => mine, [mine]);
+  const { login } = useCloudAuth();
 
   const performSync = useCallback(async () => {
     setSyncLoading(true);
@@ -332,6 +334,29 @@ const ExpertMarketPage: React.FC = () => {
         lower.includes('登录已失效') ||
         lower.includes('未登录云端');
       if (isUnauthorized) {
+        // 云端登录已失效：自动打开浏览器重登，成功后重试一次同步
+        try {
+          Message.info(
+            t('expertMarket.syncReauthing', {
+              defaultValue: '云端账号登录已失效，正在打开浏览器请重新登录…',
+            })
+          );
+          const st = await login();
+          if (st.authenticated) {
+            const res = await syncExperts();
+            Message.success(
+              t('expertMarket.syncSuccess', {
+                synced: res.synced,
+                pruned: res.pruned,
+                defaultValue: `已从云端同步 ${res.synced} 位专家（清理 ${res.pruned} 位下架专家）`,
+              })
+            );
+            void loadMarket();
+            return;
+          }
+        } catch {
+          /* 重登或重试失败，落到下方提示 */
+        }
         Message.warning(
           t('expertMarket.syncNeedLogin', {
             defaultValue: '云端账号登录已失效，请重新登录云端账号后再同步',
@@ -348,7 +373,7 @@ const ExpertMarketPage: React.FC = () => {
     } finally {
       setSyncLoading(false);
     }
-  }, [loadMarket, t]);
+  }, [loadMarket, t, login]);
 
   return (
     <HubPageShell

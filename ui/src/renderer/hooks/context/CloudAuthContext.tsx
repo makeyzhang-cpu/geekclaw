@@ -37,8 +37,8 @@ interface CloudAuthContextValue {
   state: CloudAuthState;
   /** A cloud login flow is in progress (browser open + waiting for callback). */
   busy: boolean;
-  /** Open the system browser to the cloud login page and wait for the callback. */
-  login: () => Promise<void>;
+  /** Open the system browser to the cloud login page and wait for the callback. Resolves to the resulting auth state (useful for auto-reauth flows). */
+  login: () => Promise<CloudAuthState>;
   /** Drop the locally stored cloud token. */
   logout: () => Promise<void>;
   /** Re-read the persisted cloud state from the backend. */
@@ -63,16 +63,18 @@ export const CloudAuthProvider: React.FC<React.PropsWithChildren> = ({ children 
     setReady(true);
   }, []);
 
-  const login = useCallback(async () => {
-    if (!isDesktop || busyRef.current) return;
+  const login = useCallback(async (): Promise<CloudAuthState> => {
+    if (!isDesktop || busyRef.current) return { authenticated: false };
     busyRef.current = true;
     setBusy(true);
     try {
       await openCloudLogin();
       const st = await waitForCloudAuth(90000);
       setState(st);
+      return st;
     } catch (error) {
       console.error('[cloud-auth] login failed:', error);
+      return { authenticated: false };
     } finally {
       busyRef.current = false;
       setBusy(false);
