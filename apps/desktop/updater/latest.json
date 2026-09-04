@@ -1,11 +1,11 @@
 {
-  "version": "5.0.24",
-  "notes": "GeekClaw v5.0.24 - Customer Service Home Fix\n\nWhat's changed\n- The AI Customer Service entry (/customer-service) now opens the agent workbench directly instead of the roster card page.\n- When entering Customer Service, it automatically picks the first enabled agent and navigates to /customer-service/:id/workbench.\n- If no agent exists, a create-agent prompt is shown and the user is taken to the workbench after creation.\n- The workbench header now includes:\n  - A \"Manage agents\" button back to the roster (/customer-service/roster).\n  - An agent switcher dropdown to jump between agents.\n  - Direct links to Channels and Tickets.\n- The roster page is kept as the management backend under /customer-service/roster.\n\nFixes\n- Fixes the wrong default landing page where users saw the old agent roster instead of the operator workbench after clicking \"AI客服\".\n\nKnown limitations\n- The workbench still operates on a single agent scope. Aggregate multi-agent workbench and auto-assignment are planned for a future release.",
-  "pub_date": "2026-09-04T02:25:14.957Z",
+  "version": "5.0.25",
+  "notes": "GeekClaw v5.0.25 - Fresh Install WebView2 Robustness\n\nFixes\n- Installer no longer aborts when WebView2 bootstrapper cannot be downloaded.\n  On failure it now shows a clear recovery message and continues installing GeekClaw.\n- Installer detects an existing WebView2 runtime by physical file in\n  C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe\n  in addition to the EdgeUpdate registry keys. This avoids false negatives on\n  fresh corporate images where Edge was never opened.\n- Switched webviewInstallMode to \"offlineInstaller\" so the WebView2 Evergreen\n  Standalone Installer is bundled inside the GeekClaw installer (~127 MB\n  overhead). New machines no longer need internet access to install GeekClaw.\n\nCompatibility\n- Existing installs are unaffected.\n- The installer will still fall back to the bundled bootstrapper /\n  standalone installer if the runtime is missing.",
+  "pub_date": "2026-09-04T03:04:35.103Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVcxTUd5ZkxnOVM5c3FFZkUyV2VjcnJwODZZTEtqY0ZGeVF2S29uUW1KYkR4UFVFU21UaVlOSlNCSFlFZ2Npcm9aMEFLeHBlWC9lOFp2M1BiZVdUOEFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDg4Njk0CWZpbGU6R2Vla0NsYXdfNS4wLjI0X3g2NC1zZXR1cC5leGUKSUdGV1ZKUncwcW5TNndpM1plczh1NDZZSmsyZXRRbG83dTRzL3huVkpKUXhpUy8wc3BVYW1FWk1OeUpSVk5hOGY0TkFxNWp0anZjUWNRanBkZldjREE9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.24/GeekClaw_5.0.24_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVFXTGozZkt3eFhBUGI1dmxoN0lwRytnQkVjZlNiOC9OMDdEV05OR1l3QXZDanVDdWF0RGkycFZtTWhmWEFNS3BydGF4NjZpQlV1ZzJvaElodndsZWdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDkxMDUyCWZpbGU6R2Vla0NsYXdfNS4wLjI1X3g2NC1zZXR1cC5leGUKR290N29mRW1xbEQ0aVBMV2c0cjR0dDNObTBKVEFVcnN5RGYvcXBQZy8yRnpUbFROYWhQb0tGMmRKTjRYNGhGMnQyQlpuajExMCsxSlFhQnZoQkg1QXc9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.25/GeekClaw_5.0.25_x64-setup.exe"
     }
   }
 }

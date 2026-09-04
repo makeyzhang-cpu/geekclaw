@@ -31,7 +31,8 @@
     ],
     "windows": {
       "webviewInstallMode": {
-        "type": "offlineInstaller"
+        "type": "offlineInstaller",
+        "silent": true
       },
       "nsis": {
         "template": "installer.nsi"

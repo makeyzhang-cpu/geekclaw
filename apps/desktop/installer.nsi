@@ -544,6 +544,35 @@ Section EarlyChecks
 SectionEnd
 
 Section WebView2
+  ; GeekClaw fix (2026-09-04): On freshly imaged corporate Windows machines
+  ; msedgewebview2.exe can be present on disk (Windows 10/11 ship the runtime
+  ; as part of the OS image) but the EdgeUpdate registry keys are missing —
+  ; classic corporate image where Edge was never opened. The original NSIS
+  ; template would then try to download the bootstrapper, fail behind the
+  ; corporate proxy, and `Abort` the whole installer.
+  ;
+  ; Strategy:
+  ;   1. Detect the runtime by physical file first. If found → skip install.
+  ;   2. If not found, try registry (existing logic). If still missing →
+  ;      run installer (downloadBootstrapper or offlineInstaller). On failure,
+  ;      don't Abort; show a recovery message and let GeekClaw install anyway
+  ;      (Tauri will surface a clearer runtime error on first launch).
+
+  ${If} ${RunningX64}
+    ; Try to discover an existing WebView2 install via the Applications
+    ; registry key (GeekClaw 5.0.20 workaround). If present AND the
+    ; ExecutablePath actually exists on disk → skip the installer entirely.
+    SetRegView 64
+    EnumRegKey $7 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeWebView\Applications" 0
+    ${If} $7 != ""
+      ReadRegStr $8 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeWebView\Applications\$7" "ExecutablePath"
+      ${If} $8 != ""
+        IfFileExists "$8" webview2_already_on_disk 0
+      ${EndIf}
+    ${EndIf}
+    SetRegView default
+  ${EndIf}
+
   ; Check if Webview2 is already installed and skip this section
   ${If} ${RunningX64}
     ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
@@ -578,8 +607,11 @@ Section WebView2
         ${If} $0 == "success"
           DetailPrint "$(webview2DownloadSuccess)"
         ${Else}
+          ; GeekClaw fix: don't Abort the whole installation. Show recovery
+          ; instructions and let the user install WebView2 separately.
           DetailPrint "$(webview2DownloadError)"
-          Abort "$(webview2AbortError)"
+          MessageBox MB_ICONEXCLAMATION|MB_OK "$(webview2AbortError)$\n$\nGeekClaw will still install. Please install Microsoft Edge WebView2 Runtime manually afterwards — see https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
+          Goto webview2_done
         ${EndIf}
         StrCpy $6 "$TEMP\MicrosoftEdgeWebview2Setup.exe"
         Goto install_webview2
@@ -610,12 +642,20 @@ Section WebView2
         ${If} $1 = 0
           DetailPrint "$(webview2InstallSuccess)"
         ${Else}
+          ; GeekClaw fix: degrade gracefully. Don't Abort — the main
+          ; GeekClaw installation can still proceed; missing WebView2 will
+          ; be surfaced clearly by the app on first launch.
           DetailPrint "$(webview2InstallError)"
-          Abort "$(webview2AbortError)"
+          MessageBox MB_ICONEXCLAMATION|MB_OK "$(webview2AbortError)$\n$\nGeekClaw installation will continue. Please install WebView2 Runtime manually from https://developer.microsoft.com/en-us/microsoft-edge/webview2/ if the app fails to start."
         ${EndIf}
       webview2_done:
     ${EndIf}
   ${Else}
+
+  ; GeekClaw fix: msedgewebview2.exe is already on disk → skip the rest.
+  webview2_already_on_disk:
+  DetailPrint "WebView2 runtime binary already present on disk — skipping installer."
+
     !if "${MINIMUMWEBVIEW2VERSION}" != ""
       ${VersionCompare} "${MINIMUMWEBVIEW2VERSION}" "$4" $R0
       ${If} $R0 = 1

@@ -25,6 +25,8 @@ const WorkCommunityPage = React.lazy(() => import('@renderer/pages/work-communit
 const ForeignTradePage = React.lazy(() => import('@renderer/pages/foreign-trade'));
 const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage/TaskDetailPage'));
 const ComingSoon = React.lazy(() => import('@renderer/components/ComingSoon'));
+const WorkshopHomePage = React.lazy(() => import('@renderer/pages/workshop/WorkshopHomePage'));
+const WorkshopListPage = React.lazy(() => import('@renderer/pages/workshop'));
 const ReferralPage = React.lazy(() => import('@renderer/pages/referral'));
 const LobsterPage = React.lazy(() => import('@renderer/pages/lobster'));
 const TerminalSessionPage = React.lazy(() => import('@renderer/pages/terminal/TerminalSessionPage'));
@@ -284,8 +286,11 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/knowledge/:id' element={withRouteFallback(KnowledgeDetailPage)} />
           {/* 资产库 (Asset Library) — platform-level management of workshop assets. */}
           <Route path='/assets' element={withRouteFallback(AssetLibraryPage)} />
-          {/* 创意工坊 (Creative Workshop) — 暂时以占位页呈现 */}
-          <Route path='/workshop/*' element={withRouteFallback(ComingSoon)} />
+          {/* 创意工坊 (Creative Workshop) — 5.0.26 接入云端 video.geekclaw.ai。
+              /workshop → 云端入口页（WebviewHost + 浏览器跳转）；
+              /workshop/:id → 保留原 WorkshopListPage（深链接兼容）。 */}
+          <Route path='/workshop' element={withRouteFallback(WorkshopHomePage)} />
+          <Route path='/workshop/:id/*' element={withRouteFallback(WorkshopListPage)} />
           {/* 分享邀约有奖分销 (Referral / affiliate) */}
           <Route path='/referral' element={withRouteFallback(ReferralPage)} />
           {/* 龙虾盒子 (Lobster Box) */}
