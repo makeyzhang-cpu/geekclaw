@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Spin, Tag } from '@arco-design/web-react';
-import { BookOne, Headset, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
+import { Api, BookOne, Headset, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
 import { useCsAgents } from './useCsAgents';
 import CreateCsAgentModal from './CreateCsAgentModal';
 import type { ICsAgent } from '@/common/adapter/ipcBridge';
@@ -123,6 +123,16 @@ const CustomerServiceRosterPage: React.FC = () => {
             <span className='inline-flex items-center gap-6px'>
               <Plus theme='outline' size='15' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
               {t('customerService.create.action', { defaultValue: '创建客服' })}
+            </span>
+          </Button>
+          <Button
+            size='default'
+            className='shrink-0'
+            onClick={() => void navigate('/customer-service/channels')}
+          >
+            <span className='inline-flex items-center gap-6px'>
+              <Api theme='outline' size='15' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.channels.openChannels', { defaultValue: '渠道中心' })}
             </span>
           </Button>
           <Button

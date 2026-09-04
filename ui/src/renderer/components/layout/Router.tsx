@@ -34,6 +34,7 @@ const CustomerServiceRosterPage = React.lazy(() => import('@renderer/pages/custo
 const CustomerServiceDetailPage = React.lazy(() => import('@renderer/pages/customerService/CsAgentDetailPage'));
 const CustomerServiceChatPage = React.lazy(() => import('@renderer/pages/customerService/CsChatPage'));
 const CustomerServiceWorkbenchPage = React.lazy(() => import('@renderer/pages/customerService/CsWorkbenchPage'));
+const CustomerServiceChannelsPage = React.lazy(() => import('@renderer/pages/customerService/CsChannelsPage'));
 const TicketsPage = React.lazy(() => import('@renderer/pages/customerService/TicketsPage'));
 const KnowledgeListPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeListPage'));
 const KnowledgeDetailPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeDetailPage'));
@@ -272,6 +273,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/pricing' element={withRouteFallback(PricingPage)} />
           {/* 客服 (Customer Service) — a first-class domain separate from desktop companions. */}
           <Route path='/customer-service' element={withRouteFallback(CustomerServiceRosterPage)} />
+          <Route path='/customer-service/channels' element={withRouteFallback(CustomerServiceChannelsPage)} />
           <Route path='/customer-service/tickets' element={withRouteFallback(TicketsPage)} />
           <Route path='/customer-service/:cs_agent_id' element={withRouteFallback(CustomerServiceDetailPage)} />
           <Route path='/customer-service/:cs_agent_id/chat' element={withRouteFallback(CustomerServiceChatPage)} />

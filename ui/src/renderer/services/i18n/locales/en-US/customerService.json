@@ -186,5 +186,37 @@
       "resolved": "Resolved",
       "cancelled": "Cancelled"
     }
+  },
+  "channels": {
+    "openChannels": "Channels",
+    "title": "Channel Center",
+    "subtitle": "Connect customer-service channels in one place — configure platform credentials, create bots, and assign them to agents.",
+    "back": "Back to agents",
+    "newBot": "New channel bot",
+    "newOnPlatform": "New {{platform}} bot",
+    "refresh": "Refresh",
+    "leftHeader": "Channels",
+    "notConnected": "Not connected",
+    "extFallbackName": "Custom channel",
+    "rebound": "Binding updated",
+    "deleted": "Bot deleted",
+    "stats": {
+      "bots": "{{count}} bots connected",
+      "running": "{{count}} running",
+      "agents": "{{count}} agents covered"
+    },
+    "empty": {
+      "noAgents": "Create an agent first, then connect a channel bot.",
+      "platformDesc": "No bots on this channel yet — click “New” in the top-right to configure credentials.",
+      "goCreateAgent": "Create agent"
+    },
+    "row": {
+      "bind": "Agent",
+      "bindPlaceholder": "Assign agent…",
+      "configure": "Configure",
+      "delete": "Delete",
+      "deleteConfirm": "Deleting this bot disconnects all of its dialogues and visitors. Delete?",
+      "hint": "Once bound, the bot routes all visitor messages to the selected agent (strangers need no pairing code). Rebinding moves the bot from its current agent."
+    }
   }
 }

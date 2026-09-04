@@ -186,5 +186,37 @@
       "resolved": "已解决",
       "cancelled": "已取消"
     }
+  },
+  "channels": {
+    "openChannels": "渠道中心",
+    "title": "渠道中心",
+    "subtitle": "集中接入客服渠道 —— 配置平台凭证、创建渠道机器人、指派给客服接待访客。",
+    "back": "返回客服",
+    "newBot": "新建渠道机器人",
+    "newOnPlatform": "新建{{platform}}机器人",
+    "refresh": "刷新",
+    "leftHeader": "渠道",
+    "notConnected": "未接入",
+    "extFallbackName": "自定义渠道",
+    "rebound": "绑定已更新",
+    "deleted": "机器人已删除",
+    "stats": {
+      "bots": "接入 {{count}} 个渠道机器人",
+      "running": "{{count}} 个运行中",
+      "agents": "覆盖 {{count}} 位客服"
+    },
+    "empty": {
+      "noAgents": "请先创建客服，再接入渠道机器人。",
+      "platformDesc": "此渠道还没有机器人 —— 点击右上角「新建」配置凭证并接入。",
+      "goCreateAgent": "去创建客服"
+    },
+    "row": {
+      "bind": "绑定客服",
+      "bindPlaceholder": "指派客服…",
+      "configure": "配置",
+      "delete": "删除",
+      "deleteConfirm": "删除该机器人将断开其全部会话与访客，确认删除？",
+      "hint": "绑定后，该机器人的来访消息会交给所选客服接待（陌生访客免配对码）。改绑会把机器人从原客服名下移除。"
+    }
   }
 }
