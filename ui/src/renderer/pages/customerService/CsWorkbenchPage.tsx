@@ -27,10 +27,13 @@ import {
 // ArcO exposes the multiline input as a member of `Input`, not a top-level export.
 const TextArea = Input.TextArea;
 import {
+  Api,
   Headset,
   Left,
+  ListView,
   Plus,
   Send,
+  Ticket,
   User,
 } from '@icon-park/react';
 
@@ -44,7 +47,7 @@ import type {
 } from '@/common/adapter/ipcBridge';
 import { parseCsAgentId, type CsDialogueId } from '@/common/types/ids';
 
-import { useCsAgent, useCsNotes } from './useCsAgents';
+import { useCsAgent, useCsAgents, useCsNotes } from './useCsAgents';
 
 // ICsAgent is referenced only via useCsAgent's return type; keep the import
 // for documentation/future expansion and silence the unused-import lint.
@@ -154,6 +157,7 @@ const CsWorkbenchPage: React.FC = () => {
   const navigate = useNavigate();
   const agentId = useMemo(() => (rawAgentId ? parseCsAgentId(rawAgentId) : null), [rawAgentId]);
   const { agent, loading: agentLoading } = useCsAgent(agentId);
+  const { agents } = useCsAgents();
   const [operatorId, setOperatorId] = useOperatorId();
 
   const [dialogues, setDialogues] = useState<ICsDialogue[]>([]);
@@ -445,31 +449,71 @@ const CsWorkbenchPage: React.FC = () => {
   return (
     <div className='flex h-full w-full flex-col box-border bg-bg-1'>
       <div className='flex shrink-0 items-center gap-12px border-b border-solid border-[var(--color-border-2)] px-16px py-10px'>
+        {/* 客服管理 + 切换 */}
         <Button
           size='small'
           type='text'
-          onClick={() => void navigate(`/customer-service/${agent.cs_agent_id}`)}
+          onClick={() => void navigate('/customer-service/roster')}
         >
           <span className='inline-flex items-center gap-4px'>
-            <Left theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
-            {t('customerService.workbench.back', { defaultValue: '返回客服' })}
+            <ListView theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+            {t('customerService.workbench.manageAgents', { defaultValue: '客服管理' })}
           </span>
         </Button>
+        <Select
+          size='small'
+          style={{ width: 160 }}
+          value={agent.cs_agent_id}
+          onChange={(value: unknown) => {
+            const id = value as string;
+            if (id && id !== agent.cs_agent_id) {
+              navigate(`/customer-service/${id}/workbench`, { replace: true });
+            }
+          }}
+        >
+          {agents.map((a) => (
+            <Select.Option key={a.cs_agent_id} value={a.cs_agent_id}>
+              <span className='inline-flex items-center gap-6px'>
+                <span
+                  className={`w-6px h-6px rounded-full ${a.enabled ? 'bg-green-6' : 'bg-gray-4'}`}
+                />
+                <span className='truncate'>{a.name}</span>
+              </span>
+            </Select.Option>
+          ))}
+        </Select>
+
         <span className='text-15px font-500'>{agent.name}</span>
         <span className='text-12px text-t-tertiary'>
           {t('customerService.workbench.subtitle', { defaultValue: '把会话从 AI 切到自己手里 — 接管后引擎不再回复。' })}
         </span>
-        <span className='ml-auto inline-flex items-center gap-4px text-12px text-t-tertiary'>
-          <User theme='outline' size='14' fill='currentColor' />
-          <Input
-            size='mini'
-            style={{ width: '260px' }}
-            value={operatorId}
-            onChange={setOperatorId}
-            placeholder={t('customerService.workbench.operatorPlaceholder', {
-              defaultValue: '操作员 UUIDv7',
-            })}
-          />
+
+        {/* 渠道中心 + 工单 */}
+        <span className='ml-auto inline-flex items-center gap-8px'>
+          <Button size='small' type='text' onClick={() => void navigate('/customer-service/channels')}>
+            <span className='inline-flex items-center gap-4px'>
+              <Api theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.channels.openChannels', { defaultValue: '渠道中心' })}
+            </span>
+          </Button>
+          <Button size='small' type='text' onClick={() => void navigate('/customer-service/tickets')}>
+            <span className='inline-flex items-center gap-4px'>
+              <Ticket theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.tickets.openTickets', { defaultValue: '工单' })}
+            </span>
+          </Button>
+          <span className='inline-flex items-center gap-4px text-12px text-t-tertiary'>
+            <User theme='outline' size='14' fill='currentColor' />
+            <Input
+              size='mini'
+              style={{ width: '200px' }}
+              value={operatorId}
+              onChange={setOperatorId}
+              placeholder={t('customerService.workbench.operatorPlaceholder', {
+                defaultValue: '操作员 UUIDv7',
+              })}
+            />
+          </span>
         </span>
       </div>
 

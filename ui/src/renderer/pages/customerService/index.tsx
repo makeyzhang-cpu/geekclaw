@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Spin, Tag } from '@arco-design/web-react';
-import { Api, BookOne, Headset, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
+import { Api, BookOne, Headset, Left, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
 import { useCsAgents } from './useCsAgents';
 import CreateCsAgentModal from './CreateCsAgentModal';
 import type { ICsAgent } from '@/common/adapter/ipcBridge';
@@ -88,11 +88,10 @@ const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void; onChat: () =>
 };
 
 /**
- * 客服（/customer-service）—— 面向陌生访客的客服控制台首页（花名册）。
+ * 客服管理后台（/customer-service/roster）—— 客服花名册与配置入口。
  *
- * 与「桌面伙伴」完全分离的一级域：一次性只读引擎会话（knowledge_search /
- * knowledge_read / cs_notes_search 三个只读工具，外加可选的、由管理员钉死
- * host 的只读 HTTPS 业务查询端点），高危能力从不注册。
+ * 默认首页已改为直进工作台（/customer-service → /customer-service/:id/workbench）。
+ * 此处保留为员工管理、模型/知识库配置与渠道机器人绑定页的管理后台。
  */
 const CustomerServiceRosterPage: React.FC = () => {
   const { t } = useTranslation();
@@ -109,9 +108,17 @@ const CustomerServiceRosterPage: React.FC = () => {
         {/* Header */}
         <div className='flex items-start justify-between gap-16px flex-wrap'>
           <div className='min-w-0'>
-            <h1 className={`${HUB_PAGE_TITLE_CLASS} mb-3px`}>
-              {t('customerService.title', { defaultValue: '客服' })}
+          <div className='flex items-center gap-10px mb-3px'>
+            <Button size='mini' type='text' onClick={() => void navigate('/customer-service')}>
+              <span className='inline-flex items-center gap-4px'>
+                <Left theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+                {t('customerService.roster.backToWorkbench', { defaultValue: '返回工作台' })}
+              </span>
+            </Button>
+            <h1 className={HUB_PAGE_TITLE_CLASS}>
+              {t('customerService.roster.title', { defaultValue: '客服管理' })}
             </h1>
+          </div>
             <p className='m-0 text-13px text-t-secondary leading-19px max-w-[560px]'>
               {t('customerService.subtitle', {
                 defaultValue:

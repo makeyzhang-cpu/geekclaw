@@ -30,6 +30,7 @@ const LobsterPage = React.lazy(() => import('@renderer/pages/lobster'));
 const TerminalSessionPage = React.lazy(() => import('@renderer/pages/terminal/TerminalSessionPage'));
 const TerminalCreatePage = React.lazy(() => import('@renderer/pages/terminal/TerminalCreatePage'));
 const NomiConfigPage = React.lazy(() => import('@renderer/pages/geekclaw'));
+const CustomerServiceHomePage = React.lazy(() => import('@renderer/pages/customerService/CsHomePage'));
 const CustomerServiceRosterPage = React.lazy(() => import('@renderer/pages/customerService'));
 const CustomerServiceDetailPage = React.lazy(() => import('@renderer/pages/customerService/CsAgentDetailPage'));
 const CustomerServiceChatPage = React.lazy(() => import('@renderer/pages/customerService/CsChatPage'));
@@ -272,7 +273,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           {/* 套餐与定价 (Pricing) — public marketing tiers; CTA routes to /activate. */}
           <Route path='/pricing' element={withRouteFallback(PricingPage)} />
           {/* 客服 (Customer Service) — a first-class domain separate from desktop companions. */}
-          <Route path='/customer-service' element={withRouteFallback(CustomerServiceRosterPage)} />
+          <Route path='/customer-service' element={withRouteFallback(CustomerServiceHomePage)} />
+          <Route path='/customer-service/roster' element={withRouteFallback(CustomerServiceRosterPage)} />
           <Route path='/customer-service/channels' element={withRouteFallback(CustomerServiceChannelsPage)} />
           <Route path='/customer-service/tickets' element={withRouteFallback(TicketsPage)} />
           <Route path='/customer-service/:cs_agent_id' element={withRouteFallback(CustomerServiceDetailPage)} />

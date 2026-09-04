@@ -14,6 +14,13 @@
     "noModel": "未配置模型",
     "kbCount": "{{count}} 个知识库"
   },
+  "home": {
+    "empty": "还没有客服员工，先创建一个才能进入工作台。"
+  },
+  "roster": {
+    "title": "客服管理",
+    "backToWorkbench": "返回工作台"
+  },
   "create": {
     "action": "创建客服",
     "title": "创建客服",
@@ -100,6 +107,7 @@
     "title": "坐席工作台",
     "subtitle": "把会话从 AI 切到自己手里 — 接管后引擎不再回复；发送后才会落到访客记录。",
     "openWorkbench": "工作台",
+    "manageAgents": "客服管理",
     "back": "返回客服",
     "empty": "该客服暂无进行中的会话。访客发来消息后会出现在这里。",
     "states": {

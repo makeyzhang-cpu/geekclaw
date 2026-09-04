@@ -14,6 +14,13 @@
     "noModel": "No model configured",
     "kbCount": "{{count}} knowledge bases"
   },
+  "home": {
+    "empty": "No customer-service agents yet. Create one first to enter the workbench."
+  },
+  "roster": {
+    "title": "Agent Management",
+    "backToWorkbench": "Back to workbench"
+  },
   "create": {
     "action": "Create agent",
     "title": "Create customer-service agent",
@@ -100,6 +107,7 @@
     "title": "Agent Workbench",
     "subtitle": "Take conversations back from the AI. While you hold a dialogue the engine skips its turns; messages you send land in the visitor transcript.",
     "openWorkbench": "Workbench",
+    "manageAgents": "Manage agents",
     "back": "Back to agent",
     "empty": "No active dialogues for this agent. Visitor turns will surface here.",
     "states": {
