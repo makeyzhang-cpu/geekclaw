@@ -1305,6 +1305,9 @@ impl ChannelManager {
             PluginType::Twitch => "Twitch Bot".into(),
             PluginType::Nostr => "Nostr Bot".into(),
             PluginType::Qqbot => "QQ Bot".into(),
+            PluginType::WhatsApp => "WhatsApp Bot".into(),
+            PluginType::Line => "LINE Bot".into(),
+            PluginType::Email => "Email Bot".into(),
         }
     }
 }

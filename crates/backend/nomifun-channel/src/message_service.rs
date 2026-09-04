@@ -1105,7 +1105,10 @@ fn platform_to_source(platform: PluginType) -> ConversationSource {
         | PluginType::Twitch
         | PluginType::Nostr
         | PluginType::Wecom
-        | PluginType::Qqbot => ConversationSource::GeekClaw,
+        | PluginType::Qqbot
+        | PluginType::WhatsApp
+        | PluginType::Line
+        | PluginType::Email => ConversationSource::GeekClaw,
     }
 }
 
@@ -1145,6 +1148,9 @@ fn channel_conversation_name(
         PluginType::Twitch => "twitch",
         PluginType::Nostr => "nostr",
         PluginType::Qqbot => "qq",
+        PluginType::WhatsApp => "wa",
+        PluginType::Line => "line",
+        PluginType::Email => "email",
     };
 
     let mut parts = vec![short.to_owned()];

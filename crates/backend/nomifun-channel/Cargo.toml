@@ -18,6 +18,12 @@ twitch = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustl
 nostr = ["dep:nostr", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs", "dep:hex"]
 # qqbot module + factory arm land when the parallel QQ Bot work is integrated.
 qqbot = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs", "dep:base64"]
+# WhatsApp Cloud API (Meta Business) — webhook mode, no long-running socket.
+whatsapp = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:hex"]
+# LINE Messaging API — webhook mode, no long-running socket.
+line = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:base64"]
+# Email: IMAP IDLE inbound + SMTP outbound. Polled every 60s.
+email = ["dep:async-imap", "dep:lettre", "dep:tokio-native-tls", "dep:native-tls"]
 
 [dependencies]
 nomifun-common.workspace = true
@@ -40,7 +46,7 @@ tracing.workspace = true
 getrandom.workspace = true
 dashmap.workspace = true
 regex.workspace = true
-sha2.workspace = true
+sha2 = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
@@ -51,9 +57,15 @@ base64 = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 nostr = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 # WeChat (iLink) CDN media: AES-128-ECB encryption + plaintext MD5.
 aes = { workspace = true, optional = true }
 md-5 = { workspace = true, optional = true }
+# Email (v5.0.26)
+async-imap = { version = "0.10", optional = true }
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"], optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+native-tls = { version = "0.2", optional = true }
 
 [dev-dependencies]
 nomifun-ai-agent = { workspace = true, features = ["test-support"] }

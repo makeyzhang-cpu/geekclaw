@@ -36,6 +36,15 @@ pub enum PluginType {
     Nostr,
     /// QQ Bot (official outbound WS gateway + REST; OAuth2 token).
     Qqbot,
+    /// WhatsApp Cloud API (Meta Business). Webhook inbound + REST send.
+    /// v1 scope: text messages only, no media, no templates.
+    WhatsApp,
+    /// LINE Messaging API. Webhook inbound + REST send.
+    /// v1 scope: text messages only, no flex/template.
+    Line,
+    /// Email (IMAP IDLE inbound + SMTP outbound). Generic; supports Gmail/Outlook/QQ/custom.
+    /// v1 scope: text-only emails, polled every 60s.
+    Email,
 }
 
 impl fmt::Display for PluginType {
@@ -53,6 +62,9 @@ impl fmt::Display for PluginType {
             Self::Twitch => write!(f, "twitch"),
             Self::Nostr => write!(f, "nostr"),
             Self::Qqbot => write!(f, "qqbot"),
+            Self::WhatsApp => write!(f, "whatsapp"),
+            Self::Line => write!(f, "line"),
+            Self::Email => write!(f, "email"),
         }
     }
 }
@@ -73,6 +85,9 @@ impl PluginType {
             "twitch" => Some(Self::Twitch),
             "nostr" => Some(Self::Nostr),
             "qqbot" => Some(Self::Qqbot),
+            "whatsapp" => Some(Self::WhatsApp),
+            "line" => Some(Self::Line),
+            "email" => Some(Self::Email),
             _ => None,
         }
     }
@@ -221,6 +236,48 @@ pub struct PluginCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
 
+    // WhatsApp Cloud API (v5.0.26)
+    /// Phone-number ID of the business account (numeric; public).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_number_id: Option<String>,
+    /// Permanent access token from Meta Business Suite.
+    /// (Namespaced to avoid clashing with the Lark `access_token` above.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub whatsapp_access_token: Option<String>,
+    /// Webhook verification token (echoed back by Meta on GET /webhook).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_token: Option<String>,
+    /// Webhook app secret (used for X-Hub-Signature-256 HMAC verification).
+    /// (Namespaced to avoid clashing with Lark `app_secret`.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub whatsapp_app_secret: Option<String>,
+
+    // LINE Messaging API (v5.0.26)
+    /// Channel ID (numeric; public).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<String>,
+    /// Channel access token (long-lived; Line Console → Messaging API).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_access_token: Option<String>,
+    /// Channel secret (used for X-Line-Signature HMAC verification).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_secret: Option<String>,
+
+    // Email (v5.0.26; IMAP IDLE + SMTP)
+    /// Email address (also used as the bot identity in `bot_key_for`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imap_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imap_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imap_username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imap_password: Option<String>,
+
     // Slack (Socket Mode: bot token reuses `token` (xoxb-); app-level token below)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_token: Option<String>,
@@ -324,6 +381,12 @@ pub fn bot_key_for(plugin_type: PluginType, credentials: &PluginCredentials) -> 
         PluginType::Nostr => None,
         // QQ Bot: appId (client_id) is the non-secret bot identity (like DingTalk).
         PluginType::Qqbot => credentials.client_id.clone(),
+        // WhatsApp Cloud: phone_number_id is the non-secret bot identity (numeric, public).
+        PluginType::WhatsApp => credentials.bot_id.clone(),
+        // LINE: channel_id (numeric, public).
+        PluginType::Line => credentials.bot_id.clone(),
+        // Email: address (non-secret in this v1; password is the secret).
+        PluginType::Email => credentials.account_id.clone(),
     };
     raw.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
 }
@@ -619,6 +682,9 @@ mod tests {
             (PluginType::Twitch, "\"twitch\""),
             (PluginType::Nostr, "\"nostr\""),
             (PluginType::Qqbot, "\"qqbot\""),
+            (PluginType::WhatsApp, "\"whatsapp\""),
+            (PluginType::Line, "\"line\""),
+            (PluginType::Email, "\"email\""),
         ];
         for (variant, expected_json) in cases {
             let json = serde_json::to_string(&variant).unwrap();

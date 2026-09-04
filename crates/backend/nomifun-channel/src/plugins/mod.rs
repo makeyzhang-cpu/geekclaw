@@ -34,6 +34,18 @@ pub mod nostr;
 #[cfg(feature = "qqbot")]
 pub mod qqbot;
 
+/// WhatsApp Cloud API plugin (v5.0.26).
+#[cfg(feature = "whatsapp")]
+pub mod whatsapp;
+
+/// LINE Messaging API plugin (v5.0.26).
+#[cfg(feature = "line")]
+pub mod line;
+
+/// Email (IMAP IDLE inbound + SMTP outbound) plugin (v5.0.26).
+#[cfg(feature = "email")]
+pub mod email;
+
 /// Shared callback-data encoding for interactive buttons (Telegram/Discord/Slack/...).
 #[cfg(any(feature = "telegram", feature = "discord", feature = "slack", feature = "qqbot"))]
 pub mod callback;
@@ -97,6 +109,15 @@ pub fn create_plugin(plugin_type: PluginType) -> Option<Box<dyn ChannelPlugin>> 
 
         #[cfg(feature = "qqbot")]
         PluginType::Qqbot => Some(Box::new(qqbot::QqbotPlugin::new())),
+
+        #[cfg(feature = "whatsapp")]
+        PluginType::WhatsApp => Some(Box::new(whatsapp::plugin::WhatsAppPlugin::new())),
+
+        #[cfg(feature = "line")]
+        PluginType::Line => Some(Box::new(line::plugin::LinePlugin::new())),
+
+        #[cfg(feature = "email")]
+        PluginType::Email => Some(Box::new(email::plugin::EmailPlugin::new())),
 
         #[allow(unreachable_patterns)]
         _ => None,

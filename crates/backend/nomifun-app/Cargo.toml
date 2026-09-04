@@ -169,7 +169,7 @@ name = "content_e2e_suite"
 path = "tests/suites/content.rs"
 
 [features]
-default = ["telegram", "lark", "dingtalk", "weixin", "wecom", "discord", "matrix", "mattermost", "slack", "twitch", "nostr", "qqbot"]
+default = ["telegram", "lark", "dingtalk", "weixin", "wecom", "discord", "matrix", "mattermost", "slack", "twitch", "nostr", "qqbot", "whatsapp", "line", "email"]
 telegram = ["nomifun-channel/telegram"]
 lark = ["nomifun-channel/lark"]
 dingtalk = ["nomifun-channel/dingtalk"]
@@ -182,6 +182,9 @@ slack = ["nomifun-channel/slack"]
 twitch = ["nomifun-channel/twitch"]
 nostr = ["nomifun-channel/nostr"]
 qqbot = ["nomifun-channel/qqbot"]
+whatsapp = ["nomifun-channel/whatsapp"]
+line = ["nomifun-channel/line"]
+email = ["nomifun-channel/email"]
 # Desktop control tools (desktop host enables this; web/server hosts do not).
 # Also pulls the discrete-tool MCP bridge (`mcp-computer-stdio`) deps so codex/
 # ACP sessions get the same computer-use; web/headless builds omit them entirely.
