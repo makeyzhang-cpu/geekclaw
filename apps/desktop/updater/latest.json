@@ -1,11 +1,11 @@
 {
-  "version": "5.0.27",
-  "notes": "GeekClaw v5.0.27 - Frontend UI for New Channels (WhatsApp / LINE / Email)\n\nNew channel-config UI (5.0.27)\n- WhatsAppConfigForm: Phone Number ID + Access Token + Verify Token + App Secret\n  fields with Meta Cloud API quickstart link. HMAC-SHA256 signature verification\n  wired into the backend plugin.\n- LineConfigForm: Channel ID + Channel Access Token + Channel Secret fields with\n  LINE Messaging API docs link. HMAC base64 X-Line-Signature verification wired in.\n- EmailConfigForm: From Address + App Password + (optional) IMAP/SMTP Host/Port.\n  Gmail / Outlook / QQ / 163 / 126 hosts are auto-resolved when blank. SMTP\n  send is wired and fully active; IMAP polling is a stub pending 5.0.27.1.\n- All three appear in the channel-settings platform list (12 → 15 platforms)\n  alongside WeCom, Telegram, Discord, etc.\n\ni18n\n- zh-CN and en-US settings.json updated with three new sections:\n  `whatsapp` (15 keys), `line` (13 keys), `email` (17 keys).\n- `channels` table gains `whatsappTitle` / `lineTitle` / `emailTitle`.\n\nCompatibility\n- Backend plugin binaries from 5.0.26 unchanged. PluginType / PluginCredentials\n  schema unchanged.\n- 5.0.26 users on the auto-update channel are pulled to 5.0.27 to get the UI.",
-  "pub_date": "2026-09-04T04:57:31.568Z",
+  "version": "5.0.28",
+  "notes": "GeekClaw v5.0.28\n\n修复与改进：\n- 修复 AI 客服工作台加载活跃会话时丢失 cs_agent_id 查询参数导致的 400 错误。\n- 加固 Windows 安装包 WebView2 运行时检测：扫描注册表所有子键及常见物理路径，避免在已安装 WebView2 的电脑上重复运行离线安装器造成卡死。\n- WebView2 安装器改为带 2 分钟超时的非阻塞执行；若超时或失败，安装器会继续完成 GeekClaw 安装并提示手动安装运行时。",
+  "pub_date": "2026-09-04T05:55:59.102Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVhHYWJoVnpaNjlxU0o0dEpqN0ZiaTBxTWp4MUkyTG8vY0Fqelo0TjhoTWZIVGlERlRmaWRsOVNBZHFQWnJ0dzlGWkxRdlFOYWM3YTNheXQ4SXdVMUFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDk3ODI3CWZpbGU6R2Vla0NsYXdfNS4wLjI3X3g2NC1zZXR1cC5leGUKUkQ4VkdzY3pLd3JOOTVCRGIvWnhPR2xqTGZNR0RyUWFNUGxBMnRTQzk3M1B0ZGs5TkNheGlUL3pFTnFmNkNqZzlXRE52elNxNEVxSHlBOWpSMElMRHc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.27/GeekClaw_5.0.27_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVIydG1EOE9lRDlMbm9Ca0Ztazh4V3BJUmFQRmRyaWpzZXh0SkFMOCtjbHI2MmdPNXE5WndNdlArZEdUK0tWVHA3eGFSQWUrV0tGQWEyaExWWFJKZVFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NTAxMjk0CWZpbGU6R2Vla0NsYXdfNS4wLjI4X3g2NC1zZXR1cC5leGUKc0tVb1doWFFhT3FZV1cyR3NKb3h0UUtoT29Lb2xzVXloVlk3ejZpeXR0M3ViU3FIb3p3bHFnK3JPUWd5dHhRVjdQUGV6Vnltb3hVNm9mcHlINzBYREE9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.28/GeekClaw_5.0.28_x64-setup.exe"
     }
   }
 }
