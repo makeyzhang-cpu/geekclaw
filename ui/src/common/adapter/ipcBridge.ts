@@ -6058,7 +6058,7 @@ export const customerService = {
    * to drive the operator inbox.
    */
   listActiveDialogues: httpGet<ICsDialogue[], { cs_agent_id: CsAgentId }>(
-    '/api/customer-service/dialogues/active'
+    (p) => `/api/customer-service/dialogues/active?cs_agent_id=${encodeURIComponent(p.cs_agent_id)}`
   ),
   /** Operator message send: appended with `sender_kind = 'human'`. */
   postHumanMessage: httpPost<ICsMessage, { cs_dialogue_id: string; text: string }>(
