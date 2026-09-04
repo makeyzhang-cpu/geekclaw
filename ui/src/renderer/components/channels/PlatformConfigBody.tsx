@@ -18,6 +18,9 @@ import ChannelTelegramLogo from '@/renderer/assets/channel-logos/telegram.svg';
 import ChannelTwitchLogo from '@/renderer/assets/channel-logos/twitch.svg';
 import ChannelWecomLogo from '@/renderer/assets/channel-logos/wecom.svg';
 import ChannelWeixinLogo from '@/renderer/assets/channel-logos/weixin.svg';
+import ChannelWhatsAppLogo from '@/renderer/assets/channel-logos/whatsapp.svg';
+import ChannelLineLogo from '@/renderer/assets/channel-logos/line.svg';
+import ChannelEmailLogo from '@/renderer/assets/channel-logos/email.svg';
 import type { ChannelPlatform, ChannelTarget } from '@/renderer/components/settings/SettingsModal/contents/channels/channelTarget';
 import DingTalkConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/DingTalkConfigForm';
 import DiscordConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/DiscordConfigForm';
@@ -31,6 +34,9 @@ import TwitchConfigForm from '@/renderer/components/settings/SettingsModal/conte
 import TelegramConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/TelegramConfigForm';
 import WecomConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/WecomConfigForm';
 import WeixinConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/WeixinConfigForm';
+import WhatsAppConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/WhatsAppConfigForm';
+import LineConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/LineConfigForm';
+import EmailConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/EmailConfigForm';
 import { Message, Switch } from '@arco-design/web-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -55,7 +61,10 @@ export const CHANNEL_PLATFORMS: ReadonlyArray<{ id: ChannelPlatform; logo: strin
   { id: 'matrix', logo: ChannelMatrixLogo, titleKey: 'settings.channels.matrixTitle', fallback: 'Matrix' },
   { id: 'mattermost', logo: ChannelMattermostLogo, titleKey: 'settings.channels.mattermostTitle', fallback: 'Mattermost' },
   { id: 'twitch', logo: ChannelTwitchLogo, titleKey: 'settings.channels.twitchTitle', fallback: 'Twitch' },
-  { id: 'nostr', logo: ChannelNostrLogo, titleKey: 'settings.channels.nostrTitle', fallback: 'Nostr' },
+  { id: 'nostr', logo: ChannelNostrLogo, titleKey: 'settings.channels.nostrTitle', fallback: 'Nostr' },  { id: 'nostr', logo: ChannelNostrLogo, titleKey: 'settings.channels.nostrTitle', fallback: 'Nostr' },
+  { id: 'whatsapp', logo: ChannelWhatsAppLogo, titleKey: 'settings.channels.whatsappTitle', fallback: 'WhatsApp' },
+  { id: 'line', logo: ChannelLineLogo, titleKey: 'settings.channels.lineTitle', fallback: 'LINE' },
+  { id: 'email', logo: ChannelEmailLogo, titleKey: 'settings.channels.emailTitle', fallback: 'Email' },
 ];
 
 /** Per-platform i18n keys reused from the legacy channel settings page. */
@@ -72,7 +81,10 @@ export const CREDENTIALS_REQUIRED_KEY: Record<ChannelPlatform, string> = {
   dingtalk: 'settings.dingtalk.credentialsRequired',
   weixin: 'settings.weixin.loginRequired',
   wecom: 'settings.wecom.configureFirst',
-};
+
+  whatsapp: "settings.whatsapp.credentialsRequired",
+  line: "settings.line.credentialsRequired",
+  email: "settings.email.credentialsRequired",};
 
 export const PLUGIN_ENABLED_KEY: Record<ChannelPlatform, string> = {
   telegram: 'settings.channels.pluginEnabled',
@@ -87,7 +99,10 @@ export const PLUGIN_ENABLED_KEY: Record<ChannelPlatform, string> = {
   dingtalk: 'settings.dingtalk.pluginEnabled',
   weixin: 'settings.weixin.pluginEnabled',
   wecom: 'settings.wecom.pluginEnabled',
-};
+
+  whatsapp: "settings.whatsapp.pluginEnabled",
+  line: "settings.line.pluginEnabled",
+  email: "settings.email.pluginEnabled",};
 
 export const PLUGIN_DISABLED_KEY: Record<ChannelPlatform, string> = {
   telegram: 'settings.channels.pluginDisabled',
@@ -102,7 +117,10 @@ export const PLUGIN_DISABLED_KEY: Record<ChannelPlatform, string> = {
   dingtalk: 'settings.dingtalk.pluginDisabled',
   weixin: 'settings.weixin.pluginDisabled',
   wecom: 'settings.wecom.pluginDisabled',
-};
+
+  whatsapp: "settings.whatsapp.alreadyEnabled",
+  line: "settings.line.alreadyEnabled",
+  email: "settings.email.alreadyEnabled",};
 
 /**
  * Channel config modal body: enable/disable switch + the platform's full
@@ -280,6 +298,15 @@ export const PlatformConfigBody: React.FC<{
           onStatusChange={onStatusChange}
           webuiStatus={webuiStatus}
         />
+      )}
+      {platform === 'whatsapp' && (
+        <WhatsAppConfigForm pluginStatus={status} channelTarget={channelTarget} onStatusChange={onStatusChange} />
+      )}
+      {platform === 'line' && (
+        <LineConfigForm pluginStatus={status} channelTarget={channelTarget} onStatusChange={onStatusChange} />
+      )}
+      {platform === 'email' && (
+        <EmailConfigForm pluginStatus={status} channelTarget={channelTarget} onStatusChange={onStatusChange} />
       )}
     </div>
   );
