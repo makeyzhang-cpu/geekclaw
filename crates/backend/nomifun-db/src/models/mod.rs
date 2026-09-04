@@ -59,7 +59,12 @@ pub use cron_job::CronJobRow;
 pub use cron_job_run::{CronJobRunRow, CronRunReservationRow};
 pub use customer_service::{
     BusinessEndpoint, CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow,
-    CsMessageRow, CsNoteRow, NewCsAgentRow,
+    CsMessageRow, CsNoteRow, CsTicketRow, NewCsAgentRow, NewCsTicketRow,
+    CS_DIALOGUE_STATE_AI, CS_DIALOGUE_STATE_CLOSED, CS_DIALOGUE_STATE_HUMAN,
+    CS_MESSAGE_SENDER_AI, CS_MESSAGE_SENDER_HUMAN, CS_TICKET_PRIORITY_HIGH,
+    CS_TICKET_PRIORITY_LOW, CS_TICKET_PRIORITY_NORMAL, CS_TICKET_PRIORITY_URGENT,
+    CS_TICKET_STATUS_CANCELLED, CS_TICKET_STATUS_IN_PROGRESS, CS_TICKET_STATUS_PENDING,
+    CS_TICKET_STATUS_RESOLVED,
 };
 pub use idmm_intervention::{
     IdmmActionReservationRow, IdmmInterventionRow, NewIdmmInterventionRow,

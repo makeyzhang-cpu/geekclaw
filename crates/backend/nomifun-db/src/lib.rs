@@ -47,7 +47,7 @@ pub use models::{
 };
 pub use repository::channel::UpdatePluginStatusParams;
 pub use repository::customer_service::{
-    CsDialogueKey, ICustomerServiceRepository, UpdateCsAgentParams,
+    CsDialogueKey, ICustomerServiceRepository, UpdateCsAgentParams, UpdateCsTicketParams,
 };
 pub use repository::SqliteCustomerServiceRepository;
 pub use repository::conversation::{

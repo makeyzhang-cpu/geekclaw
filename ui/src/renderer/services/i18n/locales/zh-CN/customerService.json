@@ -95,5 +95,96 @@
     "sharedHint": "共享给全部客服（不勾选则仅本客服可用）",
     "enabled": "启用",
     "deleteConfirm": "删除该笔记？"
+  },
+  "workbench": {
+    "title": "坐席工作台",
+    "subtitle": "把会话从 AI 切到自己手里 — 接管后引擎不再回复；发送后才会落到访客记录。",
+    "openWorkbench": "工作台",
+    "back": "返回客服",
+    "empty": "该客服暂无进行中的会话。访客发来消息后会出现在这里。",
+    "states": {
+      "ai": "AI 接待中",
+      "human": "人工已接管",
+      "closed": "已结束"
+    },
+    "actions": {
+      "takeover": "人工接管",
+      "release": "转回 AI",
+      "close": "结束会话",
+      "sendHuman": "发送（人工）",
+      "createTicket": "建工单",
+      "sendAsScript": "作为话术发送"
+    },
+    "takeoverHint": "选择操作员 UUID（开发预览阶段先用本地用户 ID）。",
+    "operatorPlaceholder": "操作员 UUIDv7",
+    "messages": {
+      "humanBadge": "人工",
+      "aiBadge": "AI",
+      "humanPlaceholder": "以坐席身份向访客发送…",
+      "sendHint": "Enter 发送 / Shift+Enter 换行",
+      "type": {
+        "ai": "AI 消息",
+        "human": "坐席消息",
+        "visitor": "访客消息",
+        "system": "系统提示"
+      }
+    },
+    "scripts": {
+      "title": "快捷回复",
+      "empty": "还没有快捷话术 — 在「客服笔记」里把 `kind` 设为「话术」就会出现在这里。",
+      "select": "选择一条话术",
+      "send": "发送"
+    },
+    "tickets": {
+      "title": "相关工单",
+      "createFromHere": "为当前会话建工单",
+      "open": "查看工单"
+    }
+  },
+  "tickets": {
+    "title": "工单",
+    "subtitle": "把对话里需要后续跟进的事写下来 — 状态：待处理 / 处理中 / 已解决 / 已取消。",
+    "openTickets": "工单",
+    "back": "返回",
+    "newTicket": "新建工单",
+    "empty": "还没有工单 — 从工作台里点「建工单」可以快速创建。",
+    "fields": {
+      "title": "标题",
+      "titlePlaceholder": "例如：客户要求退款",
+      "titleRequired": "请输入工单标题",
+      "description": "描述",
+      "descriptionPlaceholder": "补充背景、已尝试的步骤、需要的资源…",
+      "priority": "优先级",
+      "priorityLow": "低",
+      "priorityNormal": "普通",
+      "priorityHigh": "高",
+      "priorityUrgent": "紧急",
+      "status": "状态",
+      "statusPending": "待处理",
+      "statusInProgress": "处理中",
+      "statusResolved": "已解决",
+      "statusCancelled": "已取消",
+      "assignee": "受理人",
+      "assigneePlaceholder": "操作员 UUIDv7",
+      "visitorName": "访客姓名",
+      "visitorHandle": "访客联系方式",
+      "linkToDialogue": "关联会话"
+    },
+    "actions": {
+      "create": "创建",
+      "save": "保存",
+      "delete": "删除",
+      "deleteConfirm": "删除该工单？",
+      "created": "工单已创建",
+      "saved": "工单已保存",
+      "deleted": "工单已删除"
+    },
+    "filter": {
+      "all": "全部",
+      "pending": "待处理",
+      "inProgress": "处理中",
+      "resolved": "已解决",
+      "cancelled": "已取消"
+    }
   }
 }

@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ipcBridge } from '@/common';
-import type { ICsAgent, ICsAgentPatch } from '@/common/adapter/ipcBridge';
+import type { ICsAgent, ICsAgentPatch, ICsNote } from '@/common/adapter/ipcBridge';
 import type { CsAgentId } from '@/common/types/ids';
 
 /**
@@ -94,4 +94,37 @@ export const useCsAgent = (csAgentId: CsAgentId | null) => {
   );
 
   return { agent, loading, reload: load, patch };
+};
+
+/**
+ * Notes visible to one agent (private + shared). The workbench uses this to
+ * surface "kind=script" notes as one-click quick replies.
+ */
+export const useCsNotes = (csAgentId: CsAgentId | null) => {
+  const [notes, setNotes] = useState<ICsNote[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!csAgentId) {
+      setNotes([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const list = await ipcBridge.customerService.listNotes.invoke({
+        cs_agent_id: csAgentId,
+      });
+      setNotes(list);
+    } catch {
+      setNotes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [csAgentId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { notes, loading, reload: load };
 };

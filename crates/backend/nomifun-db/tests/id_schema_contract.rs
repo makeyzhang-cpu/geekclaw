@@ -151,6 +151,7 @@ const EXPECTED_PRODUCT_TABLES: &[&str] = &[
     "cs_dialogues",
     "cs_messages",
     "cs_notes",
+    "cs_tickets",
     "idmm_action_reservations",
     "idmm_interventions",
     "installation_identity",

@@ -95,5 +95,96 @@
     "sharedHint": "Share with every agent (unchecked = this agent only)",
     "enabled": "Enabled",
     "deleteConfirm": "Delete this note?"
+  },
+  "workbench": {
+    "title": "Agent Workbench",
+    "subtitle": "Take conversations back from the AI. While you hold a dialogue the engine skips its turns; messages you send land in the visitor transcript.",
+    "openWorkbench": "Workbench",
+    "back": "Back to agent",
+    "empty": "No active dialogues for this agent. Visitor turns will surface here.",
+    "states": {
+      "ai": "AI handling",
+      "human": "Operator taken",
+      "closed": "Closed"
+    },
+    "actions": {
+      "takeover": "Take over",
+      "release": "Return to AI",
+      "close": "Close dialogue",
+      "sendHuman": "Send (operator)",
+      "createTicket": "New ticket",
+      "sendAsScript": "Send as script"
+    },
+    "takeoverHint": "Pick the operator UUIDv7 (dev preview uses the local user id).",
+    "operatorPlaceholder": "Operator UUIDv7",
+    "messages": {
+      "humanBadge": "Operator",
+      "aiBadge": "AI",
+      "humanPlaceholder": "Reply as the operator…",
+      "sendHint": "Enter sends / Shift+Enter newline",
+      "type": {
+        "ai": "AI message",
+        "human": "Operator message",
+        "visitor": "Visitor message",
+        "system": "System prompt"
+      }
+    },
+    "scripts": {
+      "title": "Quick replies",
+      "empty": "No scripts yet — add a note with kind=script and it will appear here.",
+      "select": "Pick a script",
+      "send": "Send"
+    },
+    "tickets": {
+      "title": "Linked tickets",
+      "createFromHere": "Create a ticket for this dialogue",
+      "open": "Open ticket"
+    }
+  },
+  "tickets": {
+    "title": "Tickets",
+    "subtitle": "Track follow-ups from a chat. Status: pending / in_progress / resolved / cancelled.",
+    "openTickets": "Tickets",
+    "back": "Back",
+    "newTicket": "New ticket",
+    "empty": "No tickets yet — open the workbench and tap \"New ticket\" to create one.",
+    "fields": {
+      "title": "Title",
+      "titlePlaceholder": "e.g. Customer requests refund",
+      "titleRequired": "Title is required",
+      "description": "Description",
+      "descriptionPlaceholder": "Add background, attempts so far, what you need…",
+      "priority": "Priority",
+      "priorityLow": "Low",
+      "priorityNormal": "Normal",
+      "priorityHigh": "High",
+      "priorityUrgent": "Urgent",
+      "status": "Status",
+      "statusPending": "Pending",
+      "statusInProgress": "In progress",
+      "statusResolved": "Resolved",
+      "statusCancelled": "Cancelled",
+      "assignee": "Assignee",
+      "assigneePlaceholder": "Operator UUIDv7",
+      "visitorName": "Visitor name",
+      "visitorHandle": "Visitor handle",
+      "linkToDialogue": "Linked dialogue"
+    },
+    "actions": {
+      "create": "Create",
+      "save": "Save",
+      "delete": "Delete",
+      "deleteConfirm": "Delete this ticket?",
+      "created": "Ticket created",
+      "saved": "Ticket saved",
+      "deleted": "Ticket deleted"
+    },
+    "filter": {
+      "all": "All",
+      "pending": "Pending",
+      "inProgress": "In progress",
+      "resolved": "Resolved",
+      "cancelled": "Cancelled"
+    }
   }
 }

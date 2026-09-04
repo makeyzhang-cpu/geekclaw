@@ -4,18 +4,20 @@ use sqlx::SqlitePool;
 use crate::error::DbError;
 use crate::models::{
     CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
-    NewCsAgentRow,
+    CsTicketRow, NewCsAgentRow, NewCsTicketRow,
 };
 use crate::repository::customer_service::{
-    CsDialogueKey, ICustomerServiceRepository, UpdateCsAgentParams,
+    CsDialogueKey, ICustomerServiceRepository, UpdateCsAgentParams, UpdateCsTicketParams,
 };
 
 const AGENT_COLUMNS: &str = "cs_agent_id, name, greeting, persona, service_policy, provider_id, \
      model, knowledge_base_ids, business_endpoints, enabled, max_concurrent, audit_retention_days, created_at, updated_at";
 const DIALOGUE_COLUMNS: &str = "cs_dialogue_id, cs_agent_id, channel_plugin_id, channel_user_id, \
-     chat_id, state, created_at, last_activity";
-const MESSAGE_COLUMNS: &str = "cs_message_id, cs_dialogue_id, role, content, created_at";
+     chat_id, state, taken_by, created_at, last_activity";
+const MESSAGE_COLUMNS: &str = "cs_message_id, cs_dialogue_id, role, content, sender_kind, created_at";
 const NOTE_COLUMNS: &str = "cs_note_id, cs_agent_id, kind, content, enabled, created_at, updated_at";
+const TICKET_COLUMNS: &str = "cs_ticket_id, title, description, status, priority, cs_dialogue_id, \
+     cs_agent_id, assignee_id, visitor_name, visitor_handle, created_at, updated_at";
 
 fn canonical_id(kind: &str, value: &str) -> Result<(), DbError> {
     validate_uuidv7(value)
@@ -259,14 +261,17 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         let cs_dialogue_id = nomifun_common::generate_id();
         // Upsert on the identity triple: a replayed visitor keeps the lane,
         // gets a fresh last_activity, and follows the bot's CURRENT agent.
+        // Re-taken (`state = 'human'`) lanes are RESET to `ai` on new inbound
+        // activity so the engine can resume after an operator handoff.
         let sql = format!(
             "INSERT INTO cs_dialogues \
                  (cs_dialogue_id, cs_agent_id, channel_plugin_id, channel_user_id, chat_id, \
-                  state, created_at, last_activity) \
-             VALUES (?, ?, ?, ?, ?, 'open', ?, ?) \
+                  state, taken_by, created_at, last_activity) \
+             VALUES (?, ?, ?, ?, ?, 'ai', NULL, ?, ?) \
              ON CONFLICT(channel_plugin_id, channel_user_id, chat_id) DO UPDATE SET \
                  cs_agent_id = excluded.cs_agent_id, \
-                 state = 'open', \
+                 state = CASE WHEN state = 'closed' THEN 'closed' ELSE 'ai' END, \
+                 taken_by = CASE WHEN state = 'closed' THEN taken_by ELSE NULL END, \
                  last_activity = excluded.last_activity \
              RETURNING {DIALOGUE_COLUMNS}"
         );
@@ -322,8 +327,8 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             return Err(DbError::NotFound(format!("cs dialogue {cs_dialogue_id}")));
         }
         let sql = format!(
-            "INSERT INTO cs_messages (cs_message_id, cs_dialogue_id, role, content, created_at) \
-             VALUES (?, ?, ?, ?, ?) RETURNING {MESSAGE_COLUMNS}"
+            "INSERT INTO cs_messages (cs_message_id, cs_dialogue_id, role, content, sender_kind, created_at) \
+             VALUES (?, ?, ?, ?, 'ai', ?) RETURNING {MESSAGE_COLUMNS}"
         );
         let inserted = sqlx::query_as::<_, CsMessageRow>(&sql)
             .bind(&cs_message_id)
@@ -375,6 +380,340 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(cs_dialogue_id)
             .fetch_all(&self.pool)
             .await?)
+    }
+
+    async fn take_dialogue(
+        &self,
+        cs_dialogue_id: &str,
+        operator_id: &str,
+        now: TimestampMs,
+    ) -> Result<CsDialogueRow, DbError> {
+        canonical_id("cs_dialogue_id", cs_dialogue_id)?;
+        canonical_id("operator_id", operator_id)?;
+        // The `state != 'closed'` guard runs BEFORE the assignment — otherwise
+        // RETURNING would surface the freshly-updated row and miss the closed
+        // case entirely.
+        let sql = format!(
+            "UPDATE cs_dialogues \
+             SET state = 'human', taken_by = ?, last_activity = ? \
+             WHERE cs_dialogue_id = ? AND state != 'closed' \
+             RETURNING {DIALOGUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, CsDialogueRow>(&sql)
+            .bind(operator_id)
+            .bind(now)
+            .bind(cs_dialogue_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        match row {
+            Some(row) => Ok(row),
+            None => {
+                // Either the dialogue is missing or it is already closed.
+                // Distinguish so the route layer can return 404 vs 409.
+                let exists: Option<String> = sqlx::query_scalar(
+                    "SELECT state FROM cs_dialogues WHERE cs_dialogue_id = ?",
+                )
+                .bind(cs_dialogue_id)
+                .fetch_optional(&self.pool)
+                .await?;
+                match exists.as_deref() {
+                    Some("closed") => Err(DbError::Conflict(format!(
+                        "cs dialogue {cs_dialogue_id} is closed"
+                    ))),
+                    _ => Err(DbError::NotFound(format!("cs dialogue {cs_dialogue_id}"))),
+                }
+            }
+        }
+    }
+
+    async fn release_dialogue(
+        &self,
+        cs_dialogue_id: &str,
+        now: TimestampMs,
+    ) -> Result<CsDialogueRow, DbError> {
+        canonical_id("cs_dialogue_id", cs_dialogue_id)?;
+        let sql = format!(
+            "UPDATE cs_dialogues \
+             SET state = 'ai', taken_by = NULL, last_activity = ? \
+             WHERE cs_dialogue_id = ? \
+             RETURNING {DIALOGUE_COLUMNS}"
+        );
+        sqlx::query_as::<_, CsDialogueRow>(&sql)
+            .bind(now)
+            .bind(cs_dialogue_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| DbError::NotFound(format!("cs dialogue {cs_dialogue_id}")))
+    }
+
+    async fn close_dialogue(
+        &self,
+        cs_dialogue_id: &str,
+        now: TimestampMs,
+    ) -> Result<CsDialogueRow, DbError> {
+        canonical_id("cs_dialogue_id", cs_dialogue_id)?;
+        let sql = format!(
+            "UPDATE cs_dialogues \
+             SET state = 'closed', last_activity = ? \
+             WHERE cs_dialogue_id = ? \
+             RETURNING {DIALOGUE_COLUMNS}"
+        );
+        sqlx::query_as::<_, CsDialogueRow>(&sql)
+            .bind(now)
+            .bind(cs_dialogue_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| DbError::NotFound(format!("cs dialogue {cs_dialogue_id}")))
+    }
+
+    async fn append_human_message(
+        &self,
+        cs_dialogue_id: &str,
+        content: &str,
+        now: TimestampMs,
+    ) -> Result<CsMessageRow, DbError> {
+        canonical_id("cs_dialogue_id", cs_dialogue_id)?;
+        let cs_message_id = nomifun_common::generate_id();
+        let mut tx = self.pool.begin().await?;
+        let touched = sqlx::query(
+            "UPDATE cs_dialogues SET last_activity = ? WHERE cs_dialogue_id = ? \
+             AND state IN ('ai', 'human')",
+        )
+        .bind(now)
+        .bind(cs_dialogue_id)
+        .execute(&mut *tx)
+        .await?;
+        if touched.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("cs dialogue {cs_dialogue_id}")));
+        }
+        let sql = format!(
+            "INSERT INTO cs_messages (cs_message_id, cs_dialogue_id, role, content, sender_kind, created_at) \
+             VALUES (?, ?, 'agent', ?, 'human', ?) RETURNING {MESSAGE_COLUMNS}"
+        );
+        let inserted = sqlx::query_as::<_, CsMessageRow>(&sql)
+            .bind(&cs_message_id)
+            .bind(cs_dialogue_id)
+            .bind(content)
+            .bind(now)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(inserted)
+    }
+
+    async fn list_active_dialogues(
+        &self,
+        cs_agent_id: &str,
+    ) -> Result<Vec<CsDialogueRow>, DbError> {
+        canonical_id("cs_agent_id", cs_agent_id)?;
+        let sql = format!(
+            "SELECT {DIALOGUE_COLUMNS} FROM cs_dialogues \
+             WHERE cs_agent_id = ? AND state IN ('ai', 'human') \
+             ORDER BY last_activity DESC, id DESC"
+        );
+        Ok(sqlx::query_as::<_, CsDialogueRow>(&sql)
+            .bind(cs_agent_id)
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    // ── cs_tickets (5.0.22) ─────────────────────────────────────────
+
+    async fn create_ticket(&self, row: &NewCsTicketRow) -> Result<CsTicketRow, DbError> {
+        if row.title.trim().is_empty() {
+            return Err(DbError::Conflict(
+                "ticket title cannot be empty".into(),
+            ));
+        }
+        if let Some(agent_id) = &row.cs_agent_id {
+            canonical_id("cs_agent_id", agent_id)?;
+        }
+        if let Some(dialogue_id) = &row.cs_dialogue_id {
+            canonical_id("cs_dialogue_id", dialogue_id)?;
+        }
+        if let Some(assignee) = &row.assignee_id {
+            canonical_id("assignee_id", assignee)?;
+        }
+        let cs_ticket_id = nomifun_common::generate_id();
+        let sql = format!(
+            "INSERT INTO cs_tickets \
+                 ({TICKET_COLUMNS}) \
+             VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?) \
+             RETURNING {TICKET_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, CsTicketRow>(&sql)
+            .bind(&cs_ticket_id)
+            .bind(&row.title)
+            .bind(&row.description)
+            .bind(&row.priority)
+            .bind(&row.cs_dialogue_id)
+            .bind(&row.cs_agent_id)
+            .bind(&row.assignee_id)
+            .bind(&row.visitor_name)
+            .bind(&row.visitor_handle)
+            .bind(row.created_at)
+            .bind(row.updated_at)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row)
+    }
+
+    async fn get_ticket(&self, cs_ticket_id: &str) -> Result<Option<CsTicketRow>, DbError> {
+        canonical_id("cs_ticket_id", cs_ticket_id)?;
+        let sql = format!("SELECT {TICKET_COLUMNS} FROM cs_tickets WHERE cs_ticket_id = ?");
+        Ok(sqlx::query_as::<_, CsTicketRow>(&sql)
+            .bind(cs_ticket_id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    async fn list_tickets(
+        &self,
+        cs_agent_id: Option<&str>,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CsTicketRow>, DbError> {
+        if let Some(agent_id) = cs_agent_id {
+            canonical_id("cs_agent_id", agent_id)?;
+        }
+        if let Some(status_value) = status {
+            if !matches!(
+                status_value,
+                "pending" | "in_progress" | "resolved" | "cancelled"
+            ) {
+                return Err(DbError::Conflict(format!(
+                    "unknown ticket status '{status_value}'"
+                )));
+            }
+        }
+        let sql = match (cs_agent_id, status) {
+            (None, None) => format!(
+                "SELECT {TICKET_COLUMNS} FROM cs_tickets \
+                 ORDER BY updated_at DESC, id DESC LIMIT ?"
+            ),
+            (Some(_), None) => format!(
+                "SELECT {TICKET_COLUMNS} FROM cs_tickets \
+                 WHERE cs_agent_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?"
+            ),
+            (None, Some(_)) => format!(
+                "SELECT {TICKET_COLUMNS} FROM cs_tickets \
+                 WHERE status = ? ORDER BY updated_at DESC, id DESC LIMIT ?"
+            ),
+            (Some(_), Some(_)) => format!(
+                "SELECT {TICKET_COLUMNS} FROM cs_tickets \
+                 WHERE cs_agent_id = ? AND status = ? \
+                 ORDER BY updated_at DESC, id DESC LIMIT ?"
+            ),
+        };
+        let mut q = sqlx::query_as::<_, CsTicketRow>(&sql);
+        if let Some(agent_id) = cs_agent_id {
+            q = q.bind(agent_id);
+        }
+        if let Some(status_value) = status {
+            q = q.bind(status_value);
+        }
+        q = q.bind(limit as i64);
+        Ok(q.fetch_all(&self.pool).await?)
+    }
+
+    async fn update_ticket(
+        &self,
+        cs_ticket_id: &str,
+        params: &UpdateCsTicketParams,
+        now: TimestampMs,
+    ) -> Result<CsTicketRow, DbError> {
+        canonical_id("cs_ticket_id", cs_ticket_id)?;
+        if let Some(status) = &params.status {
+            if !matches!(status.as_str(), "pending" | "in_progress" | "resolved" | "cancelled") {
+                return Err(DbError::Conflict(format!(
+                    "unknown ticket status '{status}'"
+                )));
+            }
+        }
+        if let Some(priority) = &params.priority {
+            if !matches!(priority.as_str(), "low" | "normal" | "high" | "urgent") {
+                return Err(DbError::Conflict(format!(
+                    "unknown ticket priority '{priority}'"
+                )));
+            }
+        }
+        if let Some(title) = &params.title {
+            if title.trim().is_empty() {
+                return Err(DbError::Conflict(
+                    "ticket title cannot be empty".into(),
+                ));
+            }
+        }
+        let mut sets: Vec<&'static str> = Vec::new();
+        let mut tx = self.pool.begin().await?;
+        if let Some(value) = params.title.as_deref() {
+            sets.push("title = ?");
+            // The bind below re-uses `value` directly.
+            let _ = value;
+        }
+        if let Some(_) = params.description {
+            sets.push("description = ?");
+        }
+        if params.status.is_some() {
+            sets.push("status = ?");
+        }
+        if params.priority.is_some() {
+            sets.push("priority = ?");
+        }
+        if params.assignee_id.is_some() {
+            sets.push("assignee_id = ?");
+        }
+        if params.visitor_name.is_some() {
+            sets.push("visitor_name = ?");
+        }
+        if params.visitor_handle.is_some() {
+            sets.push("visitor_handle = ?");
+        }
+        sets.push("updated_at = ?");
+        let sql = format!(
+            "UPDATE cs_tickets SET {} WHERE cs_ticket_id = ? \
+             RETURNING {TICKET_COLUMNS}",
+            sets.join(", ")
+        );
+        let mut q = sqlx::query_as::<_, CsTicketRow>(&sql);
+        if let Some(value) = &params.title {
+            q = q.bind(value);
+        }
+        if let Some(value_opt) = &params.description {
+            q = q.bind(value_opt.as_deref());
+        }
+        if let Some(value) = &params.status {
+            q = q.bind(value);
+        }
+        if let Some(value) = &params.priority {
+            q = q.bind(value);
+        }
+        if let Some(value_opt) = &params.assignee_id {
+            q = q.bind(value_opt.as_deref());
+        }
+        if let Some(value) = &params.visitor_name {
+            q = q.bind(value);
+        }
+        if let Some(value) = &params.visitor_handle {
+            q = q.bind(value);
+        }
+        q = q.bind(now).bind(cs_ticket_id);
+        let row = q.fetch_optional(&mut *tx).await?;
+        let updated = row.ok_or_else(|| DbError::NotFound(format!("cs ticket {cs_ticket_id}")))?;
+        tx.commit().await?;
+        Ok(updated)
+    }
+
+    async fn delete_ticket(&self, cs_ticket_id: &str) -> Result<(), DbError> {
+        canonical_id("cs_ticket_id", cs_ticket_id)?;
+        let touched = sqlx::query("DELETE FROM cs_tickets WHERE cs_ticket_id = ?")
+            .bind(cs_ticket_id)
+            .execute(&self.pool)
+            .await?;
+        if touched.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("cs ticket {cs_ticket_id}")));
+        }
+        Ok(())
     }
 
     // ── cs_notes ─────────────────────────────────────────────────────

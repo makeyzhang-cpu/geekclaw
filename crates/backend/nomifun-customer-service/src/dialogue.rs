@@ -18,7 +18,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use nomifun_ai_agent::{OneShotDeps, OneShotTurnRequest, run_one_shot_turn};
 use nomifun_common::{AppError, KnowledgeBaseId, now_ms};
-use nomifun_db::models::{CsAgentRow, CsAuditEventRow};
+use nomifun_db::models::{
+    CsAgentRow, CsAuditEventRow, CS_DIALOGUE_STATE_CLOSED, CS_DIALOGUE_STATE_HUMAN,
+};
 use nomifun_db::{CsDialogueKey, ICustomerServiceRepository};
 use nomifun_knowledge::KnowledgeService;
 use tokio::sync::{Mutex, Semaphore};
@@ -87,8 +89,10 @@ impl CsDialogueEngine {
     /// Handle one inbound visitor message.
     ///
     /// `Ok(Some(reply))` — send `reply` to the visitor.
-    /// `Ok(None)` — the text was merged into another caller's batch; send
-    /// nothing.
+    /// `Ok(None)` — the dialogue is closed, or the visitor's text was merged
+    /// into another caller's batch, or a human operator currently owns the
+    /// lane (5.0.22 workbench). In every "no reply" case the visitor's text
+    /// has still been persisted to the transcript so the operator sees it.
     /// `Err(notice)` — send the fixed failure notice.
     pub async fn handle_visitor_message(
         &self,
@@ -123,6 +127,41 @@ impl CsDialogueEngine {
                 tracing::error!(%error, "failed to open customer-service dialogue lane");
                 FALLBACK_ERROR_NOTICE.to_owned()
             })?;
+
+        // 5.0.22 workbench: a closed dialogue swallows new visitor text
+        // silently (the transcript still grows, the UI surfaces the closed
+        // state). A human-taken dialogue records the visitor message but
+        // does NOT call the engine — the operator replies through the
+        // `append_human_message` route. We return `Ok(None)` in both cases
+        // because there is nothing for the AI to send.
+        if dialogue.state == CS_DIALOGUE_STATE_CLOSED {
+            let _ = self
+                .repo
+                .append_message(
+                    &dialogue.cs_dialogue_id,
+                    "visitor",
+                    text,
+                    now_ms(),
+                )
+                .await;
+            return Ok(None);
+        }
+        if dialogue.state == CS_DIALOGUE_STATE_HUMAN {
+            let _ = self
+                .repo
+                .append_message(
+                    &dialogue.cs_dialogue_id,
+                    "visitor",
+                    text,
+                    now_ms(),
+                )
+                .await;
+            tracing::debug!(
+                cs_dialogue_id = %dialogue.cs_dialogue_id,
+                "dialogue is under operator control — visitor message persisted, engine skipped"
+            );
+            return Ok(None);
+        }
 
         let lane = self
             .lanes

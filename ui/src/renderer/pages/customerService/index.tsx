@@ -125,6 +125,13 @@ const CustomerServiceRosterPage: React.FC = () => {
               {t('customerService.create.action', { defaultValue: '创建客服' })}
             </span>
           </Button>
+          <Button
+            size='default'
+            className='shrink-0'
+            onClick={() => void navigate('/customer-service/tickets')}
+          >
+            {t('customerService.tickets.openTickets', { defaultValue: '工单' })}
+          </Button>
         </div>
 
         {/* Trust banner — what this domain guarantees. */}

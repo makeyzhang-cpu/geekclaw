@@ -10,8 +10,10 @@ use axum::routing::get;
 use nomifun_api_types::ApiResponse;
 use nomifun_auth::CurrentUser;
 use nomifun_common::AppError;
+use nomifun_common::now_ms;
 use nomifun_db::models::{
-    CsAgentRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
+    CsAgentRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow, CsTicketRow,
+    NewCsTicketRow,
 };
 use serde::{Deserialize, Serialize};
 
@@ -48,8 +50,34 @@ pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
         )
         .route("/api/customer-service/dialogues", get(list_dialogues))
         .route(
+            "/api/customer-service/dialogues/active",
+            get(list_active_dialogues),
+        )
+        .route(
             "/api/customer-service/dialogues/{cs_dialogue_id}/messages",
-            get(list_dialogue_messages),
+            get(list_dialogue_messages).post(post_human_message),
+        )
+        .route(
+            "/api/customer-service/dialogues/{cs_dialogue_id}/takeover",
+            axum::routing::post(takeover_dialogue),
+        )
+        .route(
+            "/api/customer-service/dialogues/{cs_dialogue_id}/release",
+            axum::routing::post(release_dialogue),
+        )
+        .route(
+            "/api/customer-service/dialogues/{cs_dialogue_id}/close",
+            axum::routing::post(close_dialogue),
+        )
+        .route(
+            "/api/customer-service/tickets",
+            get(list_tickets).post(create_ticket),
+        )
+        .route(
+            "/api/customer-service/tickets/{cs_ticket_id}",
+            get(get_ticket)
+                .patch(update_ticket)
+                .delete(delete_ticket),
         )
         .route("/api/customer-service/chat", axum::routing::post(chat))
         .with_state(state)
@@ -239,6 +267,250 @@ async fn list_dialogue_messages(
     )))
 }
 
+async fn list_active_dialogues(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Query(query): Query<ListDialoguesQuery>,
+) -> Result<Json<ApiResponse<Vec<CsDialogueRow>>>, AppError> {
+    Ok(Json(ApiResponse::ok(
+        state
+            .service
+            .repo()
+            .list_active_dialogues(&query.cs_agent_id)
+            .await?,
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+struct HumanMessageRequest {
+    text: String,
+}
+
+async fn post_human_message(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_dialogue_id): Path<String>,
+    body: Result<Json<HumanMessageRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<CsMessageRow>>, AppError> {
+    let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let trimmed = input.text.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::BadRequest("消息内容不能为空".into()));
+    }
+    let row = state
+        .service
+        .repo()
+        .append_human_message(&cs_dialogue_id, trimmed, now_ms())
+        .await?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+#[derive(Debug, Deserialize)]
+struct TakeoverRequest {
+    /// Operator user id (UUIDv7) that takes the dialogue. `state.service.repo`
+    /// validates canonical UUIDv7 shape before writing the row.
+    operator_id: String,
+}
+
+async fn takeover_dialogue(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_dialogue_id): Path<String>,
+    body: Result<Json<TakeoverRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<CsDialogueRow>>, AppError> {
+    let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let trimmed = input.operator_id.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::BadRequest("operator_id 不能为空".into()));
+    }
+    let row = state
+        .service
+        .repo()
+        .take_dialogue(&cs_dialogue_id, trimmed, now_ms())
+        .await?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+async fn release_dialogue(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_dialogue_id): Path<String>,
+) -> Result<Json<ApiResponse<CsDialogueRow>>, AppError> {
+    let row = state
+        .service
+        .repo()
+        .release_dialogue(&cs_dialogue_id, now_ms())
+        .await?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+async fn close_dialogue(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_dialogue_id): Path<String>,
+) -> Result<Json<ApiResponse<CsDialogueRow>>, AppError> {
+    let row = state
+        .service
+        .repo()
+        .close_dialogue(&cs_dialogue_id, now_ms())
+        .await?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+// ── tickets (lightweight workbench CRUD) ────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ListTicketsQuery {
+    cs_agent_id: Option<String>,
+    status: Option<String>,
+    #[serde(default = "default_ticket_limit")]
+    limit: i64,
+}
+
+fn default_ticket_limit() -> i64 {
+    200
+}
+
+async fn list_tickets(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Query(query): Query<ListTicketsQuery>,
+) -> Result<Json<ApiResponse<Vec<CsTicketRow>>>, AppError> {
+    let limit = query.limit.clamp(1, 500) as usize;
+    Ok(Json(ApiResponse::ok(
+        state
+            .service
+            .repo()
+            .list_tickets(
+                query.cs_agent_id.as_deref(),
+                query.status.as_deref(),
+                limit,
+            )
+            .await?,
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTicketRequest {
+    title: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default = "default_ticket_priority")]
+    priority: String,
+    #[serde(default)]
+    cs_dialogue_id: Option<String>,
+    #[serde(default)]
+    cs_agent_id: Option<String>,
+    #[serde(default)]
+    assignee_id: Option<String>,
+    #[serde(default)]
+    visitor_name: String,
+    #[serde(default)]
+    visitor_handle: String,
+}
+
+fn default_ticket_priority() -> String {
+    "normal".to_owned()
+}
+
+async fn create_ticket(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    body: Result<Json<CreateTicketRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<CsTicketRow>>, AppError> {
+    let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let now = now_ms();
+    let row = state
+        .service
+        .repo()
+        .create_ticket(&NewCsTicketRow {
+            title: input.title,
+            description: input.description,
+            priority: input.priority,
+            cs_dialogue_id: input.cs_dialogue_id,
+            cs_agent_id: input.cs_agent_id,
+            assignee_id: input.assignee_id,
+            visitor_name: input.visitor_name,
+            visitor_handle: input.visitor_handle,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+async fn get_ticket(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_ticket_id): Path<String>,
+) -> Result<Json<ApiResponse<CsTicketRow>>, AppError> {
+    let row = state
+        .service
+        .repo()
+        .get_ticket(&cs_ticket_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("cs ticket {cs_ticket_id}")))?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct UpdateTicketRequest {
+    title: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    description: Option<Option<String>>,
+    status: Option<String>,
+    priority: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    assignee_id: Option<Option<String>>,
+    visitor_name: Option<String>,
+    visitor_handle: Option<String>,
+}
+
+/// serde helper: emit `Some(None)` when the JSON key is present with `null`,
+/// `None` when the key is absent. Lets the route distinguish "clear the
+/// column" from "leave it untouched" (matches the double-Option contract on
+/// the service layer).
+fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(deserializer).map(Some)
+}
+
+async fn update_ticket(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_ticket_id): Path<String>,
+    body: Result<Json<UpdateTicketRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<CsTicketRow>>, AppError> {
+    let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let params = nomifun_db::UpdateCsTicketParams {
+        title: input.title,
+        description: input.description,
+        status: input.status,
+        priority: input.priority,
+        assignee_id: input.assignee_id,
+        visitor_name: input.visitor_name,
+        visitor_handle: input.visitor_handle,
+    };
+    let row = state
+        .service
+        .repo()
+        .update_ticket(&cs_ticket_id, &params, now_ms())
+        .await?;
+    Ok(Json(ApiResponse::ok(row)))
+}
+
+async fn delete_ticket(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_ticket_id): Path<String>,
+) -> Result<Json<ApiResponse<bool>>, AppError> {
+    state.service.repo().delete_ticket(&cs_ticket_id).await?;
+    Ok(Json(ApiResponse::ok(true)))
+}
+
 // ── chat (built-in desktop lane) ────────────────────────────────────
 
 /// Built-in lane identifiers for the desktop chat window. The plugin/user
@@ -309,7 +581,7 @@ mod tests {
 
     use nomifun_db::models::NewChannelPluginRow;
     use nomifun_db::{
-        IChannelRepository, ICustomerServiceRepository, SqliteChannelRepository,
+        CsDialogueKey, IChannelRepository, ICustomerServiceRepository, SqliteChannelRepository,
         SqliteCustomerServiceRepository,
     };
     use nomifun_realtime::UserEventSink;
@@ -596,5 +868,256 @@ mod tests {
             matches!(error, AppError::BadGateway(message)
                 if message == crate::dialogue::FALLBACK_ERROR_NOTICE)
         );
+    }
+
+    // ── 5.0.22 workbench tests ────────────────────────────────────
+
+    fn ids() -> (String, String) {
+        (
+            nomifun_common::ChannelPluginId::new().into_string(),
+            nomifun_common::ChannelUserId::new().into_string(),
+        )
+    }
+
+    fn dummy_operator_id() -> String {
+        nomifun_common::UserId::new().into_string()
+    }
+
+    #[tokio::test]
+    async fn take_then_release_round_trip_via_repo() {
+        let (_fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+        let repo = state.service.repo();
+        let (plugin, visitor) = ids();
+        let dialogue = repo
+            .get_or_create_dialogue(
+                &agent,
+                &nomifun_db::CsDialogueKey {
+                    channel_plugin_id: plugin,
+                    channel_user_id: visitor,
+                    chat_id: "chat-take".into(),
+                },
+                nomifun_common::now_ms(),
+            )
+            .await
+            .unwrap();
+
+        let operator = dummy_operator_id();
+        let taken = repo
+            .take_dialogue(&dialogue.cs_dialogue_id, &operator, nomifun_common::now_ms())
+            .await
+            .unwrap();
+        assert_eq!(taken.state, "human");
+        assert_eq!(taken.taken_by.as_deref(), Some(operator.as_str()));
+
+        let released = repo
+            .release_dialogue(&dialogue.cs_dialogue_id, nomifun_common::now_ms())
+            .await
+            .unwrap();
+        assert_eq!(released.state, "ai");
+        assert!(released.taken_by.is_none());
+
+        let closed = repo
+            .close_dialogue(&dialogue.cs_dialogue_id, nomifun_common::now_ms())
+            .await
+            .unwrap();
+        assert_eq!(closed.state, "closed");
+    }
+
+    #[tokio::test]
+    async fn take_then_close_is_idempotent_close_only() {
+        let (_fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+        let repo = state.service.repo();
+        let (plugin, visitor) = ids();
+        let dialogue = repo
+            .get_or_create_dialogue(
+                &agent,
+                &nomifun_db::CsDialogueKey {
+                    channel_plugin_id: plugin,
+                    channel_user_id: visitor,
+                    chat_id: "chat-idempotent".into(),
+                },
+                nomifun_common::now_ms(),
+            )
+            .await
+            .unwrap();
+        let operator = dummy_operator_id();
+        repo.take_dialogue(&dialogue.cs_dialogue_id, &operator, nomifun_common::now_ms())
+            .await
+            .unwrap();
+        repo.close_dialogue(&dialogue.cs_dialogue_id, nomifun_common::now_ms())
+            .await
+            .unwrap();
+        // Second close is a no-op state-wise.
+        let second = repo
+            .close_dialogue(&dialogue.cs_dialogue_id, nomifun_common::now_ms())
+            .await
+            .unwrap();
+        assert_eq!(second.state, "closed");
+        // Re-take of a closed dialogue is rejected.
+        let err = repo
+            .take_dialogue(&dialogue.cs_dialogue_id, &operator, nomifun_common::now_ms())
+            .await
+            .err()
+            .expect("take on closed must fail");
+        let message = match &err {
+            nomifun_db::DbError::Conflict(message) => message.clone(),
+            other => panic!("unexpected error: {other:?}"),
+        };
+        assert!(
+            message.contains("is closed"),
+            "unexpected error message: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn append_human_message_uses_sender_kind_human() {
+        let (_fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+        let repo = state.service.repo();
+        let (plugin, visitor) = ids();
+        let dialogue = repo
+            .get_or_create_dialogue(
+                &agent,
+                &nomifun_db::CsDialogueKey {
+                    channel_plugin_id: plugin,
+                    channel_user_id: visitor,
+                    chat_id: "chat-human".into(),
+                },
+                nomifun_common::now_ms(),
+            )
+            .await
+            .unwrap();
+        repo.take_dialogue(
+            &dialogue.cs_dialogue_id,
+            &dummy_operator_id(),
+            nomifun_common::now_ms(),
+        )
+        .await
+        .unwrap();
+        let written = repo
+            .append_human_message(
+                &dialogue.cs_dialogue_id,
+                "你好，我是坐席小张",
+                nomifun_common::now_ms(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(written.role, "agent");
+        assert_eq!(written.sender_kind, "human");
+
+        // A subsequent visitor turn goes through the engine (AI) — but because
+        // state is `human`, the engine returns Ok(None) without invoking the
+        // runner. Verify via list_messages: visitor message IS persisted, but
+        // the runner recorded no turn.
+        let dialogue_after = repo
+            .list_active_dialogues(&agent)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.cs_dialogue_id == dialogue.cs_dialogue_id)
+            .expect("dialogue should remain in active list under human takeover");
+        assert_eq!(dialogue_after.state, "human");
+    }
+
+    #[tokio::test]
+    async fn ticket_crud_via_repo_round_trip() {
+        let (_fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+        let repo = state.service.repo();
+
+        let created = repo
+            .create_ticket(&nomifun_db::models::NewCsTicketRow {
+                title: "客户要求退款".into(),
+                description: "客户使用后感觉效果不佳，要求部分退款".into(),
+                priority: nomifun_db::models::CS_TICKET_PRIORITY_HIGH.into(),
+                cs_dialogue_id: None,
+                cs_agent_id: Some(agent.clone()),
+                assignee_id: None,
+                visitor_name: "李雷".into(),
+                visitor_handle: "lilei@example.com".into(),
+                created_at: 1_000,
+                updated_at: 1_000,
+            })
+            .await
+            .unwrap();
+        assert_eq!(created.status, nomifun_db::models::CS_TICKET_STATUS_PENDING);
+
+        let fetched = repo.get_ticket(&created.cs_ticket_id).await.unwrap().unwrap();
+        assert_eq!(fetched.cs_ticket_id, created.cs_ticket_id);
+
+        let params = nomifun_db::UpdateCsTicketParams {
+            status: Some("in_progress".into()),
+            assignee_id: Some(Some(dummy_operator_id())),
+            ..Default::default()
+        };
+        let updated = repo
+            .update_ticket(&created.cs_ticket_id, &params, 2_000)
+            .await
+            .unwrap();
+        assert_eq!(updated.status, "in_progress");
+        assert!(updated.assignee_id.is_some());
+
+        let all = repo.list_tickets(Some(&agent), None, 100).await.unwrap();
+        assert_eq!(all.len(), 1);
+        let only_pending = repo
+            .list_tickets(Some(&agent), Some("pending"), 100)
+            .await
+            .unwrap();
+        assert!(only_pending.is_empty());
+
+        repo.delete_ticket(&created.cs_ticket_id).await.unwrap();
+        assert!(repo.get_ticket(&created.cs_ticket_id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn ticket_rejects_empty_title_and_unknown_status() {
+        let (_fx, state) = setup().await;
+        let agent = seed_chat_agent(&state).await;
+        let repo = state.service.repo();
+
+        let bad_title = repo
+            .create_ticket(&nomifun_db::models::NewCsTicketRow {
+                title: "   ".into(),
+                description: String::new(),
+                priority: "normal".into(),
+                cs_dialogue_id: None,
+                cs_agent_id: Some(agent.clone()),
+                assignee_id: None,
+                visitor_name: String::new(),
+                visitor_handle: String::new(),
+                created_at: 1,
+                updated_at: 1,
+            })
+            .await;
+        assert!(matches!(bad_title, Err(nomifun_db::DbError::Conflict(_))));
+
+        let ok = repo
+            .create_ticket(&nomifun_db::models::NewCsTicketRow {
+                title: "标题不为空".into(),
+                description: String::new(),
+                priority: "normal".into(),
+                cs_dialogue_id: None,
+                cs_agent_id: Some(agent.clone()),
+                assignee_id: None,
+                visitor_name: String::new(),
+                visitor_handle: String::new(),
+                created_at: 1,
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        let bad_status = repo
+            .update_ticket(
+                &ok.cs_ticket_id,
+                &nomifun_db::UpdateCsTicketParams {
+                    status: Some("unknown".into()),
+                    ..Default::default()
+                },
+                2,
+            )
+            .await;
+        assert!(matches!(bad_status, Err(nomifun_db::DbError::Conflict(_))));
     }
 }

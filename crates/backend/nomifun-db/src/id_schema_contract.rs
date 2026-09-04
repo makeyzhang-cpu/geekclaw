@@ -50,6 +50,7 @@ pub(crate) const PRODUCT_TABLES: &[&str] = &[
     "cs_dialogues",
     "cs_messages",
     "cs_notes",
+    "cs_tickets",
     "idmm_action_reservations",
     "idmm_interventions",
     "installation_identity",
@@ -134,6 +135,7 @@ const UUIDV7_BUSINESS_COLUMNS: &[(&str, &str)] = &[
     ("cs_dialogues", "cs_dialogue_id"),
     ("cs_messages", "cs_message_id"),
     ("cs_notes", "cs_note_id"),
+    ("cs_tickets", "cs_ticket_id"),
     ("idmm_action_reservations", "reservation_id"),
     ("idmm_interventions", "intervention_id"),
     ("knowledge_bases", "knowledge_base_id"),
@@ -216,6 +218,7 @@ const NON_REFERENCE_ID_COLUMNS: &[(&str, &str)] = &[
     ("cs_dialogues", "chat_id"),
     ("cs_messages", "cs_message_id"),
     ("cs_notes", "cs_note_id"),
+    ("cs_tickets", "cs_ticket_id"),
     ("idmm_action_reservations", "reservation_id"),
     ("idmm_interventions", "intervention_id"),
     ("knowledge_bases", "knowledge_base_id"),
@@ -698,6 +701,13 @@ pub(crate) const LOGICAL_REFERENCES: &[LogicalReference] = &[
     text_ref!("cs_dialogues", "channel_user_id" => "channel_users", "channel_user_id", false, "idx_cs_dialogues_channel_user", KeepHistory),
     text_ref!("cs_messages", "cs_dialogue_id" => "cs_dialogues", "cs_dialogue_id", false, "idx_cs_messages_dialogue", Cascade),
     text_ref!("cs_notes", "cs_agent_id" => "cs_agents", "cs_agent_id", true, "idx_cs_notes_agent", Cascade),
+    // ── 5.0.22 workbench: human takeover + tickets ───────────────────────────
+    // Operator user id that currently holds a human-taken dialogue.
+    external_ref!("cs_dialogues", "taken_by", Text, true, CanonicalUuidV7, "idx_cs_dialogues_taken_by", SetNull),
+    // Ticket may reference an agent + dialogue (nullable), and an operator.
+    text_ref!("cs_tickets", "cs_agent_id" => "cs_agents", "cs_agent_id", true, "idx_cs_tickets_agent", SetNull),
+    text_ref!("cs_tickets", "cs_dialogue_id" => "cs_dialogues", "cs_dialogue_id", true, "idx_cs_tickets_dialogue", SetNull),
+    external_ref!("cs_tickets", "assignee_id", Text, true, CanonicalUuidV7, "idx_cs_tickets_assignee", SetNull),
     // Audit events are retained after the agent is deleted; retention-days
     // cleanup is the only pruning authority.
     text_ref!("cs_audit_events", "cs_agent_id" => "cs_agents", "cs_agent_id", false, "idx_cs_audit_agent_time", KeepHistory),

@@ -272,6 +272,12 @@ const CsAgentDetailPage: React.FC = () => {
           <h1 className='m-0 text-18px font-700 text-t-primary truncate'>{agent.name}</h1>
           <div className='ml-auto flex items-center gap-10px'>
             <Button
+              size='small'
+              onClick={() => void navigate(`/customer-service/${agent.cs_agent_id}/workbench`)}
+            >
+              {t('customerService.workbench.openWorkbench', { defaultValue: '工作台' })}
+            </Button>
+            <Button
               type='primary'
               size='small'
               onClick={() => void navigate(`/customer-service/${agent.cs_agent_id}/chat`)}

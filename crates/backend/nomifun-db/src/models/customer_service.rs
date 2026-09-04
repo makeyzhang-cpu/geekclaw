@@ -109,11 +109,20 @@ pub struct CsDialogueRow {
     pub channel_plugin_id: String,
     pub channel_user_id: String,
     pub chat_id: String,
-    /// `open` | `closed`.
+    /// `ai` (default — engine still routes) | `human` (operator took over —
+    /// engine yields `Ok("")` on new visitor text) | `closed` (terminal).
     pub state: String,
+    /// Operator user id currently holding the dialogue (`state = 'human'`).
+    /// `None` when the dialogue is back in `ai` mode or never taken.
+    pub taken_by: Option<String>,
     pub created_at: TimestampMs,
     pub last_activity: TimestampMs,
 }
+
+/// Canonical dialogue state values.
+pub const CS_DIALOGUE_STATE_AI: &str = "ai";
+pub const CS_DIALOGUE_STATE_HUMAN: &str = "human";
+pub const CS_DIALOGUE_STATE_CLOSED: &str = "closed";
 
 /// Row mapping for the `cs_messages` table — dialogue transcript entry.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -123,8 +132,15 @@ pub struct CsMessageRow {
     /// `visitor` | `agent` | `system`.
     pub role: String,
     pub content: String,
+    /// `ai` (engine reply) | `human` (operator reply). Only meaningful when
+    /// `role = 'agent'`; visitor/system messages always store `ai`.
+    pub sender_kind: String,
     pub created_at: TimestampMs,
 }
+
+/// Canonical sender-kind values for `cs_messages.sender_kind`.
+pub const CS_MESSAGE_SENDER_AI: &str = "ai";
+pub const CS_MESSAGE_SENDER_HUMAN: &str = "human";
 
 /// Row mapping for the `cs_notes` table — owner-maintained read-only FAQ /
 /// script / business-fact notes. `cs_agent_id = NULL` means shared by all
@@ -150,6 +166,55 @@ pub struct CsAuditEventRow {
     pub platform: String,
     pub detail: String,
     pub created_at: TimestampMs,
+}
+
+/// Canonical ticket status values.
+pub const CS_TICKET_STATUS_PENDING: &str = "pending";
+pub const CS_TICKET_STATUS_IN_PROGRESS: &str = "in_progress";
+pub const CS_TICKET_STATUS_RESOLVED: &str = "resolved";
+pub const CS_TICKET_STATUS_CANCELLED: &str = "cancelled";
+
+/// Canonical ticket priority values.
+pub const CS_TICKET_PRIORITY_LOW: &str = "low";
+pub const CS_TICKET_PRIORITY_NORMAL: &str = "normal";
+pub const CS_TICKET_PRIORITY_HIGH: &str = "high";
+pub const CS_TICKET_PRIORITY_URGENT: &str = "urgent";
+
+/// Row mapping for the `cs_tickets` table — operator-side work item, optionally
+/// linked to a visitor dialogue.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CsTicketRow {
+    pub cs_ticket_id: String,
+    pub title: String,
+    pub description: String,
+    /// `pending` | `in_progress` | `resolved` | `cancelled`.
+    pub status: String,
+    /// `low` | `normal` | `high` | `urgent`.
+    pub priority: String,
+    pub cs_dialogue_id: Option<String>,
+    pub cs_agent_id: Option<String>,
+    /// Operator user id currently assigned (UUIDv7 external_ref).
+    pub assignee_id: Option<String>,
+    pub visitor_name: String,
+    pub visitor_handle: String,
+    pub created_at: TimestampMs,
+    pub updated_at: TimestampMs,
+}
+
+/// Values accepted when inserting a `cs_tickets` row. `cs_ticket_id`,
+/// `status`, `priority`, `created_at` and `updated_at` are server-generated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewCsTicketRow {
+    pub title: String,
+    pub description: String,
+    pub priority: String,
+    pub cs_dialogue_id: Option<String>,
+    pub cs_agent_id: Option<String>,
+    pub assignee_id: Option<String>,
+    pub visitor_name: String,
+    pub visitor_handle: String,
+    pub created_at: TimestampMs,
+    pub updated_at: TimestampMs,
 }
 
 #[cfg(test)]
@@ -190,6 +255,7 @@ mod tests {
             "name": "n", "greeting": "", "persona": "", "service_policy": "",
             "provider_id": null, "model": null,
             "knowledge_base_ids": "not-json",
+            "business_endpoints": "[]",
             "enabled": true, "max_concurrent": 8, "audit_retention_days": 30,
             "created_at": 1, "updated_at": 1
         });

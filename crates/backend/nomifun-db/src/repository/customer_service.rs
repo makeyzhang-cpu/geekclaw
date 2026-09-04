@@ -3,7 +3,7 @@ use nomifun_common::TimestampMs;
 use crate::error::DbError;
 use crate::models::{
     CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
-    NewCsAgentRow,
+    CsTicketRow, NewCsAgentRow, NewCsTicketRow,
 };
 
 /// Identity triple that pins a visitor dialogue lane (一人一线).
@@ -32,6 +32,23 @@ pub struct UpdateCsAgentParams {
     pub enabled: Option<bool>,
     pub max_concurrent: Option<i64>,
     pub audit_retention_days: Option<i64>,
+}
+
+/// Mutable columns accepted when updating a `cs_tickets` row. `None` keeps
+/// the stored value; `Some(None)` clears a nullable column. Status transitions
+/// surface `DbError::InvalidArgument` for unknown values.
+#[derive(Debug, Clone, Default)]
+pub struct UpdateCsTicketParams {
+    pub title: Option<String>,
+    pub description: Option<Option<String>>,
+    /// New status. Must be one of `pending`/`in_progress`/`resolved`/`cancelled`.
+    pub status: Option<String>,
+    /// New priority. Must be one of `low`/`normal`/`high`/`urgent`.
+    pub priority: Option<String>,
+    /// `Some(None)` unassigns the ticket.
+    pub assignee_id: Option<Option<String>>,
+    pub visitor_name: Option<String>,
+    pub visitor_handle: Option<String>,
 }
 
 /// Data access abstraction for the customer-service (`cs_`) tables.
@@ -129,6 +146,50 @@ pub trait ICustomerServiceRepository: Send + Sync {
     /// Full transcript of a dialogue in chronological order.
     async fn list_messages(&self, cs_dialogue_id: &str) -> Result<Vec<CsMessageRow>, DbError>;
 
+    /// Transition a dialogue into operator (`human`) mode. Idempotent: if
+    /// already `human`, the existing `taken_by` is preserved and `last_activity`
+    /// is refreshed. `DbError::NotFound` if the dialogue is absent. A dialogue
+    /// that is `closed` cannot be re-taken — return `DbError::InvalidState`.
+    async fn take_dialogue(
+        &self,
+        cs_dialogue_id: &str,
+        operator_id: &str,
+        now: TimestampMs,
+    ) -> Result<CsDialogueRow, DbError>;
+
+    /// Return a dialogue to `ai` mode after operator takeover. Idempotent.
+    /// `DbError::NotFound` if absent.
+    async fn release_dialogue(
+        &self,
+        cs_dialogue_id: &str,
+        now: TimestampMs,
+    ) -> Result<CsDialogueRow, DbError>;
+
+    /// Close a dialogue (terminal state). Idempotent.
+    /// `DbError::NotFound` if absent.
+    async fn close_dialogue(
+        &self,
+        cs_dialogue_id: &str,
+        now: TimestampMs,
+    ) -> Result<CsDialogueRow, DbError>;
+
+    /// Append a HUMAN-authored agent message. Used by the operator workbench
+    /// when a real person replies inside the AI dialogue. The dialogue's
+    /// `last_activity` is refreshed.
+    async fn append_human_message(
+        &self,
+        cs_dialogue_id: &str,
+        content: &str,
+        now: TimestampMs,
+    ) -> Result<CsMessageRow, DbError>;
+
+    /// List active (non-closed) dialogues of an agent ordered by last activity
+    /// descending. The workbench surfaces these as the "inbox".
+    async fn list_active_dialogues(
+        &self,
+        cs_agent_id: &str,
+    ) -> Result<Vec<CsDialogueRow>, DbError>;
+
     // ── cs_notes CRUD ────────────────────────────────────────────────
 
     /// Insert a note (private when `cs_agent_id` is set, shared when `None`).
@@ -175,4 +236,33 @@ pub trait ICustomerServiceRepository: Send + Sync {
     /// Prune audit events older than each agent's `audit_retention_days`.
     /// Returns the number of deleted rows.
     async fn cleanup_audit_events(&self, now: TimestampMs) -> Result<u64, DbError>;
+
+    // ── cs_tickets (5.0.22 workbench) ────────────────────────────────
+
+    /// Insert a new ticket and return the persisted row.
+    async fn create_ticket(&self, row: &NewCsTicketRow) -> Result<CsTicketRow, DbError>;
+
+    /// Return one ticket by business ID, or `None`.
+    async fn get_ticket(&self, cs_ticket_id: &str) -> Result<Option<CsTicketRow>, DbError>;
+
+    /// List tickets, optionally filtered by status and agent. Newest first.
+    async fn list_tickets(
+        &self,
+        cs_agent_id: Option<&str>,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CsTicketRow>, DbError>;
+
+    /// Patch the mutable columns of a ticket. Status transitions to a closed
+    /// state (`resolved`/`cancelled`) refresh `updated_at`. `DbError::NotFound`
+    /// if absent. Invalid status values surface as `DbError::InvalidArgument`.
+    async fn update_ticket(
+        &self,
+        cs_ticket_id: &str,
+        params: &UpdateCsTicketParams,
+        now: TimestampMs,
+    ) -> Result<CsTicketRow, DbError>;
+
+    /// Delete a ticket by business ID. `DbError::NotFound` if absent.
+    async fn delete_ticket(&self, cs_ticket_id: &str) -> Result<(), DbError>;
 }
