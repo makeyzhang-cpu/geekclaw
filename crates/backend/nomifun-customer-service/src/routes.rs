@@ -12,8 +12,8 @@ use nomifun_auth::CurrentUser;
 use nomifun_common::AppError;
 use nomifun_common::now_ms;
 use nomifun_db::models::{
-    CsAgentRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow, CsTicketRow,
-    NewCsTicketRow,
+    CsAgentRow, CsChannelBindingRow, CsDialogueRow, CsInboxItem, CsMessageRow, CsNoteRow,
+    CsTicketRow, NewCsTicketRow,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,11 @@ pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
             "/api/customer-service/agents/{cs_agent_id}/bindings",
             get(list_bindings).put(replace_bindings),
         )
+        .route(
+            "/api/customer-service/bindings",
+            get(list_all_bindings),
+        )
+        .route("/api/customer-service/inbox", get(list_inbox))
         .route("/api/customer-service/notes", get(list_notes).post(create_note))
         .route(
             "/api/customer-service/notes/{cs_note_id}",
@@ -135,6 +140,17 @@ async fn delete_agent(
 #[derive(Debug, Deserialize)]
 struct ReplaceBindingsRequest {
     channel_plugin_ids: Vec<String>,
+}
+
+/// Unified channel-management surface: every channel↔agent binding across all
+/// agents (newest first). Lets the UI render "哪个 bot 绑给哪个客服" in one pass.
+async fn list_all_bindings(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+) -> Result<Json<ApiResponse<Vec<CsChannelBindingRow>>>, AppError> {
+    Ok(Json(ApiResponse::ok(
+        state.service.repo().list_all_bindings().await?,
+    )))
 }
 
 async fn list_bindings(
@@ -277,6 +293,43 @@ async fn list_active_dialogues(
             .service
             .repo()
             .list_active_dialogues(&query.cs_agent_id)
+            .await?,
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+struct ListInboxQuery {
+    /// Optional state filter: `ai` | `human` | `closed`. Omitted = all.
+    #[serde(default)]
+    state: Option<String>,
+    /// Optional channel platform filter (e.g. `weixin` / `wecom` / `whatsapp`).
+    #[serde(default)]
+    channel_type: Option<String>,
+    #[serde(default = "default_inbox_limit")]
+    limit: i64,
+}
+
+fn default_inbox_limit() -> i64 {
+    200
+}
+
+/// Unified inbox across ALL customer-service agents — the "聚合 AI 客服收件箱".
+/// Every dialogue lane is enriched with its channel platform/name, visitor
+/// display name and the latest message preview so the operator sees real
+/// conversations from every bound channel (WeChat/WeCom/WhatsApp/LINE/Email/…)
+/// in one place.
+async fn list_inbox(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Query(query): Query<ListInboxQuery>,
+) -> Result<Json<ApiResponse<Vec<CsInboxItem>>>, AppError> {
+    let limit = query.limit.clamp(1, 1000) as usize;
+    let channel_type = query.channel_type.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    Ok(Json(ApiResponse::ok(
+        state
+            .service
+            .repo()
+            .list_inbox(query.state.as_deref(), channel_type, limit)
             .await?,
     )))
 }

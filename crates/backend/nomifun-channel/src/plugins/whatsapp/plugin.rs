@@ -386,6 +386,32 @@ impl ChannelPlugin for WhatsAppPlugin {
     fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
     }
+
+    fn handle_webhook(&self, body: &[u8], signature: Option<&str>) -> Result<usize, ChannelError> {
+        // When an app secret is configured, signature verification is mandatory.
+        // Without it we'd accept unauthenticated deliveries, so reject a missing
+        // header and any signature that doesn't match.
+        if let Some(_secret) = self.app_secret.as_deref() {
+            let sig = signature.ok_or_else(|| {
+                ChannelError::InvalidConfig("WhatsApp webhook missing X-Hub-Signature-256".into())
+            })?;
+            if !self.verify_signature(sig, body) {
+                return Err(ChannelError::InvalidConfig(
+                    "WhatsApp webhook signature verification failed".into(),
+                ));
+            }
+        }
+        let payload: WebhookPayload = serde_json::from_slice(body)
+            .map_err(|e| ChannelError::InvalidConfig(format!("WhatsApp webhook decode: {e}")))?;
+        let phone = self.phone_number_id.clone().ok_or_else(|| {
+            ChannelError::InvalidConfig("WhatsApp phone_number_id missing".into())
+        })?;
+        self.inject_webhook(&phone, &payload)
+    }
+
+    fn verify_webhook_challenge(&self, token: &str, challenge: &str) -> Result<String, ChannelError> {
+        self.verify_webhook(token, challenge)
+    }
 }
 
 #[cfg(test)]
@@ -396,7 +422,9 @@ mod tests {
     fn make_credentials() -> crate::types::PluginCredentials {
         let mut c = crate::types::PluginCredentials::default();
         c.phone_number_id = Some("1234567890".into());
-        c.whatsapp_access_token = Some("EAAxxxx".into());
+        // `initialize` reads the generic `access_token` field, not
+        // `whatsapp_access_token` — keep this helper aligned with that.
+        c.access_token = Some("EAAxxxx".into());
         c.verify_token = Some("vtoken-123".into());
         c.whatsapp_app_secret = Some("appsecret-xyz".into());
         c
@@ -439,6 +467,80 @@ mod tests {
         let out = p.verify_webhook("vtoken-123", "12345").unwrap();
         assert_eq!(out, "12345");
         assert!(p.verify_webhook("wrong", "12345").is_err());
+    }
+
+    /// End-to-end: a correctly-signed webhook flows through `handle_webhook`
+    /// (trait method) → `verify_signature` → `inject_webhook` → callback channel.
+    #[tokio::test]
+    async fn handle_webhook_dispatches_validated_message() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut p = WhatsAppPlugin::new();
+        let mut creds = crate::types::PluginCredentials::default();
+        creds.phone_number_id = Some("1234567890".into());
+        creds.access_token = Some("EAAxxxx".into());
+        creds.whatsapp_app_secret = Some("appsecret-xyz".into());
+        let cfg = crate::types::PluginConfig {
+            credentials: creds,
+            config: None,
+        };
+        p.initialize(cfg, PluginCallbacks { message_tx: tx }).await.unwrap();
+
+        let body = serde_json::json!({
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "WABA_ID",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "messaging_product": "whatsapp",
+                        "metadata": { "display_phone_number": "1555", "phone_number_id": "1234567890" },
+                        "messages": [{
+                            "from": "5511999990000",
+                            "id": "wamid.TEST1",
+                            "timestamp": "1690000000",
+                            "type": "text",
+                            "text": { "body": "hello from test" }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let raw = serde_json::to_vec(&body).unwrap();
+
+        let mut mac = HmacSha256::new_from_slice(b"appsecret-xyz").unwrap();
+        mac.update(&raw);
+        let sig = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+
+        let dispatched = p.handle_webhook(&raw, Some(&sig)).unwrap();
+        assert_eq!(dispatched, 1);
+
+        let msg = rx.recv().await.unwrap();
+        assert_eq!(msg.platform, crate::types::PluginType::WhatsApp);
+        assert_eq!(msg.chat_id, "5511999990000");
+        assert_eq!(msg.content.text, "hello from test");
+    }
+
+    #[tokio::test]
+    async fn handle_webhook_rejects_bad_signature() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut p = WhatsAppPlugin::new();
+        let mut creds = crate::types::PluginCredentials::default();
+        creds.phone_number_id = Some("1234567890".into());
+        creds.access_token = Some("EAAxxxx".into());
+        creds.whatsapp_app_secret = Some("appsecret-xyz".into());
+        let cfg = crate::types::PluginConfig {
+            credentials: creds,
+            config: None,
+        };
+        p.initialize(cfg, PluginCallbacks { message_tx: tx }).await.unwrap();
+
+        let raw = br#"{"object":"whatsapp_business_account","entry":[]}"#;
+        let res = p.handle_webhook(raw, Some("sha256=deadbeef"));
+        assert!(res.is_err());
     }
 }
 

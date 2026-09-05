@@ -6,6 +6,7 @@ pub mod error;
 pub mod formatter;
 pub mod manager;
 pub mod media_refs;
+pub mod media_store;
 pub mod message_service;
 pub mod message_loop;
 pub mod pairing;

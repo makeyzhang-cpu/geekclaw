@@ -382,9 +382,9 @@ pub fn bot_key_for(plugin_type: PluginType, credentials: &PluginCredentials) -> 
         // QQ Bot: appId (client_id) is the non-secret bot identity (like DingTalk).
         PluginType::Qqbot => credentials.client_id.clone(),
         // WhatsApp Cloud: phone_number_id is the non-secret bot identity (numeric, public).
-        PluginType::WhatsApp => credentials.bot_id.clone(),
+        PluginType::WhatsApp => credentials.phone_number_id.clone(),
         // LINE: channel_id (numeric, public).
-        PluginType::Line => credentials.bot_id.clone(),
+        PluginType::Line => credentials.channel_id.clone(),
         // Email: address (non-secret in this v1; password is the secret).
         PluginType::Email => credentials.account_id.clone(),
     };
@@ -874,6 +874,42 @@ mod tests {
 
         // 缺字段 → None
         assert_eq!(bot_key_for(PluginType::Matrix, &PluginCredentials::default()), None);
+    }
+
+    #[test]
+    fn bot_key_for_whatsapp_and_line_use_their_own_identity_fields() {
+        // Regression: WhatsApp/LINE used to read `bot_id` (the WeCom field),
+        // which left their UNIQUE(type, bot_key) identity always NULL and let
+        // one phone/channel be bound to multiple owners.
+        let wa = PluginCredentials {
+            phone_number_id: Some("1234567890".into()),
+            access_token: Some("EAAxxxx".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            bot_key_for(PluginType::WhatsApp, &wa).as_deref(),
+            Some("1234567890")
+        );
+
+        let line = PluginCredentials {
+            channel_id: Some("1650000000".into()),
+            channel_access_token: Some("secret".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            bot_key_for(PluginType::Line, &line).as_deref(),
+            Some("1650000000")
+        );
+
+        // Empty identity → None (no UNIQUE enforcement).
+        assert_eq!(
+            bot_key_for(PluginType::WhatsApp, &PluginCredentials::default()),
+            None
+        );
+        assert_eq!(
+            bot_key_for(PluginType::Line, &PluginCredentials::default()),
+            None
+        );
     }
 
     #[test]

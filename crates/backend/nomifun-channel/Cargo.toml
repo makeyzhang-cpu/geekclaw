@@ -9,7 +9,7 @@ telegram = ["dep:reqwest", "dep:nomifun-runtime"]
 lark = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:prost", "dep:rustls", "dep:rustls-native-certs"]
 dingtalk = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs"]
 weixin = ["dep:reqwest", "dep:futures-util", "dep:base64", "dep:uuid", "dep:aes", "dep:md-5", "dep:hex"]
-wecom = ["dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs"]
+wecom = ["dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs", "dep:reqwest", "dep:aes", "dep:cbc"]
 discord = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs", "dep:base64"]
 matrix = ["dep:reqwest"]
 mattermost = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs"]
@@ -19,11 +19,14 @@ nostr = ["dep:nostr", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls",
 # qqbot module + factory arm land when the parallel QQ Bot work is integrated.
 qqbot = ["dep:reqwest", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls", "dep:rustls-native-certs", "dep:base64"]
 # WhatsApp Cloud API (Meta Business) — webhook mode, no long-running socket.
-whatsapp = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:hex"]
+whatsapp = ["dep:reqwest", "dep:hmac", "dep:hex"]
 # LINE Messaging API — webhook mode, no long-running socket.
-line = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:base64"]
+line = ["dep:reqwest", "dep:hmac", "dep:base64"]
 # Email: IMAP IDLE inbound + SMTP outbound. Polled every 60s.
-email = ["dep:async-imap", "dep:lettre", "dep:tokio-native-tls", "dep:native-tls"]
+# `tokio-util/compat` bridges tokio's AsyncRead/Write (from tokio-native-tls
+# TlsStream) into the futures_io traits that async-imap's Client<...> requires.
+# `futures-util` provides StreamExt to drain async-imap's fetch stream.
+email = ["dep:async-imap", "dep:lettre", "dep:tokio-native-tls", "dep:native-tls", "dep:tokio-util", "dep:futures-util"]
 
 [dependencies]
 nomifun-common.workspace = true
@@ -44,9 +47,10 @@ thiserror.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
+rand.workspace = true
 dashmap.workspace = true
 regex.workspace = true
-sha2 = { workspace = true, optional = true }
+sha2 = { workspace = true }
 reqwest = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
@@ -61,11 +65,15 @@ hmac = { workspace = true, optional = true }
 # WeChat (iLink) CDN media: AES-128-ECB encryption + plaintext MD5.
 aes = { workspace = true, optional = true }
 md-5 = { workspace = true, optional = true }
+# WeCom (aibot) media payload decrypt: AES-256-CBC, PKCS#7 padding.
+cbc = { workspace = true, optional = true }
 # Email (v5.0.26)
 async-imap = { version = "0.10", optional = true }
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"], optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 native-tls = { version = "0.2", optional = true }
+# `compat` bridges tokio's TlsStream into async-imap's futures_io trait bounds.
+tokio-util = { workspace = true, features = ["compat"], optional = true }
 
 [dev-dependencies]
 nomifun-ai-agent = { workspace = true, features = ["test-support"] }

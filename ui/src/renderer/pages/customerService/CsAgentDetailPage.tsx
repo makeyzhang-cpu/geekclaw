@@ -93,7 +93,10 @@ const CsAgentDetailPage: React.FC = () => {
   const { agent, loading, patch, reload } = useCsAgent(csAgentId);
   // Task-filtered catalog (chat): providers with at least one chat-capable model.
   const { groups: chatGroups } = useModelsForTask('chat');
-  const providers = useMemo(() => (chatGroups ?? []).map((g) => g.provider), [chatGroups]);
+  const providers = useMemo(
+    () => (Array.isArray(chatGroups) ? chatGroups : []).map((g) => g.provider),
+    [chatGroups]
+  );
   const { options: kbOptions } = useKnowledgeBaseOptions();
 
   // ── identity draft (explicit save; text fields shouldn't PATCH per keystroke) ──
@@ -136,7 +139,8 @@ const CsAgentDetailPage: React.FC = () => {
   const refreshNotes = useCallback(async () => {
     if (!csAgentId) return;
     try {
-      setNotes((await ipcBridge.customerService.listNotes.invoke({ cs_agent_id: csAgentId })) ?? []);
+      const list = await ipcBridge.customerService.listNotes.invoke({ cs_agent_id: csAgentId });
+      setNotes(Array.isArray(list) ? list : []);
     } catch {
       setNotes([]);
     }
@@ -172,7 +176,7 @@ const CsAgentDetailPage: React.FC = () => {
   const [endpointDraft, setEndpointDraft] = useState({ name: '', url_template: '', description: '' });
   const [savingEndpoint, setSavingEndpoint] = useState(false);
   useEffect(() => {
-    if (agent) setEndpoints(agent.business_endpoints ?? []);
+    if (agent) setEndpoints(Array.isArray(agent.business_endpoints) ? agent.business_endpoints : []);
   }, [agent]);
 
   const endpointUrlError = validateEndpointUrl(endpointDraft.url_template);
@@ -471,7 +475,7 @@ const CsAgentDetailPage: React.FC = () => {
         >
           <Table
             rowKey='cs_note_id'
-            data={notes}
+            data={Array.isArray(notes) ? notes : []}
             pagination={false}
             size='small'
             noDataElement={

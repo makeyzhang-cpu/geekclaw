@@ -155,6 +155,42 @@ pub trait ChannelPlugin: Send + Sync {
 
     /// The most recent error message, if status is `Error`.
     fn last_error(&self) -> Option<&str>;
+
+    /// Handle an inbound webhook POST (WhatsApp Cloud API / LINE Messaging API
+    /// delivery). Webhook-driven plugins verify the platform signature (when a
+    /// secret is configured) and push parsed messages onto the callback channel.
+    /// The default rejects — connection/polling plugins don't receive webhooks.
+    ///
+    /// `signature` is the raw signature header (e.g. `X-Hub-Signature-256` /
+    /// `X-Line-Signature`); `None` when the header is absent. Returns the number
+    /// of messages dispatched. The axum webhook route forwards the raw body and
+    /// signature here via `ChannelManager::dispatch_webhook`.
+    fn handle_webhook(
+        &self,
+        _body: &[u8],
+        _signature: Option<&str>,
+    ) -> Result<usize, ChannelError> {
+        let _ = (_body, _signature);
+        Err(ChannelError::PlatformApi(format!(
+            "{} does not support inbound webhooks",
+            self.plugin_type()
+        )))
+    }
+
+    /// Verify a webhook handshake (GET challenge echo). The default rejects.
+    /// Used by the Meta/WhatsApp verification handshake, which echoes
+    /// `hub.challenge` only when `hub.verify_token` matches the configured token.
+    fn verify_webhook_challenge(
+        &self,
+        _token: &str,
+        _challenge: &str,
+    ) -> Result<String, ChannelError> {
+        let _ = (_token, _challenge);
+        Err(ChannelError::PlatformApi(format!(
+            "{} does not support webhook verification",
+            self.plugin_type()
+        )))
+    }
 }
 
 #[cfg(test)]

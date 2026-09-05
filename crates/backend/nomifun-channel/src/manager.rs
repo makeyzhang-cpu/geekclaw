@@ -935,6 +935,68 @@ impl ChannelManager {
         plugin.send_media(chat_id, media, caption).await
     }
 
+    /// Forwards a raw webhook body to every live plugin of `plugin_type`.
+    ///
+    /// Webhook-driven platforms (WhatsApp Cloud API, LINE Messaging API) receive
+    /// inbound messages via HTTP push. The axum webhook route calls this with the
+    /// raw request body and the platform signature header; each matching plugin
+    /// verifies the signature (when it has a secret) and parses the payload. The
+    /// total number of dispatched messages is returned.
+    ///
+    /// A plugin whose `phone_number_id`/secret doesn't match the payload simply
+    /// dispatches nothing, so fanning out to all matching plugins is safe.
+    pub fn dispatch_webhook(
+        &self,
+        plugin_type: PluginType,
+        raw_body: &[u8],
+        signature: Option<&str>,
+    ) -> Result<usize, ChannelError> {
+        let mut total = 0usize;
+        let mut found = false;
+        for entry in self.plugins.iter() {
+            if entry.value().plugin_type() != plugin_type {
+                continue;
+            }
+            found = true;
+            match entry.value().handle_webhook(raw_body, signature) {
+                Ok(n) => total += n,
+                Err(e) => {
+                    warn!(plugin_id = %entry.key(), error = %e, "webhook dispatch error");
+                }
+            }
+        }
+        if !found {
+            return Err(ChannelError::PluginNotFound(format!(
+                "no live {plugin_type} plugin to handle webhook"
+            )));
+        }
+        Ok(total)
+    }
+
+    /// Verifies a webhook handshake (GET challenge echo) against the first live
+    /// plugin of `plugin_type` that accepts the token. Used by the Meta/WhatsApp
+    /// verification handshake, which echoes `hub.challenge` only when
+    /// `hub.verify_token` matches the configured token.
+    pub fn verify_webhook_challenge(
+        &self,
+        plugin_type: PluginType,
+        token: &str,
+        challenge: &str,
+    ) -> Result<String, ChannelError> {
+        for entry in self.plugins.iter() {
+            if entry.value().plugin_type() != plugin_type {
+                continue;
+            }
+            match entry.value().verify_webhook_challenge(token, challenge) {
+                Ok(challenge) => return Ok(challenge),
+                Err(_) => continue,
+            }
+        }
+        Err(ChannelError::PluginNotFound(format!(
+            "no live {plugin_type} plugin for webhook verification"
+        )))
+    }
+
     // ── Watchdog ─────────────────────────────────────────────────────
 
     /// Spawns the periodic plugin health watchdog.

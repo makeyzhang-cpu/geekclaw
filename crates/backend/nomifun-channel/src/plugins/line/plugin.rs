@@ -322,6 +322,24 @@ impl ChannelPlugin for LinePlugin {
     fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
     }
+
+    fn handle_webhook(&self, body: &[u8], signature: Option<&str>) -> Result<usize, ChannelError> {
+        // When a channel secret is configured, the `X-Line-Signature` header is
+        // mandatory and must validate against the raw body.
+        if let Some(_secret) = self.channel_secret.as_deref() {
+            let sig = signature.ok_or_else(|| {
+                ChannelError::InvalidConfig("LINE webhook missing X-Line-Signature".into())
+            })?;
+            if !self.verify_signature(sig, body) {
+                return Err(ChannelError::InvalidConfig(
+                    "LINE webhook signature verification failed".into(),
+                ));
+            }
+        }
+        let payload: WebhookEvents = serde_json::from_slice(body)
+            .map_err(|e| ChannelError::InvalidConfig(format!("LINE webhook decode: {e}")))?;
+        self.inject_webhook(&payload)
+    }
 }
 
 #[cfg(test)]
@@ -363,5 +381,70 @@ mod tests {
         p.start().await.unwrap();
         assert_eq!(p.status(), PluginStatus::Running);
         assert_eq!(p.plugin_type(), PluginType::Line);
+    }
+
+    /// End-to-end: a correctly-signed LINE webhook flows through `handle_webhook`
+    /// → `verify_signature` → `inject_webhook` → callback channel.
+    #[tokio::test]
+    async fn handle_webhook_dispatches_validated_event() {
+        use base64::Engine;
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut p = LinePlugin::new();
+        let mut creds = crate::types::PluginCredentials::default();
+        creds.channel_id = Some("2001234567".into());
+        creds.channel_access_token = Some("LINE-token-xyz".into());
+        creds.channel_secret = Some("line-secret".into());
+        let cfg = crate::types::PluginConfig {
+            credentials: creds,
+            config: None,
+        };
+        p.initialize(cfg, PluginCallbacks { message_tx: tx }).await.unwrap();
+
+        let body = serde_json::json!({
+            "destination": "Uxxxx",
+            "events": [{
+                "type": "message",
+                "message": { "id": "line-msg-1", "type": "text", "text": "hi line" },
+                "source": { "type": "user", "userId": "Uuser123" },
+                "timestamp": 1690000000000i64,
+                "replyToken": "replytoken-1"
+            }]
+        });
+        let raw = serde_json::to_vec(&body).unwrap();
+
+        let mut mac = HmacSha256::new_from_slice(b"line-secret").unwrap();
+        mac.update(&raw);
+        let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+        let dispatched = p.handle_webhook(&raw, Some(&sig)).unwrap();
+        assert_eq!(dispatched, 1);
+
+        let msg = rx.recv().await.unwrap();
+        assert_eq!(msg.platform, crate::types::PluginType::Line);
+        assert_eq!(msg.chat_id, "Uuser123");
+        assert_eq!(msg.content.text, "hi line");
+    }
+
+    #[tokio::test]
+    async fn handle_webhook_rejects_bad_signature() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut p = LinePlugin::new();
+        let mut creds = crate::types::PluginCredentials::default();
+        creds.channel_id = Some("2001234567".into());
+        creds.channel_access_token = Some("LINE-token-xyz".into());
+        creds.channel_secret = Some("line-secret".into());
+        let cfg = crate::types::PluginConfig {
+            credentials: creds,
+            config: None,
+        };
+        p.initialize(cfg, PluginCallbacks { message_tx: tx }).await.unwrap();
+
+        let raw = br#"{"destination":"Ux","events":[]}"#;
+        let res = p.handle_webhook(raw, Some("invalid-signature"));
+        assert!(res.is_err());
     }
 }

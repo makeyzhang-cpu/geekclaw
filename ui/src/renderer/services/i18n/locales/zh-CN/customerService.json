@@ -105,11 +105,50 @@
   },
   "workbench": {
     "title": "坐席工作台",
+    "inboxTitle": "统一收件箱",
+    "inboxSubtitle": "聚合全部客服与渠道 — AI 接管通讯，代替本人与粉丝/客户对话。",
     "subtitle": "把会话从 AI 切到自己手里 — 接管后引擎不再回复；发送后才会落到访客记录。",
     "openWorkbench": "工作台",
     "manageAgents": "客服管理",
     "back": "返回客服",
     "empty": "该客服暂无进行中的会话。访客发来消息后会出现在这里。",
+    "emptyUnified": "暂无会话",
+    "sessionId": "会话编号",
+    "transferHint": "转接功能后续支持",
+    "filters": {
+      "all": "全部",
+      "ai": "AI 接待",
+      "human": "人工",
+      "closed": "已结束",
+      "allAgents": "全部客服",
+      "allChannels": "全部渠道"
+    },
+    "fields": {
+      "state": "状态",
+      "agent": "接待客服",
+      "channel": "渠道",
+      "created": "创建时间",
+      "operator": "当前坐席"
+    },
+    "tabs": {
+      "visitor": "访客信息",
+      "scripts": "快捷回复",
+      "kb": "知识库",
+      "tickets": "工单"
+    },
+    "tools": {
+      "emoji": "表情",
+      "image": "图片",
+      "file": "文件",
+      "voice": "录音",
+      "video": "视频",
+      "autoReply": "自动回复",
+      "rate": "邀请评价",
+      "comingSoon": "{{tool}} 功能后续支持"
+    },
+    "kb": {
+      "hint": "当前客服绑定的知识库已在推理时自动检索，后续此处可查看命中片段。"
+    },
     "states": {
       "ai": "AI 接待中",
       "human": "人工已接管",
@@ -145,6 +184,7 @@
     },
     "tickets": {
       "title": "相关工单",
+      "empty": "暂无相关工单",
       "createFromHere": "为当前会话建工单",
       "open": "查看工单"
     }

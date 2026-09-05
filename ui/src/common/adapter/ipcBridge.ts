@@ -5849,6 +5849,35 @@ export interface ICsDialogue {
   last_activity: number;
 }
 
+/**
+ * Enriched dialogue row for the unified cross-agent inbox (`/inbox`).
+ * Carries the human-facing labels (agent name, channel platform type + name,
+ * visitor display name) plus the latest message preview so the operator sees
+ * "哪个渠道的哪位访客、由哪位客服接待、最后说了什么" without extra lookups.
+ */
+export interface ICsInboxItem {
+  cs_dialogue_id: CsDialogueId;
+  cs_agent_id: CsAgentId;
+  agent_name: string;
+  channel_plugin_id: ChannelPluginId;
+  /** Channel platform type: weixin / wecom / whatsapp / line / email / telegram / … */
+  channel_type: string;
+  /** Human label of the channel bot. */
+  channel_name: string;
+  channel_user_id: ChannelUserId;
+  /** Visitor nickname when the lane maps to an authorized channel user. */
+  visitor_name?: string | null;
+  chat_id: string;
+  state: 'ai' | 'human' | 'closed';
+  taken_by?: UserId | null;
+  created_at: number;
+  last_activity: number;
+  /** Content of the most recent transcript message, if any. */
+  last_message_preview?: string | null;
+  /** Role of the most recent transcript message. */
+  last_message_role?: string | null;
+}
+
 /** One transcript row of a customer-service dialogue. */
 export interface ICsMessage {
   cs_message_id: CsMessageId;
@@ -5911,13 +5940,22 @@ const fromApiCsAgent = (raw: unknown): ICsAgent => {
   const kbIds: KnowledgeBaseId[] = typeof rawKbIds === 'string'
     ? (JSON.parse(rawKbIds) as unknown[]).map(parseKnowledgeBaseId)
     : ((rawKbIds ?? []) as unknown[]).map(parseKnowledgeBaseId);
+
+  // The DB stores business_endpoints as a JSON string; the wire payload may
+  // return either the decoded array or the raw string depending on the route.
+  const rawEndpoints = (agent as { business_endpoints?: IBusinessEndpoint[] | string }).business_endpoints;
+  const endpoints: IBusinessEndpoint[] = Array.isArray(rawEndpoints)
+    ? rawEndpoints
+    : typeof rawEndpoints === 'string'
+      ? (JSON.parse(rawEndpoints) as IBusinessEndpoint[])
+      : [];
+
   return {
     ...(agent as unknown as ICsAgent),
     cs_agent_id: parseCsAgentId(agent.cs_agent_id),
     provider_id: agent.provider_id == null ? null : parseProviderId(agent.provider_id),
     knowledge_base_ids: kbIds,
-    business_endpoints: (agent as { business_endpoints?: IBusinessEndpoint[] })
-      .business_endpoints ?? [],
+    business_endpoints: endpoints,
   };
 };
 
@@ -5947,6 +5985,17 @@ const fromApiCsDialogue = (raw: unknown): ICsDialogue => {
     cs_agent_id: parseCsAgentId(dialogue.cs_agent_id),
     channel_plugin_id: parseChannelPluginId(dialogue.channel_plugin_id),
     channel_user_id: parseChannelUserId(dialogue.channel_user_id),
+  };
+};
+
+const fromApiCsInboxItem = (raw: unknown): ICsInboxItem => {
+  const item = asWireObject(raw, 'customer-service inbox item');
+  return {
+    ...(item as unknown as ICsInboxItem),
+    cs_dialogue_id: parseCsDialogueId(item.cs_dialogue_id),
+    cs_agent_id: parseCsAgentId(item.cs_agent_id),
+    channel_plugin_id: parseChannelPluginId(item.channel_plugin_id),
+    channel_user_id: parseChannelUserId(item.channel_user_id),
   };
 };
 
@@ -6004,6 +6053,11 @@ export const customerService = {
     ),
     (bindings) => bindings.map(fromApiCsBinding)
   ),
+  /** ALL bindings across every agent — the unified channel-management view. */
+  listAllBindings: withResponseMap(
+    httpGet<ICsChannelBinding[], void>('/api/customer-service/bindings'),
+    (bindings) => bindings.map(fromApiCsBinding)
+  ),
   /** Notes visible to one agent (shared + private), or all when omitted. */
   listNotes: withResponseMap(
     httpGet<ICsNote[], { cs_agent_id?: CsAgentId }>(
@@ -6059,6 +6113,25 @@ export const customerService = {
    */
   listActiveDialogues: httpGet<ICsDialogue[], { cs_agent_id: CsAgentId }>(
     (p) => `/api/customer-service/dialogues/active?cs_agent_id=${encodeURIComponent(p.cs_agent_id)}`
+  ),
+  /**
+   * 5.0.28 unified inbox: every dialogue lane across ALL customer-service
+   * agents, enriched with channel platform/name, visitor display name and the
+   * latest message preview. Optional `state` / `channel_type` filters.
+   */
+  listInbox: withResponseMap(
+    httpGet<
+      ICsInboxItem[],
+      { state?: 'ai' | 'human' | 'closed'; channel_type?: string; limit?: number }
+    >((p) => {
+      const q = new URLSearchParams();
+      if (p.state) q.set('state', p.state);
+      if (p.channel_type) q.set('channel_type', p.channel_type);
+      if (p.limit != null) q.set('limit', String(p.limit));
+      const qs = q.toString();
+      return qs ? `/api/customer-service/inbox?${qs}` : '/api/customer-service/inbox';
+    }),
+    (items) => items.map(fromApiCsInboxItem)
   ),
   /** Operator message send: appended with `sender_kind = 'human'`. */
   postHumanMessage: httpPost<ICsMessage, { cs_dialogue_id: string; text: string }>(

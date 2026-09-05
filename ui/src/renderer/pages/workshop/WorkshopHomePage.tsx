@@ -11,14 +11,14 @@ import WebviewHost from '@renderer/components/media/WebviewHost';
 import { Film, Left, LinkOut, VideoTwo } from '@icon-park/react';
 import { openExternalUrl } from '@/renderer/utils/platform';
 
-/** 创意工坊 — 视频/AI 内容创作平台入口（video.geekclaw.ai） */
-const WORKSHOP_URL = 'https://video.geekclaw.ai/';
+/** 创意工坊 — 视频/AI 内容创作平台入口（aivideo.jkyunge.com） */
+const WORKSHOP_URL = 'http://aivideo.jkyunge.com';
 
 /**
  * WorkshopHomePage — 创意工坊入口页（5.0.26 重构）。
  *
  * 把创意工坊从一个本地 ComingSoon 占位，改为跳转到云端视频/AI 内容创作平台
- * （https://video.geekclaw.ai/）。提供两个入口：
+ * （http://aivideo.jkyunge.com）。提供两个入口：
  *   - 进入平台：在应用内 WebviewHost 内嵌打开（无需离开软件）
  *   - 在浏览器中打开：调用系统默认浏览器打开
  *
@@ -56,7 +56,7 @@ const WorkshopHomePage: React.FC = () => {
                 </span>
               </div>
               <h2 className='mt-16px text-16px font-600 text-t-primary'>
-                {t('workshop.home.cardTitle', { defaultValue: 'video.geekclaw.ai — 创意工坊' })}
+                {t('workshop.home.cardTitle', { defaultValue: 'aivideo.jkyunge.com — 创意工坊' })}
               </h2>
               <p className='mt-8px text-13px leading-20px text-t-secondary'>
                 {t('workshop.home.cardDesc', {
@@ -108,7 +108,7 @@ const WorkshopHomePage: React.FC = () => {
               {t('workshop.home.back', { defaultValue: '返回' })}
             </button>
             <span className='text-14px font-600 text-t-primary'>
-              {t('workshop.home.cardTitle', { defaultValue: 'video.geekclaw.ai — 创意工坊' })}
+              {t('workshop.home.cardTitle', { defaultValue: 'aivideo.jkyunge.com — 创意工坊' })}
             </span>
           </div>
           <button

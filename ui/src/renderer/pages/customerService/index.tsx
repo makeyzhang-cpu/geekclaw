@@ -15,10 +15,11 @@ import type { ICsAgent } from '@/common/adapter/ipcBridge';
 import type { CsAgentId } from '@/common/types/ids';
 import { HUB_PAGE_TITLE_CLASS } from '@/renderer/components/layout/HubPageShell';
 
-/** 客服花名册卡片：名称 + 启停状态 + 模型/知识库指标 + 直达对话入口。点击进入专属管理页。 */
-const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void; onChat: () => void }> = ({
+/** 客服花名册卡片：名称 + 启停状态 + 模型/知识库指标 + 管理/工作台/测试入口。点击进入专属管理页。 */
+const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void; onWorkbench: () => void; onChat: () => void }> = ({
   agent,
   onOpen,
+  onWorkbench,
   onChat,
 }) => {
   const { t } = useTranslation();
@@ -69,19 +70,33 @@ const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void; onChat: () =>
             count: agent.knowledge_base_ids.length,
           })}
         </span>
-        <Button
-          size='mini'
-          className='ml-auto shrink-0'
-          onClick={(e) => {
-            e.stopPropagation();
-            onChat();
-          }}
-        >
-          <span className='inline-flex items-center gap-4px'>
-            <Send theme='outline' size='13' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
-            {t('customerService.chat.openChat', { defaultValue: '对话' })}
-          </span>
-        </Button>
+        <span className='ml-auto inline-flex items-center gap-6px shrink-0'>
+          <Button
+            size='mini'
+            type='primary'
+            onClick={(e) => {
+              e.stopPropagation();
+              onWorkbench();
+            }}
+          >
+            <span className='inline-flex items-center gap-4px'>
+              <Headset theme='outline' size='13' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.roster.openWorkbench', { defaultValue: '进入工作台' })}
+            </span>
+          </Button>
+          <Button
+            size='mini'
+            onClick={(e) => {
+              e.stopPropagation();
+              onChat();
+            }}
+          >
+            <span className='inline-flex items-center gap-4px'>
+              <Send theme='outline' size='13' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.chat.openChat', { defaultValue: '测试对话' })}
+            </span>
+          </Button>
+        </span>
       </div>
     </div>
   );
@@ -100,6 +115,7 @@ const CustomerServiceRosterPage: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
 
   const openAgent = (csAgentId: CsAgentId) => void navigate(`/customer-service/${csAgentId}`);
+  const openWorkbench = (csAgentId: CsAgentId) => void navigate(`/customer-service/${csAgentId}/workbench`);
   const openChat = (csAgentId: CsAgentId) => void navigate(`/customer-service/${csAgentId}/chat`);
 
   return (
@@ -214,6 +230,7 @@ const CustomerServiceRosterPage: React.FC = () => {
                 key={agent.cs_agent_id}
                 agent={agent}
                 onOpen={() => openAgent(agent.cs_agent_id)}
+                onWorkbench={() => openWorkbench(agent.cs_agent_id)}
                 onChat={() => openChat(agent.cs_agent_id)}
               />
             ))}

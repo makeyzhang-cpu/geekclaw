@@ -124,6 +124,41 @@ pub const CS_DIALOGUE_STATE_AI: &str = "ai";
 pub const CS_DIALOGUE_STATE_HUMAN: &str = "human";
 pub const CS_DIALOGUE_STATE_CLOSED: &str = "closed";
 
+/// Enriched dialogue row for the unified cross-agent inbox (`/inbox`).
+///
+/// The raw `cs_dialogues` row carries only UUIDs for its channel and visitor
+/// identity; this shape joins the human-facing labels (agent name, channel
+/// platform type + display name, visitor display name) and the latest message
+/// preview so the operator sees "哪个渠道的哪位访客、聊了什么、最后说了什么"
+/// without N+1 lookups.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CsInboxItem {
+    pub cs_dialogue_id: String,
+    pub cs_agent_id: String,
+    /// `cs_agents.name` — which AI客服 owns this lane.
+    pub agent_name: String,
+    pub channel_plugin_id: String,
+    /// `channel_plugins.type` (weixin/wecom/whatsapp/line/email/telegram/…).
+    /// `"unknown"` when the bot row was deleted (KeepHistory).
+    pub channel_type: String,
+    /// `channel_plugins.name` (human label of the bot).
+    pub channel_name: String,
+    pub channel_user_id: String,
+    /// `channel_users.display_name` — the visitor's nickname, when the lane
+    /// maps to an authorized channel user. `None` for the built-in desktop
+    /// test lane or deleted user rows.
+    pub visitor_name: Option<String>,
+    pub chat_id: String,
+    pub state: String,
+    pub taken_by: Option<String>,
+    pub created_at: TimestampMs,
+    pub last_activity: TimestampMs,
+    /// Content of the most recent transcript message, if any.
+    pub last_message_preview: Option<String>,
+    /// Role of the most recent transcript message (`visitor`/`agent`/`system`).
+    pub last_message_role: Option<String>,
+}
+
 /// Row mapping for the `cs_messages` table — dialogue transcript entry.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CsMessageRow {

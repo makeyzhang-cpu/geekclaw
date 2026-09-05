@@ -3,8 +3,8 @@ use sqlx::SqlitePool;
 
 use crate::error::DbError;
 use crate::models::{
-    CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
-    CsTicketRow, NewCsAgentRow, NewCsTicketRow,
+    CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsInboxItem, CsMessageRow,
+    CsNoteRow, CsTicketRow, NewCsAgentRow, NewCsTicketRow,
 };
 use crate::repository::customer_service::{
     CsDialogueKey, ICustomerServiceRepository, UpdateCsAgentParams, UpdateCsTicketParams,
@@ -244,6 +244,15 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         )
         .bind(channel_plugin_id)
         .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    async fn list_all_bindings(&self) -> Result<Vec<CsChannelBindingRow>, DbError> {
+        Ok(sqlx::query_as::<_, CsChannelBindingRow>(
+            "SELECT cs_agent_id, channel_plugin_id, created_at \
+             FROM cs_channel_bindings ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
         .await?)
     }
 
@@ -515,6 +524,63 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(cs_agent_id)
             .fetch_all(&self.pool)
             .await?)
+    }
+
+    async fn list_inbox(
+        &self,
+        state: Option<&str>,
+        channel_type: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CsInboxItem>, DbError> {
+        // Validate the optional state filter before building SQL.
+        if let Some(s) = state {
+            if !matches!(s, "ai" | "human" | "closed") {
+                return Err(DbError::Conflict(format!("unknown dialogue state '{s}'")));
+            }
+        }
+        let mut where_clause = String::new();
+        if state.is_some() {
+            where_clause.push_str(" WHERE d.state = ?");
+        }
+        if channel_type.is_some() {
+            if where_clause.is_empty() {
+                where_clause.push_str(" WHERE ");
+            } else {
+                where_clause.push_str(" AND ");
+            }
+            where_clause.push_str("cp.type = ?");
+        }
+        // Two correlated subqueries surface the latest message without a GROUP
+        // BY on the outer query (keeps the shape a flat FromRow).
+        let sql = format!(
+            "SELECT \
+                 d.cs_dialogue_id, d.cs_agent_id, COALESCE(a.name, '') AS agent_name, \
+                 d.channel_plugin_id, COALESCE(cp.type, 'unknown') AS channel_type, \
+                 COALESCE(cp.name, '') AS channel_name, d.channel_user_id, \
+                 cu.display_name AS visitor_name, d.chat_id, d.state, d.taken_by, \
+                 d.created_at, d.last_activity, \
+                 (SELECT m.content FROM cs_messages m \
+                    WHERE m.cs_dialogue_id = d.cs_dialogue_id \
+                    ORDER BY m.id DESC LIMIT 1) AS last_message_preview, \
+                 (SELECT m.role FROM cs_messages m \
+                    WHERE m.cs_dialogue_id = d.cs_dialogue_id \
+                    ORDER BY m.id DESC LIMIT 1) AS last_message_role \
+             FROM cs_dialogues d \
+             JOIN cs_agents a ON a.cs_agent_id = d.cs_agent_id \
+             LEFT JOIN channel_plugins cp ON cp.channel_plugin_id = d.channel_plugin_id \
+             LEFT JOIN channel_users cu ON cu.channel_user_id = d.channel_user_id \
+             {where_clause} \
+             ORDER BY d.last_activity DESC, d.id DESC LIMIT ?"
+        );
+        let mut q = sqlx::query_as::<_, CsInboxItem>(&sql);
+        if let Some(s) = state {
+            q = q.bind(s);
+        }
+        if let Some(t) = channel_type {
+            q = q.bind(t);
+        }
+        q = q.bind(limit as i64);
+        Ok(q.fetch_all(&self.pool).await?)
     }
 
     // ── cs_tickets (5.0.22) ─────────────────────────────────────────
@@ -1198,5 +1264,65 @@ mod tests {
         let events = repo.list_audit_events(&agent.cs_agent_id, 10).await.unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind, "turn_error", "newest first");
+    }
+
+    #[tokio::test]
+    async fn inbox_joins_agent_name_and_last_message_across_agents() {
+        let (_db, repo) = repo().await;
+        let agent_a = repo.create_agent(&new_agent("客服A")).await.unwrap();
+        let agent_b = repo.create_agent(&new_agent("客服B")).await.unwrap();
+
+        let lane_a = repo
+            .get_or_create_dialogue(&agent_a.cs_agent_id, &dialogue_key(), 100)
+            .await
+            .unwrap();
+        repo.append_message(&lane_a.cs_dialogue_id, "visitor", "请问发货时间", 110)
+            .await
+            .unwrap();
+        repo.append_message(&lane_a.cs_dialogue_id, "agent", "48 小时内发货", 120)
+            .await
+            .unwrap();
+
+        let mut key_b = dialogue_key();
+        key_b.chat_id = "chat-b".into();
+        let lane_b = repo
+            .get_or_create_dialogue(&agent_b.cs_agent_id, &key_b, 200)
+            .await
+            .unwrap();
+        repo.append_message(&lane_b.cs_dialogue_id, "visitor", "B 的访客", 210)
+            .await
+            .unwrap();
+
+        // No channel_plugins/channel_users rows → LEFT JOIN yields 'unknown' /
+        // NULL labels, but the row must still surface with agent name + preview.
+        let inbox = repo.list_inbox(None, None, 100).await.unwrap();
+        assert_eq!(inbox.len(), 2);
+        // Newest activity first (B at 210, A at 120).
+        assert_eq!(inbox[0].cs_dialogue_id, lane_b.cs_dialogue_id);
+        assert_eq!(inbox[0].agent_name, "客服B");
+        assert_eq!(inbox[0].channel_type, "unknown");
+        assert_eq!(inbox[0].visitor_name, None);
+        assert_eq!(inbox[0].last_message_preview.as_deref(), Some("B 的访客"));
+        assert_eq!(inbox[0].last_message_role.as_deref(), Some("visitor"));
+
+        assert_eq!(inbox[1].cs_dialogue_id, lane_a.cs_dialogue_id);
+        assert_eq!(inbox[1].agent_name, "客服A");
+        assert_eq!(inbox[1].last_message_preview.as_deref(), Some("48 小时内发货"));
+
+        // State filter narrows to active only.
+        let active = repo.list_inbox(Some("ai"), None, 100).await.unwrap();
+        assert_eq!(active.len(), 2);
+
+        // Closing A's lane then filtering 'ai' drops it.
+        repo.close_dialogue(&lane_a.cs_dialogue_id, 300).await.unwrap();
+        let active_after = repo.list_inbox(Some("ai"), None, 100).await.unwrap();
+        assert_eq!(active_after.len(), 1);
+        assert_eq!(active_after[0].cs_dialogue_id, lane_b.cs_dialogue_id);
+
+        // Unknown state is rejected.
+        assert!(matches!(
+            repo.list_inbox(Some("bogus"), None, 100).await.unwrap_err(),
+            DbError::Conflict(_)
+        ));
     }
 }

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Empty, Spin } from '@arco-design/web-react';
@@ -14,8 +14,9 @@ import { useCsAgents } from './useCsAgents';
 import CreateCsAgentModal from './CreateCsAgentModal';
 
 /**
- * 客服首页（/customer-service）：不再显示花名册，而是直进第一个启用客服的
- * 坐席工作台。若没有任何客服，则显示创建引导。
+ * 客服首页（/customer-service）：不再显示花名册，而是直进统一收件箱
+ * （/customer-service/workbench，跨客服跨渠道聚合）。若没有任何客服，则显示
+ * 创建引导。
  *
  * 花名册仍保留在 /customer-service/roster 作为管理后台。
  */
@@ -25,18 +26,13 @@ const CsHomePage: React.FC = () => {
   const { agents, loading, refresh, create } = useCsAgents();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const targetAgent = useMemo(() => {
-    if (!agents.length) return null;
-    const enabled = agents.find((a) => a.enabled);
-    return enabled ?? agents[0];
-  }, [agents]);
-
   useEffect(() => {
     if (loading) return;
-    if (targetAgent) {
-      navigate(`/customer-service/${targetAgent.cs_agent_id}/workbench`, { replace: true });
+    // 有客服即可进入统一收件箱（跨客服聚合），无需挑"第一个"。
+    if (agents.length > 0) {
+      navigate('/customer-service/workbench', { replace: true });
     }
-  }, [loading, targetAgent, navigate]);
+  }, [loading, agents, navigate]);
 
   if (loading) {
     return (
@@ -46,7 +42,7 @@ const CsHomePage: React.FC = () => {
     );
   }
 
-  if (targetAgent) {
+  if (agents.length > 0) {
     // 上面的 effect 会立即重定向；这里兜底防止闪屏。
     return (
       <div className='w-full h-full flex items-center justify-center'>
@@ -81,7 +77,7 @@ const CsHomePage: React.FC = () => {
         onClose={() => setCreateOpen(false)}
         onCreated={(agent) => {
           void refresh().then(() => {
-            navigate(`/customer-service/${agent.cs_agent_id}/workbench`, { replace: true });
+            navigate('/customer-service/workbench', { replace: true });
           });
         }}
         create={create}

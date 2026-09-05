@@ -64,25 +64,16 @@ const CsChannelsPage: React.FC = () => {
 
   const refreshAll = useCallback(async () => {
     try {
-      const [plugins, agentList] = await Promise.all([
+      const [plugins, bindings] = await Promise.all([
         ipcBridge.channel.getPluginStatus.invoke(),
-        ipcBridge.customerService.listAgents.invoke(),
+        ipcBridge.customerService.listAllBindings.invoke(),
       ]);
       const statusList = plugins ?? [];
       setStatuses(statusList);
-      // 全量绑定归属（bot → 客服），跨客服聚合。
-      const bindingLists = await Promise.all(
-        (agentList ?? []).map((agent) =>
-          ipcBridge.customerService.listBindings
-            .invoke({ cs_agent_id: agent.cs_agent_id })
-            .catch(() => [])
-        )
-      );
+      // 全量绑定归属（bot → 客服），跨客服聚合 —— 直接走统一绑定查询，避免逐客服 N+1。
       const owners = new Map<ChannelPluginId, CsAgentId>();
-      for (const bindings of bindingLists) {
-        for (const binding of bindings ?? []) {
-          owners.set(binding.channel_plugin_id, binding.cs_agent_id);
-        }
+      for (const binding of bindings ?? []) {
+        owners.set(binding.channel_plugin_id, binding.cs_agent_id);
       }
       setOwnerByBot(owners);
     } catch (error) {

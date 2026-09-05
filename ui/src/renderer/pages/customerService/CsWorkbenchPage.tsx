@@ -1,12 +1,17 @@
-// 5.0.22 坐席工作台：把会话从 AI 切到自己手里。
+// 5.0.28 统一收件箱（聚合 AI 客服）—— 把会话从 AI 切到自己手里。
 //
-// 三栏：左侧会话列表 / 中间消息流 / 右侧快捷话术 + 工单。MVP 只覆盖：
-// - 列表 agent 全部进行中（state ∈ {ai, human}）的会话
-// - 选一个进入右侧消息流；列出全部历史消息（visitor/agent/system + sender_kind）
-// - 人工接管 / 转回 AI / 结束会话 三个按钮（按当前 state 启用/禁用）
-// - 在 human 态下可以坐席身份发送消息（写入 sender_kind=human）
-// - 右侧 cs_notes kind=script 的快捷话术直接插入输入框或一键发送
-// - 工单区：从当前会话快速建工单（标题 + 优先级）
+// 三栏：左侧跨客服聚合会话列表 / 中间消息流 / 右侧快捷话术 + 工单。相对 5.0.22 的
+// 变化：会话列表不再按单一客服查询，而是走 `/api/customer-service/inbox` 聚合
+// 全部客服、全部渠道（微信/企微/WhatsApp/LINE/Email/Telegram/…），让 AI 真正接管
+// 通讯渠道、代替本人与粉丝/客户对话，而不是本地"自己跟自己聊"。
+//
+// - 列表项显示：访客昵称（回退 channel_user_id）、渠道平台徽标、接待客服名、
+//   最后一条消息预览、会话状态。
+// - 顶部支持「客服」「渠道」「状态」三组筛选（跨客服聚合）。
+// - 人工接管 / 转回 AI / 结束会话 三个按钮（按当前 state 启用/禁用）。
+// - 在 human 态下可以坐席身份发送消息（写入 sender_kind=human）。
+// - 右侧 cs_notes kind=script 的快捷话术直接插入输入框或一键发送。
+// - 工单区：从当前会话快速建工单（标题 + 优先级）。
 //
 // 不做：群组/标签/自动分配/转接给其他坐席 — 后续版本迭代。
 
@@ -22,6 +27,7 @@ import {
   Select,
   Spin,
   Tag,
+  Tabs,
 } from '@arco-design/web-react';
 
 // ArcO exposes the multiline input as a member of `Input`, not a top-level export.
@@ -29,7 +35,6 @@ const TextArea = Input.TextArea;
 import {
   Api,
   Headset,
-  Left,
   ListView,
   Plus,
   Send,
@@ -39,19 +44,13 @@ import {
 
 import { ipcBridge } from '@/common';
 import type {
-  ICsAgent,
-  ICsDialogue,
-  ICsMessage,
+  ICsInboxItem,
   ICsNote,
   ICsTicket,
 } from '@/common/adapter/ipcBridge';
-import { parseCsAgentId, type CsDialogueId } from '@/common/types/ids';
+import { parseCsAgentId, type CsAgentId, type CsDialogueId } from '@/common/types/ids';
 
-import { useCsAgent, useCsAgents, useCsNotes } from './useCsAgents';
-
-// ICsAgent is referenced only via useCsAgent's return type; keep the import
-// for documentation/future expansion and silence the unused-import lint.
-void (null as ICsAgent | null);
+import { useCsAgents, useCsNotes } from './useCsAgents';
 
 type WorkbenchBubble = {
   cs_message_id: string;
@@ -101,7 +100,9 @@ const BubbleView: React.FC<{ bubble: WorkbenchBubble }> = ({ bubble }) => {
   );
 };
 
-const StateTag: React.FC<{ state: ICsDialogue['state'] }> = ({ state }) => {
+type DialogueState = 'ai' | 'human' | 'closed';
+
+const StateTag: React.FC<{ state: DialogueState }> = ({ state }) => {
   const { t } = useTranslation();
   if (state === 'human') {
     return (
@@ -120,6 +121,25 @@ const StateTag: React.FC<{ state: ICsDialogue['state'] }> = ({ state }) => {
   return (
     <Tag color='arcoblue'>
       {t('customerService.workbench.states.ai', { defaultValue: 'AI 接待中' })}
+    </Tag>
+  );
+};
+
+/** 渠道平台徽标：用平台 type 映射一个稳定的颜色，收件箱里一眼区分渠道来源。 */
+const ChannelBadge: React.FC<{ type: string }> = ({ type }) => {
+  const color = useMemo(() => {
+    const key = (type || '').toLowerCase();
+    if (key.includes('wechat') || key.includes('weixin') || key.includes('wecom')) return 'green';
+    if (key.includes('whatsapp')) return 'green';
+    if (key.includes('line')) return 'green';
+    if (key.includes('email') || key.includes('mail')) return 'orange';
+    if (key.includes('telegram') || key.includes('tg')) return 'arcoblue';
+    if (key.includes('sms')) return 'gray';
+    return 'gray';
+  }, [type]);
+  return (
+    <Tag size='small' color={color} className='shrink-0'>
+      {type || 'unknown'}
     </Tag>
   );
 };
@@ -155,22 +175,58 @@ const CsWorkbenchPage: React.FC = () => {
   const { t } = useTranslation();
   const { cs_agent_id: rawAgentId } = useParams<{ cs_agent_id: string }>();
   const navigate = useNavigate();
-  const agentId = useMemo(() => (rawAgentId ? parseCsAgentId(rawAgentId) : null), [rawAgentId]);
-  const { agent, loading: agentLoading } = useCsAgent(agentId);
+  // The URL agent id (when routed from a roster card) pre-filters the unified
+  // inbox to that agent; the `/customer-service/workbench` route has no id and
+  // defaults to the cross-agent view.
+  const initialAgentFilter = useMemo(
+    () => (rawAgentId ? parseCsAgentId(rawAgentId) : null),
+    [rawAgentId],
+  );
   const { agents } = useCsAgents();
   const [operatorId, setOperatorId] = useOperatorId();
 
-  const [dialogues, setDialogues] = useState<ICsDialogue[]>([]);
-  const [dialoguesLoading, setDialoguesLoading] = useState(false);
-  const [activeDialogue, setActiveDialogue] = useState<ICsDialogue | null>(null);
+  type StateFilter = 'all' | DialogueState;
+  const FILTER_OPTIONS: { key: StateFilter; label: string }[] = [
+    { key: 'all', label: t('customerService.workbench.filters.all', { defaultValue: '全部' }) },
+    { key: 'ai', label: t('customerService.workbench.filters.ai', { defaultValue: 'AI 接待' }) },
+    { key: 'human', label: t('customerService.workbench.filters.human', { defaultValue: '人工' }) },
+    { key: 'closed', label: t('customerService.workbench.filters.closed', { defaultValue: '已结束' }) },
+  ];
+
+  const [inbox, setInbox] = useState<ICsInboxItem[]>([]);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [stateFilter, setStateFilter] = useState<StateFilter>('all');
+  const [agentFilter, setAgentFilter] = useState<CsAgentId | 'all'>('all');
+  const [channelFilter, setChannelFilter] = useState<string>('all');
+  const [activeItem, setActiveItem] = useState<ICsInboxItem | null>(null);
   const [messages, setMessages] = useState<WorkbenchBubble[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Right pane: notes for script-quick-replies + tickets.
-  const { notes } = useCsNotes(agentId);
+  // Seed the agent filter from the URL param once agents/param are ready.
+  useEffect(() => {
+    if (initialAgentFilter) setAgentFilter(initialAgentFilter);
+  }, [initialAgentFilter]);
+
+  // Distinct channel platforms present in the current inbox (for the filter).
+  const channelTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of inbox) set.add(item.channel_type);
+    return [...set].sort();
+  }, [inbox]);
+
+  const filteredItems = useMemo(() => {
+    return inbox.filter((item) => {
+      if (stateFilter !== 'all' && item.state !== stateFilter) return false;
+      if (agentFilter !== 'all' && item.cs_agent_id !== agentFilter) return false;
+      if (channelFilter !== 'all' && item.channel_type !== channelFilter) return false;
+      return true;
+    });
+  }, [inbox, stateFilter, agentFilter, channelFilter]);
+
+  const { notes } = useCsNotes(activeItem ? activeItem.cs_agent_id : null);
   const scripts = useMemo(
     () => notes.filter((note) => note.enabled && note.kind === 'script'),
     [notes],
@@ -180,21 +236,18 @@ const CsWorkbenchPage: React.FC = () => {
 
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
 
-  const loadDialogues = useCallback(async () => {
-    if (!agentId) return;
-    setDialoguesLoading(true);
+  const loadInbox = useCallback(async () => {
+    setInboxLoading(true);
     try {
-      const list = await ipcBridge.customerService.listActiveDialogues.invoke({
-        cs_agent_id: agentId,
-      });
-      setDialogues(list);
+      const list = await ipcBridge.customerService.listInbox.invoke({ limit: 500 });
+      setInbox(list);
     } catch (err) {
-      console.error('workbench: loadDialogues failed', err);
+      console.error('workbench: loadInbox failed', err);
       setError(String(err));
     } finally {
-      setDialoguesLoading(false);
+      setInboxLoading(false);
     }
-  }, [agentId]);
+  }, []);
 
   const loadMessages = useCallback(async (dialogueId: CsDialogueId) => {
     setMessagesLoading(true);
@@ -221,12 +274,15 @@ const CsWorkbenchPage: React.FC = () => {
     }
   }, []);
 
-  const loadTickets = useCallback(async () => {
-    if (!agentId) return;
+  const loadTickets = useCallback(async (csAgentId?: CsAgentId | null) => {
+    if (!csAgentId) {
+      setTickets([]);
+      return;
+    }
     setTicketsLoading(true);
     try {
       const list = await ipcBridge.customerService.listTickets.invoke({
-        cs_agent_id: agentId,
+        cs_agent_id: csAgentId,
         limit: 50,
       });
       setTickets(list);
@@ -235,135 +291,142 @@ const CsWorkbenchPage: React.FC = () => {
     } finally {
       setTicketsLoading(false);
     }
-  }, [agentId]);
+  }, []);
 
-  // Initial load: dialogues + tickets. Messages load when a dialogue is picked.
+  // Initial load: unified inbox (cross-agent).
   useEffect(() => {
-    void loadDialogues();
-    void loadTickets();
-  }, [loadDialogues, loadTickets]);
+    void loadInbox();
+  }, [loadInbox]);
 
   useEffect(() => {
-    if (!activeDialogue) {
+    if (!activeItem) {
       setMessages([]);
       return;
     }
-    void loadMessages(activeDialogue.cs_dialogue_id);
-  }, [activeDialogue, loadMessages]);
+    void loadMessages(activeItem.cs_dialogue_id);
+  }, [activeItem, loadMessages]);
+
+  useEffect(() => {
+    if (!activeItem) {
+      setTickets([]);
+      return;
+    }
+    void loadTickets(activeItem.cs_agent_id);
+  }, [activeItem, loadTickets]);
 
   // Auto-scroll to bottom on message updates.
   useEffect(() => {
     const el = messageScrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);  const refreshDialogueState = useCallback(
-    async (dialogueId: string): Promise<ICsDialogue | null> => {
+  }, [messages]);
+
+  const refreshDialogueState = useCallback(
+    async (dialogueId: string): Promise<ICsInboxItem | null> => {
       try {
-        const all = await ipcBridge.customerService.listActiveDialogues.invoke({
-          cs_agent_id: agentId!,
-        });
+        const all = await ipcBridge.customerService.listInbox.invoke({ limit: 500 });
         const next = all.find((row) => row.cs_dialogue_id === dialogueId) ?? null;
-        setDialogues(all);
-        setActiveDialogue(next);
+        setInbox(all);
+        setActiveItem(next);
         return next;
       } catch (err) {
         console.error('workbench: refreshDialogueState failed', err);
         return null;
       }
     },
-    [agentId],
+    [],
   );
 
   const takeOver = useCallback(async () => {
-    if (!activeDialogue) return;
+    if (!activeItem) return;
     if (!operatorId) {
       Message.warning(t('customerService.workbench.operatorPlaceholder', { defaultValue: '操作员 UUIDv7' }));
       return;
     }
     try {
       await ipcBridge.customerService.takeoverDialogue.invoke({
-        cs_dialogue_id: activeDialogue.cs_dialogue_id,
+        cs_dialogue_id: activeItem.cs_dialogue_id,
         operator_id: operatorId,
       });
       Message.success(t('customerService.workbench.actions.takeover', { defaultValue: '人工接管' }));
-      await refreshDialogueState(activeDialogue.cs_dialogue_id);
-      await loadMessages(activeDialogue.cs_dialogue_id);
+      await refreshDialogueState(activeItem.cs_dialogue_id);
+      await loadMessages(activeItem.cs_dialogue_id);
     } catch (err) {
       console.error('takeover failed', err);
       Message.error(String(err));
     }
-  }, [activeDialogue, operatorId, refreshDialogueState, loadMessages, t]);
+  }, [activeItem, operatorId, refreshDialogueState, loadMessages, t]);
 
   const release = useCallback(async () => {
-    if (!activeDialogue) return;
+    if (!activeItem) return;
     try {
       await ipcBridge.customerService.releaseDialogue.invoke({
-        cs_dialogue_id: activeDialogue.cs_dialogue_id,
+        cs_dialogue_id: activeItem.cs_dialogue_id,
       });
       Message.success(t('customerService.workbench.actions.release', { defaultValue: '转回 AI' }));
-      await refreshDialogueState(activeDialogue.cs_dialogue_id);
-      await loadMessages(activeDialogue.cs_dialogue_id);
+      await refreshDialogueState(activeItem.cs_dialogue_id);
+      await loadMessages(activeItem.cs_dialogue_id);
     } catch (err) {
       console.error('release failed', err);
       Message.error(String(err));
     }
-  }, [activeDialogue, refreshDialogueState, loadMessages, t]);
+  }, [activeItem, refreshDialogueState, loadMessages, t]);
 
   const close = useCallback(() => {
-    if (!activeDialogue) return;
+    if (!activeItem) return;
     Modal.confirm({
       title: t('customerService.workbench.actions.close', { defaultValue: '结束会话' }),
       content: t('customerService.workbench.actions.close', { defaultValue: '结束会话' }),
       onOk: async () => {
         try {
           await ipcBridge.customerService.closeDialogue.invoke({
-            cs_dialogue_id: activeDialogue.cs_dialogue_id,
+            cs_dialogue_id: activeItem.cs_dialogue_id,
           });
           Message.success(t('customerService.workbench.actions.close', { defaultValue: '结束会话' }));
-          await loadDialogues();
-          setActiveDialogue(null);
+          await loadInbox();
+          setActiveItem(null);
         } catch (err) {
           console.error('close failed', err);
           Message.error(String(err));
         }
       },
     });
-  }, [activeDialogue, loadDialogues, t]);
+  }, [activeItem, loadInbox, t]);
 
   const sendHuman = useCallback(async () => {
-    if (!activeDialogue) return;
+    if (!activeItem) return;
     const trimmed = draft.trim();
     if (!trimmed) {
       Message.warning(t('customerService.workbench.messages.humanPlaceholder', { defaultValue: '以坐席身份向访客发送…' }));
       return;
     }
-    if (activeDialogue.state === 'closed') {
+    if (activeItem.state === 'closed') {
       Message.warning(t('customerService.workbench.states.closed', { defaultValue: '已结束' }));
       return;
     }
-    if (activeDialogue.state !== 'human') {
+    if (activeItem.state !== 'human') {
       Message.warning(t('customerService.workbench.actions.takeover', { defaultValue: '人工接管' }));
       return;
     }
     setSending(true);
     try {
       await ipcBridge.customerService.postHumanMessage.invoke({
-        cs_dialogue_id: activeDialogue.cs_dialogue_id,
+        cs_dialogue_id: activeItem.cs_dialogue_id,
         text: trimmed,
       });
       setDraft('');
-      await loadMessages(activeDialogue.cs_dialogue_id);
+      await loadMessages(activeItem.cs_dialogue_id);
     } catch (err) {
       console.error('sendHuman failed', err);
       Message.error(String(err));
     } finally {
       setSending(false);
     }
-  }, [activeDialogue, draft, loadMessages, t]);
+  }, [activeItem, draft, loadMessages, t]);
 
   const sendScript = useCallback(
     async (note: ICsNote) => {
-      if (!activeDialogue) return;
-      if (activeDialogue.state !== 'human') {
+      if (!activeItem) return;
+      if (activeItem.state !== 'human') {
         // Not in human mode — auto-promote so the operator can ship the
         // script immediately. Single click is friendlier than gating on a
         // "first takeover" click.
@@ -375,7 +438,7 @@ const CsWorkbenchPage: React.FC = () => {
         }
         try {
           await ipcBridge.customerService.takeoverDialogue.invoke({
-            cs_dialogue_id: activeDialogue.cs_dialogue_id,
+            cs_dialogue_id: activeItem.cs_dialogue_id,
             operator_id: operatorId,
           });
         } catch (err) {
@@ -386,38 +449,38 @@ const CsWorkbenchPage: React.FC = () => {
       setSending(true);
       try {
         await ipcBridge.customerService.postHumanMessage.invoke({
-          cs_dialogue_id: activeDialogue.cs_dialogue_id,
+          cs_dialogue_id: activeItem.cs_dialogue_id,
           text: note.content,
         });
-        await refreshDialogueState(activeDialogue.cs_dialogue_id);
-        await loadMessages(activeDialogue.cs_dialogue_id);
+        await refreshDialogueState(activeItem.cs_dialogue_id);
+        await loadMessages(activeItem.cs_dialogue_id);
       } catch (err) {
         Message.error(String(err));
       } finally {
         setSending(false);
       }
     },
-    [activeDialogue, operatorId, refreshDialogueState, loadMessages, t],
+    [activeItem, operatorId, refreshDialogueState, loadMessages, t],
   );
 
   const openCreateTicket = useCallback(() => {
-    if (!activeDialogue || !agentId) return;
+    if (!activeItem) return;
     Modal.confirm({
       title: t('customerService.workbench.tickets.createFromHere', { defaultValue: '为当前会话建工单' }),
       content: (
         <CreateTicketForm
-          initialVisitor={activeDialogue.channel_user_id}
+          initialVisitor={activeItem.channel_user_id}
           onSubmit={async (input) => {
             try {
               const created = await ipcBridge.customerService.createTicket.invoke({
                 ...input,
-                cs_dialogue_id: activeDialogue.cs_dialogue_id,
-                cs_agent_id: agentId,
+                cs_dialogue_id: activeItem.cs_dialogue_id,
+                cs_agent_id: activeItem.cs_agent_id,
               });
               Message.success(
                 t('customerService.tickets.actions.created', { defaultValue: '工单已创建' }),
               );
-              await loadTickets();
+              await loadTickets(activeItem.cs_agent_id);
               return created.cs_ticket_id;
             } catch (err) {
               Message.error(String(err));
@@ -428,28 +491,22 @@ const CsWorkbenchPage: React.FC = () => {
       ),
       onOk: async () => {
         // Form is self-submitting; Modal.confirm OK button is just a dismiss.
-        await loadTickets();
+        await loadTickets(activeItem.cs_agent_id);
       },
       okText: t('customerService.tickets.actions.save', { defaultValue: '保存' }),
       cancelText: t('common.cancel', { defaultValue: '取消' }),
     });
-  }, [activeDialogue, agentId, loadTickets, t]);
+  }, [activeItem, loadTickets, t]);
 
-  if (!agentId) {
-    return <Empty description='invalid agent id' />;
-  }
-  if (agentLoading || !agent) {
-    return (
-      <div className='flex h-full w-full items-center justify-center'>
-        <Spin />
-      </div>
-    );
-  }
+  const visitorName = (item: ICsInboxItem): string =>
+    item.visitor_name && item.visitor_name.trim()
+      ? item.visitor_name
+      : item.channel_user_id;
 
   return (
     <div className='flex h-full w-full flex-col box-border bg-bg-1'>
       <div className='flex shrink-0 items-center gap-12px border-b border-solid border-[var(--color-border-2)] px-16px py-10px'>
-        {/* 客服管理 + 切换 */}
+        {/* 客服管理 + 收件箱标题 */}
         <Button
           size='small'
           type='text'
@@ -460,36 +517,58 @@ const CsWorkbenchPage: React.FC = () => {
             {t('customerService.workbench.manageAgents', { defaultValue: '客服管理' })}
           </span>
         </Button>
-        <Select
-          size='small'
-          style={{ width: 160 }}
-          value={agent.cs_agent_id}
-          onChange={(value: unknown) => {
-            const id = value as string;
-            if (id && id !== agent.cs_agent_id) {
-              navigate(`/customer-service/${id}/workbench`, { replace: true });
-            }
-          }}
-        >
-          {agents.map((a) => (
-            <Select.Option key={a.cs_agent_id} value={a.cs_agent_id}>
-              <span className='inline-flex items-center gap-6px'>
-                <span
-                  className={`w-6px h-6px rounded-full ${a.enabled ? 'bg-green-6' : 'bg-gray-4'}`}
-                />
-                <span className='truncate'>{a.name}</span>
-              </span>
-            </Select.Option>
-          ))}
-        </Select>
 
-        <span className='text-15px font-500'>{agent.name}</span>
+        <span className='inline-flex items-center gap-6px text-15px font-500'>
+          <Headset theme='outline' size='15' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+          {t('customerService.workbench.inboxTitle', { defaultValue: '统一收件箱' })}
+        </span>
         <span className='text-12px text-t-tertiary'>
-          {t('customerService.workbench.subtitle', { defaultValue: '把会话从 AI 切到自己手里 — 接管后引擎不再回复。' })}
+          {t('customerService.workbench.inboxSubtitle', {
+            defaultValue: '聚合全部客服与渠道 — AI 接管通讯，代替本人与粉丝/客户对话。',
+          })}
         </span>
 
-        {/* 渠道中心 + 工单 */}
+        {/* 客服 / 渠道 筛选 */}
         <span className='ml-auto inline-flex items-center gap-8px'>
+          <Select
+            size='small'
+            style={{ width: 140 }}
+            value={agentFilter}
+            onChange={(value: unknown) => setAgentFilter((value as CsAgentId) || 'all')}
+          >
+            <Select.Option value='all'>
+              {t('customerService.workbench.filters.allAgents', { defaultValue: '全部客服' })}
+            </Select.Option>
+            {agents.map((a) => (
+              <Select.Option key={a.cs_agent_id} value={a.cs_agent_id}>
+                <span className='inline-flex items-center gap-6px'>
+                  <span
+                    className={`w-6px h-6px rounded-full ${a.enabled ? 'bg-green-6' : 'bg-gray-4'}`}
+                  />
+                  <span className='truncate'>{a.name}</span>
+                </span>
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            size='small'
+            style={{ width: 130 }}
+            value={channelFilter}
+            onChange={(value: unknown) => setChannelFilter((value as string) || 'all')}
+          >
+            <Select.Option value='all'>
+              {t('customerService.workbench.filters.allChannels', { defaultValue: '全部渠道' })}
+            </Select.Option>
+            {channelTypes.map((ct) => (
+              <Select.Option key={ct} value={ct}>
+                {ct}
+              </Select.Option>
+            ))}
+          </Select>
+        </span>
+
+        {/* 渠道中心 + 工单 + 操作员 */}
+        <span className='inline-flex items-center gap-8px'>
           <Button size='small' type='text' onClick={() => void navigate('/customer-service/channels')}>
             <span className='inline-flex items-center gap-4px'>
               <Api theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
@@ -522,42 +601,73 @@ const CsWorkbenchPage: React.FC = () => {
       )}
 
       <div className='flex grow min-h-0'>
-        {/* Left: dialogue list */}
-        <div className='flex shrink-0 w-260px flex-col border-r border-solid border-[var(--color-border-2)]'>
-          <div className='shrink-0 px-12px py-8px text-12px text-t-tertiary'>
-            {t('customerService.workbench.title', { defaultValue: '坐席工作台' })}
-            <span className='ml-4px'>{dialogues.length}</span>
+        {/* Left: unified inbox list with Bytedesk-style filter tabs */}
+        <div className='flex shrink-0 w-300px flex-col border-r border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)]'>
+          <div className='shrink-0 px-12px py-10px border-b border-solid border-[var(--color-border-2)]'>
+            <div className='text-13px font-600 text-t-primary mb-8px'>
+              {t('customerService.workbench.title', { defaultValue: '会话' })}
+              <span className='ml-6px text-12px font-400 text-t-tertiary'>{filteredItems.length}</span>
+            </div>
+            <div className='flex flex-wrap gap-6px'>
+              {FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  type='button'
+                  onClick={() => setStateFilter(opt.key)}
+                  className={`px-8px py-3px rd-10px text-11px border border-solid transition-colors ${
+                    stateFilter === opt.key
+                      ? 'bg-primary-6 border-primary-6 text-white'
+                      : 'bg-transparent border-[var(--color-border-2)] text-t-secondary hover:border-primary-6 hover:text-primary-6'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className='grow min-h-0 overflow-y-auto'>
-            {dialoguesLoading ? (
+            {inboxLoading ? (
               <div className='flex h-full items-center justify-center'>
                 <Spin />
               </div>
-            ) : dialogues.length === 0 ? (
+            ) : filteredItems.length === 0 ? (
               <Empty
-                description={t('customerService.workbench.empty', { defaultValue: '暂无进行中的会话' })}
+                description={t('customerService.workbench.emptyUnified', { defaultValue: '暂无会话' })}
               />
             ) : (
-              dialogues.map((dialogue) => {
-                const selected =
-                  activeDialogue?.cs_dialogue_id === dialogue.cs_dialogue_id;
+              filteredItems.map((item) => {
+                const selected = activeItem?.cs_dialogue_id === item.cs_dialogue_id;
+                const name = visitorName(item);
                 return (
                   <div
-                    key={dialogue.cs_dialogue_id}
-                    onClick={() => setActiveDialogue(dialogue)}
+                    key={item.cs_dialogue_id}
+                    onClick={() => setActiveItem(item)}
                     className={`flex cursor-pointer flex-col gap-4px border-b border-solid border-[var(--color-border-1)] px-12px py-10px ${
                       selected ? 'bg-primary-1' : 'hover:bg-fill-1'
                     }`}
                   >
-                    <div className='flex items-center justify-between gap-4px'>
-                      <span className='truncate text-13px font-500'>
-                        {dialogue.channel_user_id.slice(0, 8)}…
+                    <div className='flex items-center justify-between gap-8px'>
+                      <span className='truncate text-13px font-500 min-w-0'>
+                        {name.length > 22 ? `${name.slice(0, 22)}…` : name}
                       </span>
-                      <StateTag state={dialogue.state} />
+                      <span className='shrink-0 text-11px text-t-quaternary'>
+                        {new Date(item.last_activity).toLocaleDateString()}
+                      </span>
                     </div>
-                    <span className='truncate text-11px text-t-tertiary'>
-                      {dialogue.chat_id}
-                    </span>
+                    <div className='flex items-center justify-between gap-8px'>
+                      <span className='truncate text-11px text-t-tertiary min-w-0'>
+                        {item.last_message_preview && item.last_message_preview.trim()
+                          ? item.last_message_preview
+                          : item.chat_id}
+                      </span>
+                      <StateTag state={item.state} />
+                    </div>
+                    <div className='flex items-center gap-6px'>
+                      <ChannelBadge type={item.channel_type} />
+                      <span className='truncate text-11px text-t-tertiary min-w-0'>
+                        {item.agent_name || item.cs_agent_id}
+                      </span>
+                    </div>
                   </div>
                 );
               })
@@ -567,23 +677,30 @@ const CsWorkbenchPage: React.FC = () => {
 
         {/* Middle: message stream + composer */}
         <div className='flex grow min-w-0 flex-col'>
-          {!activeDialogue ? (
+          {!activeItem ? (
             <div className='flex h-full items-center justify-center'>
               <Empty
-                description={t('customerService.workbench.empty', { defaultValue: '暂无进行中的会话' })}
+                description={t('customerService.workbench.emptyUnified', { defaultValue: '暂无进行中的会话' })}
               />
             </div>
           ) : (
             <>
-              <div className='flex shrink-0 items-center gap-8px px-16px py-8px border-b border-solid border-[var(--color-border-2)]'>
-                <StateTag state={activeDialogue.state} />
-                {activeDialogue.taken_by && (
-                  <span className='text-11px text-t-tertiary'>
-                    {activeDialogue.taken_by.slice(0, 8)}…
+              <div className='flex shrink-0 items-center justify-between gap-12px px-16px py-10px border-b border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)]'>
+                <div className='flex flex-col min-w-0'>
+                  <div className='flex items-center gap-8px'>
+                    <span className='text-14px font-500 text-t-primary truncate'>
+                      {visitorName(activeItem)}
+                    </span>
+                    <ChannelBadge type={activeItem.channel_type} />
+                    <StateTag state={activeItem.state} />
+                  </div>
+                  <span className='text-11px text-t-tertiary truncate'>
+                    {t('customerService.workbench.sessionId', { defaultValue: '会话编号' })}: {activeItem.cs_dialogue_id}
+                    {activeItem.agent_name && ` · ${activeItem.agent_name}`}
                   </span>
-                )}
-                <span className='ml-auto flex gap-6px'>
-                  {activeDialogue.state === 'ai' && (
+                </div>
+                <span className='shrink-0 flex items-center gap-6px'>
+                  {activeItem.state === 'ai' && (
                     <Button
                       size='mini'
                       type='primary'
@@ -593,19 +710,12 @@ const CsWorkbenchPage: React.FC = () => {
                       {t('customerService.workbench.actions.takeover', { defaultValue: '人工接管' })}
                     </Button>
                   )}
-                  {activeDialogue.state === 'human' && (
+                  {activeItem.state === 'human' && (
                     <>
-                      <Button
-                        size='mini'
-                        onClick={() => void release()}
-                      >
+                      <Button size='mini' onClick={() => void release()}>
                         {t('customerService.workbench.actions.release', { defaultValue: '转回 AI' })}
                       </Button>
-                      <Button
-                        size='mini'
-                        type='primary'
-                        onClick={openCreateTicket}
-                      >
+                      <Button size='mini' type='primary' onClick={openCreateTicket}>
                         <span className='inline-flex items-center gap-4px'>
                           <Plus theme='outline' size='12' fill='currentColor' />
                           {t('customerService.workbench.actions.createTicket', { defaultValue: '建工单' })}
@@ -613,10 +723,15 @@ const CsWorkbenchPage: React.FC = () => {
                       </Button>
                     </>
                   )}
-                  {activeDialogue.state !== 'closed' && (
-                    <Button size='mini' status='danger' onClick={close}>
-                      {t('customerService.workbench.actions.close', { defaultValue: '结束会话' })}
-                    </Button>
+                  {activeItem.state !== 'closed' && (
+                    <>
+                      <Button size='mini' onClick={() => Message.info(t('customerService.workbench.transferHint', { defaultValue: '转接功能后续支持' }))}>
+                        {t('customerService.workbench.actions.transfer', { defaultValue: '转接' })}
+                      </Button>
+                      <Button size='mini' status='danger' onClick={close}>
+                        {t('customerService.workbench.actions.close', { defaultValue: '结束' })}
+                      </Button>
+                    </>
                   )}
                 </span>
               </div>
@@ -637,7 +752,7 @@ const CsWorkbenchPage: React.FC = () => {
                   ))
                 )}
               </div>
-              <div className='shrink-0 border-t border-solid border-[var(--color-border-2)] px-16px py-10px'>
+              <div className='shrink-0 border-t border-solid border-[var(--color-border-2)] px-16px py-10px bg-[var(--color-bg-2)]'>
                 <TextArea
                   value={draft}
                   onChange={setDraft}
@@ -645,7 +760,7 @@ const CsWorkbenchPage: React.FC = () => {
                     defaultValue: '以坐席身份向访客发送…',
                   })}
                   autoSize={{ minRows: 2, maxRows: 6 }}
-                  disabled={activeDialogue.state !== 'human' || sending}
+                  disabled={activeItem.state !== 'human' || sending}
                   onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
                     if (
                       event.key === 'Enter' &&
@@ -657,23 +772,38 @@ const CsWorkbenchPage: React.FC = () => {
                     }
                   }}
                 />
-                <div className='mt-8px flex items-center gap-8px'>
-                  <span className='text-11px text-t-tertiary'>
-                    {t('customerService.workbench.messages.sendHint', {
-                      defaultValue: 'Enter 发送 / Shift+Enter 换行',
-                    })}
+                <div className='mt-8px flex items-center justify-between gap-8px'>
+                  <span className='inline-flex items-center gap-4px flex-wrap'>
+                    {[
+                      { key: 'emoji', label: t('customerService.workbench.tools.emoji', { defaultValue: '表情' }) },
+                      { key: 'image', label: t('customerService.workbench.tools.image', { defaultValue: '图片' }) },
+                      { key: 'file', label: t('customerService.workbench.tools.file', { defaultValue: '文件' }) },
+                      { key: 'voice', label: t('customerService.workbench.tools.voice', { defaultValue: '录音' }) },
+                      { key: 'video', label: t('customerService.workbench.tools.video', { defaultValue: '视频' }) },
+                      { key: 'auto', label: t('customerService.workbench.tools.autoReply', { defaultValue: '自动回复' }) },
+                      { key: 'rate', label: t('customerService.workbench.tools.rate', { defaultValue: '邀请评价' }) },
+                    ].map((tool) => (
+                      <Button
+                        key={tool.key}
+                        size='mini'
+                        type='text'
+                        disabled={activeItem.state === 'closed'}
+                        onClick={() => Message.info(t('customerService.workbench.tools.comingSoon', { defaultValue: '{{tool}} 功能后续支持', tool: tool.label }))}
+                      >
+                        {tool.label}
+                      </Button>
+                    ))}
                   </span>
                   <Button
                     size='small'
                     type='primary'
                     loading={sending}
-                    disabled={activeDialogue.state !== 'human'}
+                    disabled={activeItem.state !== 'human'}
                     onClick={() => void sendHuman()}
-                    className='ml-auto'
                   >
                     <span className='inline-flex items-center gap-4px'>
                       <Send theme='outline' size='14' fill='currentColor' />
-                      {t('customerService.workbench.actions.sendHuman', { defaultValue: '发送（人工）' })}
+                      {t('customerService.workbench.actions.sendHuman', { defaultValue: '发送' })}
                     </span>
                   </Button>
                 </div>
@@ -682,84 +812,158 @@ const CsWorkbenchPage: React.FC = () => {
           )}
         </div>
 
-        {/* Right: scripts + tickets */}
-        <div className='flex shrink-0 w-300px flex-col border-l border-solid border-[var(--color-border-2)]'>
-          <div className='shrink-0 px-12px py-8px text-12px text-t-tertiary border-b border-solid border-[var(--color-border-1)]'>
-            {t('customerService.workbench.scripts.title', { defaultValue: '快捷回复' })}
-          </div>
-          <div className='shrink-0 max-h-40vh overflow-y-auto'>
-            {scripts.length === 0 ? (
-              <div className='px-12px py-8px text-12px text-t-tertiary'>
-                {t('customerService.workbench.scripts.empty', {
-                  defaultValue: '还没有快捷话术',
+        {/* Right: Bytedesk-style assistant tabs (visitor / scripts / kb / tickets) */}
+        <div className='flex shrink-0 w-320px flex-col border-l border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)]'>
+          <Tabs defaultActiveTab='scripts' className='cs-workbench-tabs'>
+            <Tabs.TabPane
+              key='visitor'
+              title={t('customerService.workbench.tabs.visitor', { defaultValue: '访客信息' })}
+            >
+              <div className='px-12px py-10px flex flex-col gap-10px'>
+                {!activeItem ? (
+                  <Empty description={t('customerService.workbench.empty', { defaultValue: '未选择会话' })} />
+                ) : (
+                  <>
+                    <div className='flex items-center gap-10px'>
+                      <span className='flex items-center justify-center w-40px h-40px rd-full bg-primary-1 text-primary-6 text-15px font-600'>
+                        {(visitorName(activeItem) || '?').slice(0, 1).toUpperCase()}
+                      </span>
+                      <div className='flex flex-col min-w-0'>
+                        <span className='text-14px font-500 text-t-primary truncate'>
+                          {visitorName(activeItem)}
+                        </span>
+                        <span className='text-11px text-t-tertiary'>
+                          {activeItem.chat_id}
+                        </span>
+                      </div>
+                    </div>
+                    <div className='flex flex-col gap-6px text-12px text-t-secondary'>
+                      <div className='flex justify-between'>
+                        <span>{t('customerService.workbench.fields.state', { defaultValue: '状态' })}</span>
+                        <StateTag state={activeItem.state} />
+                      </div>
+                      <div className='flex justify-between'>
+                        <span>{t('customerService.workbench.fields.agent', { defaultValue: '接待客服' })}</span>
+                        <span className='text-t-primary'>{activeItem.agent_name || activeItem.cs_agent_id}</span>
+                      </div>
+                      <div className='flex justify-between'>
+                        <span>{t('customerService.workbench.fields.channel', { defaultValue: '渠道' })}</span>
+                        <span className='text-t-primary'>{activeItem.channel_name || activeItem.channel_plugin_id}</span>
+                      </div>
+                      <div className='flex justify-between'>
+                        <span>{t('customerService.workbench.fields.created', { defaultValue: '创建时间' })}</span>
+                        <span className='text-t-primary'>{new Date(activeItem.created_at).toLocaleString()}</span>
+                      </div>
+                      {activeItem.taken_by && (
+                        <div className='flex justify-between'>
+                          <span>{t('customerService.workbench.fields.operator', { defaultValue: '当前坐席' })}</span>
+                          <span className='text-t-primary'>{activeItem.taken_by}</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </Tabs.TabPane>
+            <Tabs.TabPane
+              key='scripts'
+              title={t('customerService.workbench.tabs.scripts', { defaultValue: '快捷回复' })}
+            >
+              <div className='grow min-h-0 overflow-y-auto px-12px py-8px'>
+                {scripts.length === 0 ? (
+                  <div className='text-12px text-t-tertiary py-8px'>
+                    {t('customerService.workbench.scripts.empty', {
+                      defaultValue: '还没有快捷话术',
+                    })}
+                  </div>
+                ) : (
+                  <div className='flex flex-col gap-8px'>
+                    {scripts.map((note) => (
+                      <div
+                        key={note.cs_note_id}
+                        className='flex items-start gap-6px rd-8px border border-solid border-[var(--color-border-2)] px-10px py-8px hover:bg-fill-1'
+                      >
+                        <span className='grow text-12px text-t-primary whitespace-pre-wrap break-words'>
+                          {note.content}
+                        </span>
+                        <Button
+                          size='mini'
+                          type='text'
+                          onClick={() => void sendScript(note)}
+                          disabled={!activeItem || activeItem.state === 'closed'}
+                        >
+                          <Send theme='outline' size='12' fill='currentColor' />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Tabs.TabPane>
+            <Tabs.TabPane
+              key='kb'
+              title={t('customerService.workbench.tabs.kb', { defaultValue: '知识库' })}
+            >
+              <div className='px-12px py-10px text-12px text-t-secondary'>
+                {t('customerService.workbench.kb.hint', {
+                  defaultValue: '当前客服绑定的知识库已在推理时自动检索，后续此处可查看命中片段。',
                 })}
               </div>
-            ) : (
-              scripts.map((note) => (
-                <div
-                  key={note.cs_note_id}
-                  className='flex items-start gap-6px border-b border-solid border-[var(--color-border-1)] px-12px py-8px hover:bg-fill-1'
-                >
-                  <span className='grow text-12px text-t-primary whitespace-pre-wrap break-words'>
-                    {note.content}
-                  </span>
-                  <Button
-                    size='mini'
-                    type='text'
-                    onClick={() => void sendScript(note)}
-                    disabled={!activeDialogue || activeDialogue.state === 'closed'}
-                  >
-                    <Send theme='outline' size='12' fill='currentColor' />
-                  </Button>
-                </div>
-              ))
-            )}
-          </div>
-          <div className='shrink-0 px-12px py-8px text-12px text-t-tertiary border-y border-solid border-[var(--color-border-1)] flex items-center gap-4px'>
-            <Headset theme='outline' size='14' />
-            {t('customerService.workbench.tickets.title', { defaultValue: '相关工单' })}
-            <span className='ml-auto'>{tickets.length}</span>
-          </div>
-          <div className='grow min-h-0 overflow-y-auto'>
-            {ticketsLoading ? (
-              <div className='flex h-full items-center justify-center'>
-                <Spin />
-              </div>
-            ) : tickets.length === 0 ? (
-              <div className='px-12px py-8px text-12px text-t-tertiary'>
-                {t('customerService.workbench.tickets.title', { defaultValue: '相关工单' })} -
-              </div>
-            ) : (
-              tickets.map((ticket) => (
-                <div
-                  key={ticket.cs_ticket_id}
-                  className='border-b border-solid border-[var(--color-border-1)] px-12px py-8px'
-                >
-                  <div className='flex items-center justify-between gap-4px'>
-                    <span className='truncate text-13px font-500'>{ticket.title}</span>
-                    <Tag
-                      color={
-                        ticket.status === 'pending'
-                          ? 'orange'
-                          : ticket.status === 'in_progress'
-                            ? 'arcoblue'
-                            : ticket.status === 'resolved'
-                              ? 'green'
-                              : 'gray'
-                      }
-                    >
-                      {ticket.status}
-                    </Tag>
+            </Tabs.TabPane>
+            <Tabs.TabPane
+              key='tickets'
+              title={
+                <span className='inline-flex items-center gap-4px'>
+                  {t('customerService.workbench.tabs.tickets', { defaultValue: '工单' })}
+                  <span className='text-11px text-t-tertiary'>({tickets.length})</span>
+                </span>
+              }
+            >
+              <div className='grow min-h-0 overflow-y-auto px-12px py-8px'>
+                {ticketsLoading ? (
+                  <div className='flex h-full items-center justify-center'>
+                    <Spin />
                   </div>
-                  {ticket.description && (
-                    <p className='mt-4px text-12px text-t-secondary whitespace-pre-wrap break-words line-clamp-2'>
-                      {ticket.description}
-                    </p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+                ) : tickets.length === 0 ? (
+                  <div className='text-12px text-t-tertiary py-8px'>
+                    {t('customerService.workbench.tickets.empty', { defaultValue: '暂无相关工单' })}
+                  </div>
+                ) : (
+                  <div className='flex flex-col gap-8px'>
+                    {tickets.map((ticket) => (
+                      <div
+                        key={ticket.cs_ticket_id}
+                        className='rd-8px border border-solid border-[var(--color-border-2)] px-10px py-8px'
+                      >
+                        <div className='flex items-center justify-between gap-4px'>
+                          <span className='truncate text-13px font-500'>{ticket.title}</span>
+                          <Tag
+                            size='small'
+                            color={
+                              ticket.status === 'pending'
+                                ? 'orange'
+                                : ticket.status === 'in_progress'
+                                  ? 'arcoblue'
+                                  : ticket.status === 'resolved'
+                                    ? 'green'
+                                    : 'gray'
+                            }
+                          >
+                            {ticket.status}
+                          </Tag>
+                        </div>
+                        {ticket.description && (
+                          <p className='mt-4px text-12px text-t-secondary whitespace-pre-wrap break-words line-clamp-2'>
+                            {ticket.description}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Tabs.TabPane>
+          </Tabs>
         </div>
       </div>
     </div>
@@ -783,12 +987,6 @@ const CreateTicketForm: React.FC<{
   const [submitting, setSubmitting] = useState(false);
   const submitRef = useRef<() => void>(() => undefined);
 
-  // Push submit down to the parent's onOk flow via a window-level glue:
-  // simplest — wire into Modal's onOk by exposing a global on this form via
-  // useEffect. We avoid that complexity by relying on Modal.confirm's default
-  // OK button to call onOk which closes the dialog; submission happens here
-  // on a "提交" button INSIDE the form via a side-effect. The Modal's own OK
-  // button just confirms the form filled in the ticket, then we re-load.
   useEffect(() => {
     submitRef.current = async () => {
       if (!title.trim()) {

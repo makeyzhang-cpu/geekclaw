@@ -279,6 +279,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/customer-service/roster' element={withRouteFallback(CustomerServiceRosterPage)} />
           <Route path='/customer-service/channels' element={withRouteFallback(CustomerServiceChannelsPage)} />
           <Route path='/customer-service/tickets' element={withRouteFallback(TicketsPage)} />
+          <Route path='/customer-service/workbench' element={withRouteFallback(CustomerServiceWorkbenchPage)} />
           <Route path='/customer-service/:cs_agent_id' element={withRouteFallback(CustomerServiceDetailPage)} />
           <Route path='/customer-service/:cs_agent_id/chat' element={withRouteFallback(CustomerServiceChatPage)} />
           <Route path='/customer-service/:cs_agent_id/workbench' element={withRouteFallback(CustomerServiceWorkbenchPage)} />
@@ -286,7 +287,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/knowledge/:id' element={withRouteFallback(KnowledgeDetailPage)} />
           {/* 资产库 (Asset Library) — platform-level management of workshop assets. */}
           <Route path='/assets' element={withRouteFallback(AssetLibraryPage)} />
-          {/* 创意工坊 (Creative Workshop) — 5.0.26 接入云端 video.geekclaw.ai。
+          {/* 创意工坊 (Creative Workshop) — 接入云端 aivideo.jkyunge.com。
               /workshop → 云端入口页（WebviewHost + 浏览器跳转）；
               /workshop/:id → 保留原 WorkshopListPage（深链接兼容）。 */}
           <Route path='/workshop' element={withRouteFallback(WorkshopHomePage)} />

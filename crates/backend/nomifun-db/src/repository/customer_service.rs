@@ -2,8 +2,8 @@ use nomifun_common::TimestampMs;
 
 use crate::error::DbError;
 use crate::models::{
-    CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsMessageRow, CsNoteRow,
-    CsTicketRow, NewCsAgentRow, NewCsTicketRow,
+    CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsInboxItem, CsMessageRow,
+    CsNoteRow, CsTicketRow, NewCsAgentRow, NewCsTicketRow,
 };
 
 /// Identity triple that pins a visitor dialogue lane (一人一线).
@@ -106,6 +106,10 @@ pub trait ICustomerServiceRepository: Send + Sync {
         channel_plugin_id: &str,
     ) -> Result<Option<CsChannelBindingRow>, DbError>;
 
+    /// Every channel↔agent binding across all agents, newest first. Powers the
+    /// channel-management surface (which bot is bound to which客服).
+    async fn list_all_bindings(&self) -> Result<Vec<CsChannelBindingRow>, DbError>;
+
     // ── cs_dialogues / cs_messages ───────────────────────────────────
 
     /// Fetch or create the dialogue lane for an identity triple. On reuse the
@@ -189,6 +193,15 @@ pub trait ICustomerServiceRepository: Send + Sync {
         &self,
         cs_agent_id: &str,
     ) -> Result<Vec<CsDialogueRow>, DbError>;
+
+    /// Unified inbox: enriched dialogues across ALL agents (optionally filtered
+    /// by `state` and `channel_type`), newest activity first, capped at `limit`.
+    async fn list_inbox(
+        &self,
+        state: Option<&str>,
+        channel_type: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CsInboxItem>, DbError>;
 
     // ── cs_notes CRUD ────────────────────────────────────────────────
 

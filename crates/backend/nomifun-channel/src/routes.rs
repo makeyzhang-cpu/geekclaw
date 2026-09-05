@@ -1,10 +1,14 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
+use axum::body::Bytes;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Json, State};
+use axum::extract::{Json, Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use tracing::warn;
+use tracing::{info, warn};
 
 use nomifun_api_types::{
     ApiResponse, ApprovePairingRequest, BridgeResponse, ChannelSessionResponse, ChannelUserResponse,
@@ -22,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::channel_settings::ChannelSettingsService;
 use crate::error::{ChannelError, ChannelOwner};
 use crate::manager::{ChannelManager, EnableChannelSpec, PluginFactory};
+use crate::media_store::ChannelMediaStore;
 use crate::message_service::ChannelAgentProfile;
 use crate::pairing::PairingService;
 use crate::session::SessionManager;
@@ -47,6 +52,11 @@ pub struct ChannelRouterState {
     /// a companion domain — validation is then skipped, not failed.
     pub channel_agent_profile: Option<Arc<dyn ChannelAgentProfile>>,
     pub extension_registry: ExtensionRegistry,
+    /// On-disk store for decrypted channel media (WeCom aibot image,
+    /// etc.). The same store the channel plugins write to, so storage URLs
+    /// handed back to the inbox resolve here. `None` in test harnesses that
+    /// never touch media; the route handler responds 404 in that case.
+    pub media_store: Option<Arc<ChannelMediaStore>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +94,24 @@ pub fn channel_routes(state: ChannelRouterState) -> Router {
     // local-trust header (an SSE stream here was rejected 403).
     #[cfg(feature = "weixin")]
     let router = router.route("/api/channel/weixin/login/start", post(start_weixin_login));
+
+    // Webhook ingress for push-based platforms. The handlers forward the raw
+    // body + signature header to `ChannelManager::dispatch_webhook`, which fans
+    // out to the live plugin(s) of that type. Feature-gated so the routes only
+    // exist when the corresponding plugin is compiled in.
+    #[cfg(feature = "whatsapp")]
+    let router = router.route(
+        "/api/channel/plugins/whatsapp/webhook",
+        get(whatsapp_webhook_get).post(whatsapp_webhook_post),
+    );
+    #[cfg(feature = "line")]
+    let router = router.route("/api/channel/plugins/line/webhook", post(line_webhook_post));
+
+    // Decrypted-media download. Matches `{anything}.{ext}`; the handler
+    // slices on the LAST `.` so the file key (32 lowercase hex) is preserved
+    // whole. Auth is the same as every other `/api/channel/*` route — added
+    // by the parent router in apps/desktop or apps/web.
+    let router = router.route("/api/channel/media/*keyext", get(media_download));
 
     router.with_state(state)
 }
@@ -730,6 +758,176 @@ async fn start_weixin_login(State(state): State<ChannelRouterState>) -> Json<Api
         message: None,
         error: None,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Webhook ingress (WhatsApp Cloud API / LINE Messaging API)
+// ---------------------------------------------------------------------------
+
+/// `GET /api/channel/plugins/whatsapp/webhook` — Meta webhook verification handshake.
+///
+/// Meta calls this once when the webhook URL is saved. We echo `hub.challenge`
+/// only if `hub.verify_token` matches the configured token; otherwise 403.
+#[cfg(feature = "whatsapp")]
+async fn whatsapp_webhook_get(
+    State(state): State<ChannelRouterState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let mode = params.get("hub.mode").map(String::as_str).unwrap_or("");
+    let token = params.get("hub.verify_token").map(String::as_str).unwrap_or("");
+    let challenge = params.get("hub.challenge").map(String::as_str).unwrap_or("");
+    if mode != "subscribe" {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match state
+        .manager
+        .verify_webhook_challenge(PluginType::WhatsApp, token, challenge)
+    {
+        Ok(challenge) => (StatusCode::OK, challenge).into_response(),
+        Err(e) => {
+            warn!(error = %e, "WhatsApp webhook verification failed");
+            StatusCode::FORBIDDEN.into_response()
+        }
+    }
+}
+
+/// `POST /api/channel/plugins/whatsapp/webhook` — Meta event delivery.
+///
+/// Verifies `X-Hub-Signature-256` (when the plugin holds an app secret) and
+/// dispatches each message. Always returns 200 so Meta doesn't retry a
+/// successfully-received (if malformed) push into a storm; dispatch errors are
+/// logged, not surfaced as 4xx.
+#[cfg(feature = "whatsapp")]
+async fn whatsapp_webhook_post(
+    State(state): State<ChannelRouterState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let sig = headers
+        .get("x-hub-signature-256")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    match state
+        .manager
+        .dispatch_webhook(PluginType::WhatsApp, &body, sig.as_deref())
+    {
+        Ok(n) => {
+            info!(dispatched = n, "WhatsApp webhook handled");
+            (StatusCode::OK, "ok").into_response()
+        }
+        Err(e) => {
+            warn!(error = %e, "WhatsApp webhook dispatch error");
+            (StatusCode::OK, "ok").into_response()
+        }
+    }
+}
+
+/// `POST /api/channel/plugins/line/webhook` — LINE Messaging API event delivery.
+///
+/// Verifies `X-Line-Signature` (when the plugin holds a channel secret) and
+/// dispatches. Always returns 200 to match LINE's retry expectations.
+#[cfg(feature = "line")]
+async fn line_webhook_post(
+    State(state): State<ChannelRouterState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let sig = headers
+        .get("x-line-signature")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    match state
+        .manager
+        .dispatch_webhook(PluginType::Line, &body, sig.as_deref())
+    {
+        Ok(n) => {
+            info!(dispatched = n, "LINE webhook handled");
+            (StatusCode::OK, "ok").into_response()
+        }
+        Err(e) => {
+            warn!(error = %e, "LINE webhook dispatch error");
+            (StatusCode::OK, "ok").into_response()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Decrypted-media download endpoint
+// ---------------------------------------------------------------------------
+
+/// `GET /api/channel/media/{key}.{ext}` — serve a previously-decrypted
+/// channel media blob (WeCom aibot image, etc.) from the on-disk
+/// [`ChannelMediaStore`].
+///
+/// The route is `*keyext` (catch-all) so the handler splits on the LAST
+/// `.` itself: the key is always exactly 32 lowercase hex chars and never
+/// contains a dot, so the LHS of the split is the key and the RHS is the
+/// extension. Both halves are re-validated inside the store to keep the
+/// path traversal surface to zero — even if a caller hand-crafts
+/// `../../etc/passwd`, the key matcher rejects it before the filesystem
+/// is touched.
+///
+/// Auth is the same parent `/api/channel/*` middleware applied by the
+/// apps/desktop and apps/web routers, so an attacker can't simply guess
+/// keys; this is a 404, not 403, when the file is missing so we don't
+/// leak store existence.
+async fn media_download(
+    State(state): State<ChannelRouterState>,
+    Path(keyext): Path<String>,
+) -> Response {
+    let Some(store) = state.media_store.as_ref() else {
+        return (StatusCode::NOT_FOUND, "media store disabled").into_response();
+    };
+
+    // Sloppy input — no dot at all, or the prefix doesn't even look like
+    // a hex key. 400 instead of 404 here so callers learn it's their fault.
+    let Some((key, ext_with_dot)) = keyext.rsplit_once('.') else {
+        return (StatusCode::BAD_REQUEST, "missing extension").into_response();
+    };
+    if key.is_empty() || ext_with_dot.is_empty() || ext_with_dot.contains('.') {
+        return (StatusCode::BAD_REQUEST, "malformed media path").into_response();
+    }
+
+    let path = match store.path(key, ext_with_dot) {
+        Ok(p) => p,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid media key").into_response(),
+    };
+
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return (StatusCode::NOT_FOUND, "not found").into_response();
+        }
+        Err(e) => {
+            warn!(error = %e, path = %path.display(), "media download io error");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "io error").into_response();
+        }
+    };
+
+    let mime: &'static str = match ext_with_dot.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static(mime),
+    );
+    // 24h cache: decrypting + reading from local disk is cheap, but the
+    // URL itself is unguessable (32 hex chars), so there's no harm in
+    // letting the browser / proxy hold it.
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, max-age=86400"),
+    );
+
+    (StatusCode::OK, headers, bytes).into_response()
 }
 
 // ---------------------------------------------------------------------------

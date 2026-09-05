@@ -1196,6 +1196,26 @@ pub async fn build_channel_state(
         manager.clone() as Arc<dyn nomifun_channel::stream_relay::ChannelSender>,
     );
 
+    // Channel-media on-disk store. This is the same root
+    // `{data_dir}/channel-media/` the WeCom aibot (and any other plugin
+    // that opts in) writes decrypted blobs into — so the storage URL
+    // `/api/channel/media/{key}.{ext}` baked into inbound unified
+    // messages resolves here on the HTTP read. Constructed best-effort:
+    // a misbehaving filesystem shouldn't take down the whole channel
+    // router, the download handler just answers 404 when this is `None`.
+    let media_store: Option<Arc<nomifun_channel::media_store::ChannelMediaStore>> =
+        match nomifun_channel::media_store::ChannelMediaStore::new(&services.data_dir) {
+            Ok(store) => Some(Arc::new(store)),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    data_dir = %services.data_dir.display(),
+                    "channel media store init failed; image downloads will 404"
+                );
+                None
+            }
+        };
+
     let state = ChannelRouterState {
         manager: Arc::clone(&manager),
         pairing_service,
@@ -1205,6 +1225,7 @@ pub async fn build_channel_state(
         settings_service: channel_settings,
         channel_agent_profile: Some(channel_agent_profile),
         extension_registry,
+        media_store,
     };
 
     let components = ChannelMessageLoopComponents {
