@@ -6,6 +6,7 @@
 
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import { iconColors } from '@/renderer/styles/colors';
+import GeekClawLogo from '@/renderer/assets/logos/brand/geekclaw-claw.png';
 import { Robot } from '@icon-park/react';
 import React from 'react';
 import type { PresetReference } from '@/common/types/agent/presetTypes';
@@ -29,8 +30,11 @@ export const AgentLogoIcon: React.FC<
 > = ({ backend, agentLogo, agentLogoIsEmoji, agent_name }) => {
   const logoContent = (() => {
     if (agentLogo) {
+      // Brand consistency: never render a user-supplied emoji as the agent
+      // identity icon. Fallback to the GeekClaw red-circle white-claw logo so
+      // every conversation surface uses one recognisable mark.
       if (agentLogoIsEmoji) {
-        return <span className='text-14px leading-none'>{agentLogo}</span>;
+        return <img src={GeekClawLogo} alt='GeekClaw' className='block w-16px h-16px object-contain' />;
       }
       return (
         <img src={agentLogo} alt={`${agent_name || 'agent'} logo`} className='block w-16px h-16px object-contain' />

@@ -8,6 +8,7 @@ import React from 'react';
 import useSWR from 'swr';
 import { usePresetInfo } from '@renderer/hooks/agent/usePresetInfo';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
+import GeekClawLogo from '@/renderer/assets/logos/brand/geekclaw-claw.png';
 import type { ConversationId } from '@/common/types/ids';
 
 type Props = {
@@ -29,12 +30,11 @@ const AgentMessageAvatar: React.FC<Props> = ({ senderName, senderConversationId,
   const { info: presetInfo } = usePresetInfo(conversation ?? undefined);
 
   if (presetInfo) {
+    // Brand consistency: emoji preset avatars are replaced with the GeekClaw
+    // red-circle white-claw logo so agent message bubbles never show stray
+    // emoji like the old pink-bowl placeholder.
     if (presetInfo.isEmoji) {
-      return (
-        <span className='w-20px h-20px rounded-full flex items-center justify-center text-14px leading-none bg-fill-2'>
-          {presetInfo.logo}
-        </span>
-      );
+      return <img src={GeekClawLogo} alt='GeekClaw' className='w-20px h-20px rounded-full object-contain' />;
     }
     return <img src={presetInfo.logo} alt={presetInfo.name} className='w-20px h-20px rounded-full object-contain' />;
   }

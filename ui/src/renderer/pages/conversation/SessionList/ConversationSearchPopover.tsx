@@ -10,6 +10,7 @@ import type { ConversationId, MessageId } from '@/common/types/ids';
 import NomiModal from '@/renderer/components/base/NomiModal';
 import { usePresetInfo } from '@/renderer/hooks/agent/usePresetInfo';
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
+import GeekClawLogo from '@/renderer/assets/logos/brand/geekclaw-claw.png';
 import { blockMobileInputFocus, blurActiveElement } from '@/renderer/utils/ui/focus';
 import { isDesktopShell } from '@/renderer/utils/platform';
 import { Empty, Spin, Typography } from '@arco-design/web-react';
@@ -104,11 +105,16 @@ const ConversationAgentMark: React.FC<{ conversation: IMessageSearchItem['conver
   const { info: presetInfo } = usePresetInfo(conversation);
 
   if (presetInfo) {
+    // Brand consistency: emoji preset avatars are replaced with the GeekClaw
+    // red-circle white-claw logo so the search results never show stray emoji.
     if (presetInfo.isEmoji) {
       return (
-        <span className='text-18px leading-none flex-shrink-0' title={presetInfo.name}>
-          {presetInfo.logo}
-        </span>
+        <img
+          src={GeekClawLogo}
+          alt='GeekClaw'
+          title={presetInfo.name}
+          className='w-18px h-18px rounded-50% flex-shrink-0'
+        />
       );
     }
 
