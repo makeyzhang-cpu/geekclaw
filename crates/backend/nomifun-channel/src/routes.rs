@@ -111,7 +111,12 @@ pub fn channel_routes(state: ChannelRouterState) -> Router {
     // slices on the LAST `.` so the file key (32 lowercase hex) is preserved
     // whole. Auth is the same as every other `/api/channel/*` route — added
     // by the parent router in apps/desktop or apps/web.
-    let router = router.route("/api/channel/media/*keyext", get(media_download));
+    // NOTE: axum 0.8 / matchit 0.8 catch-all syntax is `{*name}`. The bare
+    // `*name` form is a literal path segment, not a wildcard — it silently
+    // registered a dead route and wedged router construction. Keep this in
+    // sync with the other catch-alls (`/api/assets/logos/{*asset_path}`,
+    // `/api/ppt-proxy/{capability}/{*path}`).
+    let router = router.route("/api/channel/media/{*keyext}", get(media_download));
 
     router.with_state(state)
 }
