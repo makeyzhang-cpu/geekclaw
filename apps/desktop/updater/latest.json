@@ -1,11 +1,11 @@
 {
-  "version": "5.0.30",
-  "notes": "GeekClaw v5.0.30 — 紧急修复版\n\n⚠️ v5.0.29 存在严重问题（装完启动后桌面无任何反应），请勿使用 v5.0.29。\n已安装 v5.0.29 的用户请直接下载安装本版本 5.0.30 覆盖安装即可恢复。\n\n## 修复：启动卡死（严重回归）\n\n**现象**：安装 5.0.29 后双击启动，桌面完全没有反应、无窗口出现。\n\n**根因**：5.0.29 的 WeCom 图片消息 v2 补丁新增了一条媒体下载路由，使用了\naxum 0.7 旧式的 catch-all 写法 `*keyext`。在 axum 0.8 / matchit 0.8 中该写法\n会被当作字面路径段而非通配符，导致路由树构建在注册渠道路由时死锁：\n\n- 后端 `create_router` 永不返回\n- 主窗口创建流程因此永远不会被调用 → 界面从不出现\n- 进程与 WebView2 实际都在运行，但用户完全看不到窗口\n\n**修复**：改用 axum 0.8 标准 catch-all 语法 `{*keyext}`，与项目内另外两条\ncatch-all（`/api/assets/logos/{*asset_path}`、`/api/ppt-proxy/{capability}/{*path}`）保持一致。\n修复后后端启动全链路恢复：route groups built → route tree completed →\nrouter assembly completed → desktop backend serving 全部通过。\n\n## 5.0.29 的品牌图标统一（本版本一并包含）\n\n会话中残留的「粉红色碗饭」等预设 Emoji 头像已统一为 GeekClaw 品牌图标\n（红圆圈白色爪），覆盖四处渲染位置：\n\n- 顶部 header / MobileConversationBrand（AgentBadge）\n- 消息气泡旁的 agent 头像（AgentMessageAvatar）\n- 搜索结果列表（ConversationSearchPopover）\n- 左栏会话列表（ConversationRow，此前已硬编码品牌 PNG）\n\n「创建任务」预设下拉、设置页头像选择器等用户主动选择预设的入口保留 Emoji，\n以便区分不同预设。\n\n## 说明\n\n- WeCom v2 图片消息能力（收图 / AES-256-CBC 解密 / 落盘 / 本地 URL 读取）在\n  本版本中随路由修复一并可用。\n- 已装 5.0.29 因无法启动而不能走自动更新，需手动覆盖安装本版本。",
-  "pub_date": "2026-09-06T03:03:03.624Z",
+  "version": "5.0.31",
+  "notes": "GeekClaw 5.0.31\n\n## 新增：网页访客挂件（官网接入）\n\n客服此前只能被已经是企微/微信好友的人触达。现在可以把它嵌进任意官网 ——\n客户只需在页面里加一行代码，陌生访客点开气泡就能和 AI 客服对话，无需注册登录。\n\n使用方式：\n1. 打开 客服 → 任一客服 → 详情页「网页挂件」区块\n2. 打开「启用网页挂件」开关，系统自动生成站点标识\n3. 复制嵌入代码，粘贴到官网 </body> 之前即可：\n\n   <script src=\"https://www.geekclaw.ai/widget.js\" data-key=\"<站点标识>\"></script>\n\n能力：\n- 访客刷新页面不丢上下文（会话按浏览器本地持久化）\n- AI 无法回答时可转人工，人工回复实时回传给访客\n- 站点标识可随时重新生成，旧代码立即失效\n- 可限制只允许指定网站接入，防止客服被挂到别人的站点上\n\n## 安全设计\n\n- 访客令牌由服务端用实例密钥加密签发，无法伪造或跨客服重放\n- 站点标识为 32 位随机串，可轮换\n- 来源白名单校验（Origin）\n- 接口限流：每条访客消息都会触发一次真实模型调用，防止被刷\n\n## 其他\n\n- 桌面端与云端均已支持该能力；挂件为免登录公开接口，仅暴露必要字段\n- 新增 8 个自动化测试用例覆盖主链路、令牌伪造、来源白名单与异常场景",
+  "pub_date": "2026-09-06T07:33:11.906Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWNCUHVLZkx3WmRaMEx4SGNxK3JUTlk0VEF1TGQrZm91SzlSbzZoMVVDamUyaXQyT1ZlVG1raDJFdkNPeGtoeElmTmIwSW1VVW9GTWtqQzAycU81NmdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NjYzNTYyCWZpbGU6R2Vla0NsYXdfNS4wLjMwX3g2NC1zZXR1cC5leGUKMjhzRUhOZklGTWxzN0prb1QrNlVqcDN6Zjl4SXRJL3ZTNWZXNG5sTW5lZXArRFBRSERCZm5lZFdRMnk0QlRXRG4wYkJHTzYyL3VRSlBSQmVqeEpQREE9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.30/GeekClaw_5.0.30_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVJWZE83NE1hLzN3ZmkzUFVHTUJJRVVTTkFsLy9sVDA4SzZsak0yOWd6TytEeHVvL0hhcWkvYStMTW9NZFdnbnVYK1lLYnk2ZHlUZk5FRTJkaUxERmdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Njc5NjMzCWZpbGU6R2Vla0NsYXdfNS4wLjMxX3g2NC1zZXR1cC5leGUKZUJqRUVWQ3BUUDMrQ3JVb0VDL1hldWUwM0ZjbUV5UVNpRHVzV2swTjB6ckQycWxRQnp2a1QyM0pheXc0K3FxcUxNZllYcjh3dm8wNXZaUXlocHpiRHc9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.31/GeekClaw_5.0.31_x64-setup.exe"
     }
   }
 }
