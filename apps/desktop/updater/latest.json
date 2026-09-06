@@ -1,11 +1,11 @@
 {
-  "version": "5.0.33",
-  "notes": "GeekClaw 5.0.33\n\n本次修复了 5.0.32 上线后实测（云端 E2E）暴露的两个真实故障，都是访客能直接感知的。\n\n## 修复\n\n### 1. AI 客服接不上话（自动择优只试一轮就放弃）\n5.0.32 的自动择优在候选模型上各试一次就返回\"暂时无法回复\"。实测日志显示两种失败\n其实都能救回来，现在补了两道兜底：\n\n- **瞬时拥塞自动重试**：候选模型报限流 / 上游忙 / 超时（429、rate limited、\n  \"try again later\"、timeout 等）时，退避 3 秒用同一模型再试一次。\n  只认拥塞类错误——协议错误重试第二次还是一样失败，不会白等。\n- **全失败后去掉工具再试一次**：部分 Anthropic 系代理在流式 tool_call 上会漏发\n  function name，导致整轮直接失败（实测 claude-sonnet-4-6 命中）。\n  客服绝大多数回复不需要调工具，最后会以不带工具的方式重试一次——\n  宁可少用工具，也不能让访客看到\"暂时无法回复\"。\n\n### 2. 重复评价返回 500 并泄漏内部 SQL\n唯一索引 `idx_cs_ratings_dialogue_unique` 保证一会话一评价，但 sqlx 抛的是裸的\nUNIQUE constraint 错误，被当成内部错误 → 访客看到 500 + 一串 SQLite 报错。\n现在翻译成干净的 409「该会话已经评价过了」，挂件端识别后直接收起评价入口，不当错误展示。\n\n## 验证\n- `cargo check -p nomifun-customer-service -p nomifun-db -p nomifun-app` 通过\n- `cargo test -p nomifun-customer-service` 50 通过\n- 云端 E2E（登录 → 建客服 → 启用挂件 → bootstrap → 发消息 → 评价 → 重复评价 →\n  统计报表 → 评价列表 → SLA 扫描 → 清理）全链路验证",
-  "pub_date": "2026-09-06T12:43:58.484Z",
+  "version": "5.0.34",
+  "notes": "GeekClaw 5.0.34\n\n本次只修一件事，但是**会造成整库数据丢失**的严重问题，建议所有用户尽快更新。\n\n## 修复：删除客服后，下次启动会重置整个数据库\n\n### 现象\n在 5.0.32 / 5.0.33 上删除一个 AI 客服（含访客评价时），下一次启动 GeekClaw\n会判定当前数据集\"不合格\"，把整个数据库隔离掉并重建一个空库 —— 账号、模型通道、\n套餐记录、会话历史全部回到出厂状态。\n\n### 根因\nGeekClaw 的数据库不使用 SQLite 物理外键，所有表间引用都是\"逻辑引用\"，\n`SetNull` / `Cascade` 这些清理动作必须由业务代码自己执行。\n删除客服时漏掉了 `cs_ratings`（满意度评价）和 `cs_tickets`（工单）两张从属表，\n于是留下了指向已删除客服的孤儿记录。启动时的 v3 数据契约审计发现孤儿引用后，\n会判定整份数据集不可信 —— 这是它应有的行为，但代价是整库被重置。\n\n### 现在\n1. **删除客服按契约清理从属数据**：工单和满意度评价按 `SetNull` 策略解除引用\n   （评价本身保留，删客服不该把已经产生的满意度数据一起抹掉），不再留孤儿。\n2. **删除工单同步解除评价引用**。\n3. **启动自检兜底**：审计之前先按声明策略清扫客服表的孤儿引用。即便将来某处\n   又漏了清理，也只丢几条从属数据，不会再牵连整个数据库。\n4. 新增回归测试：删除带评价和工单的客服后，全库必须通过 v3 数据契约审计。\n\n## 说明\n本次修复**不能**找回已经被重置的数据。如果你的 GeekClaw 在删除客服后启动过一次\n并发现数据回到出厂状态，被隔离的原始数据通常还在数据目录的 `retired-datasets/`\n下，可以联系我们协助恢复。",
+  "pub_date": "2026-09-06T14:04:02.778Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWZqWFNXVXJOSDVLUGtQRGtKZzNUNDFTQ3JPa2FRSEI1dkl2N1dCR2gxR3hYY01VVVJwaUFXS00vOGZsL1hsMHZYQjB1aXNCQWxUS0MzQTBYQ1ZrVXc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Njk4MzMwCWZpbGU6R2Vla0NsYXdfNS4wLjMzX3g2NC1zZXR1cC5leGUKTXRlM1pSNDRMRzhsSERhY3B5YW9hTWQ4b3JlZUNNRXFrZ3c4aXpZRW5nM1dWY1A4VGt6OGZCSkhkNXB0a2p3YXdXYi9wckpHNW4rWkRtOWNDQVJkRGc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.33/GeekClaw_5.0.33_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVVoNVZwVmxCY09rdGdpaU5VQkt1WEZNSjFXMGVmK3NoQUVpRUFhTWo0RHVmVzlNcE1HMiszc3VJU2M2azBjaWNlUEZXS2xtN2lGS3RLVzdVQkJDVHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NzAyOTM4CWZpbGU6R2Vla0NsYXdfNS4wLjM0X3g2NC1zZXR1cC5leGUKWDJOUzdCcCtCSGFXZllURU9MamJDVkMzdTV1a3ViSlY4OFFQd2MwaXJ1WllQN2RmcEZsQnA5REhsMTBHdlptZkVWc01SR05LRlYyYXFXdTJIWStKQUE9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.34/GeekClaw_5.0.34_x64-setup.exe"
     }
   }
 }
