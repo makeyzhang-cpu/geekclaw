@@ -1301,8 +1301,10 @@ mod tests {
     #[tokio::test]
     async fn set_user_role_and_count_active_admins() {
         let (repo, _db) = setup().await;
+        // 没有任何迁移会种子管理员账号：首个管理员是运行时「第一个注册用户」
+        // 提升出来的。所以全新库必须是 0，而不是 >= 1。
         let before = repo.count_active_admins().await.unwrap();
-        assert!(before >= 1, "system owner should be an active admin");
+        assert_eq!(before, 0, "a fresh database must not seed an admin");
         let user = repo.create_user("promote", "h").await.unwrap();
         repo.set_user_role(user.user_id.as_str(), "admin").await.unwrap();
         assert_eq!(repo.count_active_admins().await.unwrap(), before + 1);

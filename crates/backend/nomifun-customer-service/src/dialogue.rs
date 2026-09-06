@@ -14,6 +14,7 @@
 //!   `None` and must not send anything).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
 use nomifun_ai_agent::{OneShotDeps, OneShotTurnRequest, run_one_shot_turn};
@@ -24,12 +25,40 @@ use nomifun_db::models::{
 use nomifun_db::{CsDialogueKey, ICustomerServiceRepository};
 use nomifun_knowledge::KnowledgeService;
 use tokio::sync::{Mutex, Semaphore};
+use tokio::time::sleep;
 
 use crate::model_resolver::CsModelResolver;
 use crate::tools::build_cs_tools;
 
 /// Hard wall-clock budget for one engine turn.
 pub const TURN_TIMEOUT_SECS: u64 = 120;
+/// Backoff before retrying a model that only reported transient congestion
+/// (rate limit / overload / upstream busy). Kept small: a visitor is waiting.
+const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(3000);
+
+/// True when a turn failure is worth retrying on the *same* model.
+///
+/// Deliberately narrow: a protocol or tool-stream error will fail identically
+/// on a second attempt, so retrying it only doubles the visitor's wait. Only
+/// congestion-shaped errors (rate limit, upstream busy, timeout) qualify —
+/// for anything else we move straight to the next candidate model.
+fn is_transient_error(error: &AppError) -> bool {
+    let text = error.to_string().to_lowercase();
+    [
+        "rate limited",
+        "rate_limit",
+        "rate limit",
+        "too many requests",
+        "try again later",
+        "overloaded",
+        "temporarily unavailable",
+        "service unavailable",
+        "timed out",
+        "timeout",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
 /// Context window: at most this many recent messages …
 pub const WINDOW_MESSAGE_LIMIT: usize = 30;
 /// … within this many content characters.
@@ -309,46 +338,109 @@ impl CsDialogueEngine {
         // 依次尝试候选模型：第一个成功即返回。显式配置的模型排第一，所以它
         // 正常时行为与从前完全一致——自动择优只在它缺失或失败时才可见。
         let mut last_error: Option<AppError> = None;
-        for (index, candidate) in candidates.iter().enumerate() {
-            let request = OneShotTurnRequest {
-                provider: candidate.clone(),
-                system_prompt: build_system_prompt(agent),
-                history: history.clone(),
-                user_text: user_text.clone(),
-                tools: tools.clone(),
-                timeout_secs: TURN_TIMEOUT_SECS,
-            };
-            match self.runner.run(request).await {
-                Ok(reply) => {
-                    if index > 0 {
+        'candidates: for (index, candidate) in candidates.iter().enumerate() {
+            // 每个候选最多两次：首次失败且属瞬时拥塞(限流/上游忙/超时)时退避重试。
+            // 托管免费模型经常只是"现在忙"，等一下同一个模型就能出话。
+            for attempt in 0..2 {
+                if attempt > 0 {
+                    sleep(TRANSIENT_RETRY_DELAY).await;
+                }
+                let request = OneShotTurnRequest {
+                    provider: candidate.clone(),
+                    system_prompt: build_system_prompt(agent),
+                    history: history.clone(),
+                    user_text: user_text.clone(),
+                    tools: tools.clone(),
+                    timeout_secs: TURN_TIMEOUT_SECS,
+                };
+                match self.runner.run(request).await {
+                    Ok(reply) => {
+                        if index > 0 || attempt > 0 {
+                            tracing::warn!(
+                                cs_agent_id = %agent.cs_agent_id,
+                                cs_dialogue_id,
+                                provider_id = %candidate.provider_id,
+                                model = %candidate.model,
+                                attempt = index + 1,
+                                retry = attempt,
+                                "customer-service turn recovered on a fallback model"
+                            );
+                        }
+                        self.repo
+                            .append_message(cs_dialogue_id, "agent", &reply, now_ms())
+                            .await?;
+                        return Ok(reply);
+                    }
+                    Err(error) => {
+                        if attempt == 0 && is_transient_error(&error) {
+                            tracing::warn!(
+                                cs_agent_id = %agent.cs_agent_id,
+                                cs_dialogue_id,
+                                provider_id = %candidate.provider_id,
+                                model = %candidate.model,
+                                %error,
+                                "customer-service turn hit a transient error, retrying same model"
+                            );
+                            continue;
+                        }
                         tracing::warn!(
                             cs_agent_id = %agent.cs_agent_id,
                             cs_dialogue_id,
                             provider_id = %candidate.provider_id,
                             model = %candidate.model,
                             attempt = index + 1,
-                            "customer-service turn recovered on a fallback model"
+                            %error,
+                            "customer-service turn failed on candidate model"
                         );
+                        last_error = Some(error);
+                        continue 'candidates;
                     }
-                    self.repo
-                        .append_message(cs_dialogue_id, "agent", &reply, now_ms())
-                        .await?;
-                    return Ok(reply);
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        cs_agent_id = %agent.cs_agent_id,
-                        cs_dialogue_id,
-                        provider_id = %candidate.provider_id,
-                        model = %candidate.model,
-                        attempt = index + 1,
-                        %error,
-                        "customer-service turn failed on candidate model"
-                    );
-                    last_error = Some(error);
                 }
             }
         }
+
+        // 所有候选都失败，且失败发生在带工具的请求上：最后以「不带工具」再试一次。
+        // 部分 Anthropic 系代理在流式 tool_call 上会漏发 function name，导致整轮
+        // 直接失败；客服绝大多数回复不需要调工具，去掉工具即可正常出话——宁可少
+        // 用工具，也不能让访客看到"暂时无法回复"。
+        if !tools.is_empty() {
+            if let Some(candidate) = candidates.first() {
+                let request = OneShotTurnRequest {
+                    provider: candidate.clone(),
+                    system_prompt: build_system_prompt(agent),
+                    history: history.clone(),
+                    user_text: user_text.clone(),
+                    tools: Vec::new(),
+                    timeout_secs: TURN_TIMEOUT_SECS,
+                };
+                match self.runner.run(request).await {
+                    Ok(reply) => {
+                        tracing::warn!(
+                            cs_agent_id = %agent.cs_agent_id,
+                            cs_dialogue_id,
+                            provider_id = %candidate.provider_id,
+                            model = %candidate.model,
+                            previous_error = %last_error.as_ref().map(|e| e.to_string()).unwrap_or_default(),
+                            "customer-service turn recovered with tools disabled"
+                        );
+                        self.repo
+                            .append_message(cs_dialogue_id, "agent", &reply, now_ms())
+                            .await?;
+                        return Ok(reply);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            cs_agent_id = %agent.cs_agent_id,
+                            cs_dialogue_id,
+                            %error,
+                            "customer-service turn failed with tools disabled"
+                        );
+                        last_error = Some(error);
+                    }
+                }
+            }
+        }
+
         Err(last_error
             .unwrap_or_else(|| AppError::Conflict("customer-service agent has no usable model".into())))
     }

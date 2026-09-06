@@ -31,16 +31,23 @@ pub struct CsAgentRow {
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
     // ── 网页访客挂件 (web widget) ────────────────────────────────────
+    // `serde(default)` 是必需的而非装饰：挂件功能上线前写入的行（以及测试里的
+    // 手写 fixture）没有这几个键，没有它反序列化会直接失败
+    // "missing field `widget_enabled`"，而不是回退成"未启用"。
     /// Whether the agent accepts anonymous visitors from an embedded web
     /// widget. Off by default so existing agents never gain a public surface
     /// just by upgrading.
+    #[serde(default)]
     pub widget_enabled: bool,
     /// Unguessable public identifier embedded in the customer's site.
     /// `None` until the widget is first enabled. Rotatable.
+    #[serde(default)]
     pub widget_key: Option<String>,
     /// JSON array of allowed page origins; empty means "allow any origin".
+    #[serde(default)]
     pub widget_allowed_origins: String,
     /// JSON object of appearance settings (color, position, title, ...).
+    #[serde(default)]
     pub widget_theme: String,
 }
 
@@ -103,9 +110,18 @@ pub struct NewCsAgentRow {
     pub updated_at: TimestampMs,
     /// Web-widget columns. Kept at the tail so existing constructors that
     /// build a row without widget settings keep compiling via `..Default`.
+    ///
+    /// `serde(default)` is REQUIRED, not cosmetic: rows written before the
+    /// widget feature existed (and hand-written fixtures in tests) carry no
+    /// such keys, and without it deserialising them fails with
+    /// "missing field `widget_enabled`" instead of falling back to "off".
+    #[serde(default)]
     pub widget_enabled: bool,
+    #[serde(default)]
     pub widget_key: Option<String>,
+    #[serde(default)]
     pub widget_allowed_origins: String,
+    #[serde(default)]
     pub widget_theme: String,
 }
 

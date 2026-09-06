@@ -405,7 +405,7 @@ mod tests {
         assert_eq!(claude.source_key.as_deref(), Some("agent_builtin_claude"));
 
         let geekclaw = repo.get(NOMI_AGENT_ID).await.unwrap().expect("seeded geekclaw row");
-        assert_eq!(geekclaw.icon.as_deref(), Some("/api/assets/logos/brand/geekclaw.svg"));
+        assert_eq!(geekclaw.icon.as_deref(), Some("/api/assets/logos/brand/geekclaw.png"));
 
         let kiro = repo.get(KIRO_AGENT_ID).await.unwrap().expect("seeded kiro row");
         assert!(kiro.icon.is_none());

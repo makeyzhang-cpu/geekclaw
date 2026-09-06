@@ -1113,7 +1113,10 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
              RETURNING {RATING_COLUMNS}"
         );
-        let row = sqlx::query_as::<_, CsRatingRow>(&sql)
+        // 一会话一评价由 `idx_cs_ratings_dialogue_unique` 唯一索引保证。sqlx 只会
+        // 抛裸的 UNIQUE constraint 错误，不翻译成 409 —— 访客重复提交会变成 500
+        // 并泄漏内部 SQL，这里显式翻译成 Conflict。
+        let inserted = sqlx::query_as::<_, CsRatingRow>(&sql)
             .bind(&cs_rating_id)
             .bind(&row.cs_ticket_id)
             .bind(&row.cs_dialogue_id)
@@ -1123,8 +1126,18 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(&row.source)
             .bind(nomifun_common::now_ms())
             .fetch_one(&self.pool)
-            .await?;
-        Ok(row)
+            .await;
+        match inserted {
+            Ok(row) => Ok(row),
+            Err(sqlx::Error::Database(error)) => {
+                let message = error.message();
+                if message.contains("UNIQUE constraint failed") {
+                    return Err(DbError::Conflict("该会话已经评价过了".into()));
+                }
+                Err(DbError::Query(sqlx::Error::Database(error)))
+            }
+            Err(error) => Err(DbError::Query(error)),
+        }
     }
 
     async fn list_ratings(
