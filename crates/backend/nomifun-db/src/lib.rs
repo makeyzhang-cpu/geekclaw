@@ -12,7 +12,10 @@ pub use database::{
     open_database_for_backup, validate_current_migration_lineage,
 };
 pub use error::DbError;
-pub use id_schema_contract::{validate_id_data_contract, validate_id_schema_contract};
+pub use id_schema_contract::{
+    prune_customer_service_orphan_references, validate_id_data_contract,
+    validate_id_schema_contract,
+};
 pub use models::{
     AgentExecutionAttemptDetailRow, AgentExecutionAttemptRow, AgentExecutionDetailRows,
     Invitation,

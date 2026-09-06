@@ -204,6 +204,28 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(cs_agent_id)
             .execute(&mut *tx)
             .await?;
+        // 本库不建物理外键（`validate_no_physical_foreign_keys`），`SetNull` 语义必须由
+        // 代码显式实现。工单 / 评价漏处理会留下孤儿行，启动时 v3 ID 数据契约审计会判定
+        // **整个数据集**不合格并把库隔离掉（5.0.33 线上踩过：删客服 → 下次重启全库重置）。
+        // 评价按 SetNull 保留：删掉客服不该把已经产生的满意度数据一起抹掉。
+        sqlx::query(
+            "UPDATE cs_ratings SET cs_dialogue_id = NULL, cs_agent_id = NULL \
+             WHERE cs_agent_id = ? \
+                OR cs_dialogue_id IN (SELECT cs_dialogue_id FROM cs_dialogues WHERE cs_agent_id = ?)",
+        )
+        .bind(cs_agent_id)
+        .bind(cs_agent_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE cs_tickets SET cs_agent_id = NULL, cs_dialogue_id = NULL \
+             WHERE cs_agent_id = ? \
+                OR cs_dialogue_id IN (SELECT cs_dialogue_id FROM cs_dialogues WHERE cs_agent_id = ?)",
+        )
+        .bind(cs_agent_id)
+        .bind(cs_agent_id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query(
             "DELETE FROM cs_messages WHERE cs_dialogue_id IN \
              (SELECT cs_dialogue_id FROM cs_dialogues WHERE cs_agent_id = ?)",
@@ -832,6 +854,12 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
 
     async fn delete_ticket(&self, cs_ticket_id: &str) -> Result<(), DbError> {
         canonical_id("cs_ticket_id", cs_ticket_id)?;
+        // SetNull（`cs_ratings.cs_ticket_id`）：工单删掉后评价仍保留在满意度统计里，
+        // 只是不再挂到具体工单上 —— 漏掉这步就会留下孤儿行触发数据集隔离。
+        sqlx::query("UPDATE cs_ratings SET cs_ticket_id = NULL WHERE cs_ticket_id = ?")
+            .bind(cs_ticket_id)
+            .execute(&self.pool)
+            .await?;
         let touched = sqlx::query("DELETE FROM cs_tickets WHERE cs_ticket_id = ?")
             .bind(cs_ticket_id)
             .execute(&self.pool)
@@ -1557,6 +1585,51 @@ mod tests {
         let remaining = repo.list_notes(None).await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].content, "shared");
+    }
+
+    /// 回归：5.0.33 线上事故 —— 删客服漏清 `cs_ratings` / `cs_tickets`，留下孤儿引用，
+    /// 下次启动的 v3 ID 数据契约审计判定**整个数据集**不合格 → 数据集被隔离、库被重置。
+    #[tokio::test]
+    async fn delete_agent_leaves_no_orphan_references() {
+        let (db, repo) = repo().await;
+        let agent = repo.create_agent(&new_agent("orphan")).await.unwrap();
+        let dialogue = repo
+            .get_or_create_dialogue(&agent.cs_agent_id, &dialogue_key(), 1)
+            .await
+            .unwrap();
+        let ticket = repo
+            .create_ticket(&NewCsTicketRow {
+                title: "价格咨询".into(),
+                description: String::new(),
+                priority: "normal".into(),
+                cs_dialogue_id: Some(dialogue.cs_dialogue_id.clone()),
+                cs_agent_id: Some(agent.cs_agent_id.clone()),
+                assignee_id: None,
+                visitor_name: "访客".into(),
+                visitor_handle: String::new(),
+                created_at: 1,
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        repo.create_rating(&NewCsRatingRow {
+            cs_ticket_id: Some(ticket.cs_ticket_id.clone()),
+            cs_dialogue_id: Some(dialogue.cs_dialogue_id.clone()),
+            cs_agent_id: Some(agent.cs_agent_id.clone()),
+            score: 5,
+            comment: "很及时".into(),
+            source: "widget".into(),
+        })
+        .await
+        .unwrap();
+
+        repo.delete_agent(&agent.cs_agent_id).await.unwrap();
+
+        // 评价保留（CSAT 数据不该被删客服带走），但引用必须已置空；
+        // 关键断言：整库仍然通过 v3 数据契约审计 —— 不允许再出现"删客服导致整库被隔离"。
+        crate::validate_id_data_contract(db.pool())
+            .await
+            .expect("删除客服后不得留下孤儿引用（会导致启动时整库被隔离）");
     }
 
     #[tokio::test]

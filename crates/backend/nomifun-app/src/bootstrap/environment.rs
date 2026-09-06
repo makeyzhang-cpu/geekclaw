@@ -312,6 +312,24 @@ async fn probe_v3_database_pool(pool: &SqlitePool) -> Result<ExistingV3DatabaseP
                 "database does not satisfy the complete v3 ID schema contract: {error}"
             )));
         }
+        // 最后一道保险：先按声明的 SetNull / Cascade 策略清掉客服表的孤儿引用。
+        // 漏清的孤儿行会让下面的数据契约审计判整个数据集不合格 → 数据集被隔离、库被重置。
+        // 丢几条从属数据远比整库被隔离划算。
+        match nomifun_db::prune_customer_service_orphan_references(pool).await {
+            Ok(0) => {}
+            Ok(pruned) => {
+                tracing::warn!(
+                    pruned,
+                    "startup: pruned orphan customer-service references before the v3 data contract audit"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "startup: customer-service orphan sweep failed; continuing to the v3 data contract audit"
+                );
+            }
+        }
         if let Err(error) = nomifun_db::validate_id_data_contract(pool).await {
             return Ok(ExistingV3DatabaseProbe::Incompatible(format!(
                 "database does not satisfy the complete v3 ID data contract: {error}"

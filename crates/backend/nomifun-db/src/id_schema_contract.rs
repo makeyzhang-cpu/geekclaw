@@ -1106,6 +1106,65 @@ pub async fn validate_id_data_contract(pool: &SqlitePool) -> Result<(), DbError>
     )))
 }
 
+/// 客服子系统孤儿行自愈。
+///
+/// 本库不建物理外键，`SetNull` / `Cascade` 全靠业务代码自己实现。只要有一处漏掉，
+/// 下次启动的 `validate_id_data_contract` 就会因为「孤儿引用」判定**整个数据集**
+/// 不合格 → 数据集被隔离、库被重置（5.0.33 线上事故：删客服漏清 `cs_ratings`）。
+/// 这个清扫是最后一道保险：审计之前先把已知客服表的孤儿引用按声明的策略置空 / 删除，
+/// 宁可丢几条从属数据，也不能让整库被隔离。
+const CUSTOMER_SERVICE_ORPHAN_SWEEP: &[(&str, &str, &str, &str, bool)] = &[
+    // (child_table, child_column, parent_table, parent_column, nullable)
+    // 顺序：先清从属表，再清被引用的父表。
+    ("cs_ratings", "cs_ticket_id", "cs_tickets", "cs_ticket_id", true),
+    ("cs_ratings", "cs_dialogue_id", "cs_dialogues", "cs_dialogue_id", true),
+    ("cs_ratings", "cs_agent_id", "cs_agents", "cs_agent_id", true),
+    ("cs_messages", "cs_dialogue_id", "cs_dialogues", "cs_dialogue_id", false),
+    ("cs_tickets", "cs_dialogue_id", "cs_dialogues", "cs_dialogue_id", true),
+    ("cs_tickets", "cs_agent_id", "cs_agents", "cs_agent_id", true),
+    ("cs_notes", "cs_agent_id", "cs_agents", "cs_agent_id", true),
+    ("cs_dialogues", "cs_agent_id", "cs_agents", "cs_agent_id", false),
+    ("cs_channel_bindings", "cs_agent_id", "cs_agents", "cs_agent_id", false),
+];
+
+/// 返回被处理的行数（置空 + 删除）。表不存在（更老的迁移前缀）时跳过对应规则。
+pub async fn prune_customer_service_orphan_references(pool: &SqlitePool) -> Result<usize, DbError> {
+    let mut pruned = 0usize;
+    for (child_table, child_column, parent_table, parent_column, nullable) in
+        CUSTOMER_SERVICE_ORPHAN_SWEEP
+    {
+        let both_exist: (i64,) = sqlx::query_as(
+            "SELECT (EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)) \
+                  AND (EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?))",
+        )
+        .bind(child_table)
+        .bind(parent_table)
+        .fetch_one(pool)
+        .await?;
+        if both_exist.0 == 0 {
+            continue;
+        }
+        let child = quote_sqlite_identifier(child_table);
+        let child_col = quote_sqlite_identifier(child_column);
+        let parent = quote_sqlite_identifier(parent_table);
+        let parent_col = quote_sqlite_identifier(parent_column);
+        let orphan = format!(
+            "NOT EXISTS (SELECT 1 FROM {parent} parent \
+                          WHERE parent.{parent_col} = child.{child_col})"
+        );
+        let sql = if *nullable {
+            format!(
+                "UPDATE {child} AS child SET {child_col} = NULL \
+                  WHERE {child_col} IS NOT NULL AND ({orphan})"
+            )
+        } else {
+            format!("DELETE FROM {child} AS child WHERE ({orphan})")
+        };
+        pruned += sqlx::query(&sql).execute(pool).await?.rows_affected() as usize;
+    }
+    Ok(pruned)
+}
+
 /// Read-only database orphan audit. Cross-store registry entries are skipped;
 /// their owners must extend this skeleton with side-store inventory checks.
 /// Keep-history and catalog-backed references permit an absent parent, but a
