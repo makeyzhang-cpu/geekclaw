@@ -32,6 +32,15 @@ pub struct UpdateCsAgentParams {
     pub enabled: Option<bool>,
     pub max_concurrent: Option<i64>,
     pub audit_retention_days: Option<i64>,
+    // ── 网页访客挂件 (web widget) ────────────────────────────────────
+    pub widget_enabled: Option<bool>,
+    /// Mint a fresh widget key. A random key is generated when `Some(true)`;
+    /// `Some(false)` clears it (disables public access by key).
+    pub rotate_widget_key: Option<bool>,
+    /// JSON array string of allowed origins.
+    pub widget_allowed_origins: Option<String>,
+    /// JSON object string of appearance settings.
+    pub widget_theme: Option<String>,
 }
 
 /// Mutable columns accepted when updating a `cs_tickets` row. `None` keeps
@@ -63,6 +72,14 @@ pub trait ICustomerServiceRepository: Send + Sync {
 
     /// Return one agent by business ID, or `None`.
     async fn get_agent(&self, cs_agent_id: &str) -> Result<Option<CsAgentRow>, DbError>;
+
+    /// Resolve the agent that owns `widget_key` — the public, unguessable
+    /// identifier embedded in a customer's website. Returns `None` for an
+    /// unknown or NULL key. Powers the anonymous web-widget surface.
+    async fn find_agent_by_widget_key(
+        &self,
+        widget_key: &str,
+    ) -> Result<Option<CsAgentRow>, DbError>;
 
     /// Return all agents ordered by creation time descending.
     async fn list_agents(&self) -> Result<Vec<CsAgentRow>, DbError>;

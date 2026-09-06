@@ -5931,6 +5931,20 @@ export interface IUpdateCsTicketBody {
   visitor_handle?: string;
 }
 
+/** Web-widget configuration of one customer-service agent — the anonymous,
+ *  embeddable website chat surface (5.0.31). */
+export interface ICsWidgetConfig {
+  /** Whether the agent accepts anonymous visitors from an embedded widget. */
+  enabled: boolean;
+  /** Public site identifier for the `<script data-key=...>` tag. `null` until
+   *  the widget is first enabled (minted automatically on enable). */
+  widget_key: string | null;
+  /** Allowed page origins; empty means "any origin". */
+  allowed_origins: string[];
+  /** Appearance payload forwarded verbatim to the widget (color/position/title). */
+  theme: Record<string, unknown> | null;
+}
+
 const fromApiCsAgent = (raw: unknown): ICsAgent => {
   const agent = asWireObject(raw, 'customer-service agent');
   if (Object.prototype.hasOwnProperty.call(agent, 'id')) {
@@ -6166,6 +6180,32 @@ export const customerService = {
   ),
   deleteTicket: httpDelete<{ success: boolean }, { cs_ticket_id: string }>(
     '/api/customer-service/tickets/{cs_ticket_id}'
+  ),
+  // ── 网页访客挂件 (5.0.31) ────────────────────────────────────────
+  /** Current widget config: on/off flag, site key, origin allowlist, theme. */
+  getWidgetConfig: httpGet<ICsWidgetConfig, { cs_agent_id: CsAgentId }>(
+    (p) => `/api/customer-service/agents/${p.cs_agent_id}/widget`
+  ),
+  /** Partial update. `rotate_key: true` mints a fresh site key (the old one
+   *  stops working immediately); `false` revokes it. Omitting a field leaves
+   *  it untouched. */
+  putWidgetConfig: httpPut<
+    ICsWidgetConfig,
+    {
+      cs_agent_id: CsAgentId;
+      enabled?: boolean;
+      rotate_key?: boolean;
+      allowed_origins?: string[];
+      theme?: Record<string, unknown>;
+    }
+  >(
+    (p) => `/api/customer-service/agents/${p.cs_agent_id}/widget`,
+    (p) => ({
+      enabled: p.enabled,
+      rotate_key: p.rotate_key,
+      allowed_origins: p.allowed_origins,
+      theme: p.theme,
+    })
   ),
 };
 

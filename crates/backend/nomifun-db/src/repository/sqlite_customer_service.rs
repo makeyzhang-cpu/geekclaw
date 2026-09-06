@@ -1,4 +1,7 @@
 use nomifun_common::{TimestampMs, validate_uuidv7};
+use rand::Rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use sqlx::SqlitePool;
 
 use crate::error::DbError;
@@ -11,13 +14,26 @@ use crate::repository::customer_service::{
 };
 
 const AGENT_COLUMNS: &str = "cs_agent_id, name, greeting, persona, service_policy, provider_id, \
-     model, knowledge_base_ids, business_endpoints, enabled, max_concurrent, audit_retention_days, created_at, updated_at";
+     model, knowledge_base_ids, business_endpoints, enabled, max_concurrent, audit_retention_days, \
+     created_at, updated_at, widget_enabled, widget_key, widget_allowed_origins, widget_theme";
 const DIALOGUE_COLUMNS: &str = "cs_dialogue_id, cs_agent_id, channel_plugin_id, channel_user_id, \
      chat_id, state, taken_by, created_at, last_activity";
 const MESSAGE_COLUMNS: &str = "cs_message_id, cs_dialogue_id, role, content, sender_kind, created_at";
 const NOTE_COLUMNS: &str = "cs_note_id, cs_agent_id, kind, content, enabled, created_at, updated_at";
 const TICKET_COLUMNS: &str = "cs_ticket_id, title, description, status, priority, cs_dialogue_id, \
      cs_agent_id, assignee_id, visitor_name, visitor_handle, created_at, updated_at";
+
+/// Mint a fresh public widget key.
+///
+/// Drawn from a CSPRNG rather than a timestamp-derived value: the key is the
+/// ONLY credential a website visitor presents, so it must be unguessable.
+/// 32 alphanumeric characters ≈ 190 bits of entropy.
+fn new_widget_key() -> String {
+    let mut rng = StdRng::from_entropy();
+    (0..32)
+        .map(|_| rng.sample(rand::distributions::Alphanumeric) as char)
+        .collect()
+}
 
 fn canonical_id(kind: &str, value: &str) -> Result<(), DbError> {
     validate_uuidv7(value)
@@ -44,7 +60,7 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         canonical_id("cs_agent_id", &row.cs_agent_id)?;
         let sql = format!(
             "INSERT INTO cs_agents ({AGENT_COLUMNS}) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              RETURNING {AGENT_COLUMNS}"
         );
         let inserted = sqlx::query_as::<_, CsAgentRow>(&sql)
@@ -62,6 +78,10 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(row.audit_retention_days)
             .bind(row.created_at)
             .bind(row.updated_at)
+            .bind(row.widget_enabled)
+            .bind(&row.widget_key)
+            .bind(&row.widget_allowed_origins)
+            .bind(&row.widget_theme)
             .fetch_one(&self.pool)
             .await?;
         Ok(inserted)
@@ -71,6 +91,23 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         let sql = format!("SELECT {AGENT_COLUMNS} FROM cs_agents WHERE cs_agent_id = ?");
         Ok(sqlx::query_as::<_, CsAgentRow>(&sql)
             .bind(cs_agent_id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    async fn find_agent_by_widget_key(
+        &self,
+        widget_key: &str,
+    ) -> Result<Option<CsAgentRow>, DbError> {
+        // Reject blank keys explicitly: an empty string must never match a
+        // row whose key is NULL (SQLite would not match NULL anyway, but a
+        // caller bug passing "" should not silently look "not found").
+        if widget_key.trim().is_empty() {
+            return Ok(None);
+        }
+        let sql = format!("SELECT {AGENT_COLUMNS} FROM cs_agents WHERE widget_key = ?");
+        Ok(sqlx::query_as::<_, CsAgentRow>(&sql)
+            .bind(widget_key)
             .fetch_optional(&self.pool)
             .await?)
     }
@@ -104,6 +141,10 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
                 enabled = COALESCE(?, enabled), \
                 max_concurrent = COALESCE(?, max_concurrent), \
                 audit_retention_days = COALESCE(?, audit_retention_days), \
+                widget_enabled = COALESCE(?, widget_enabled), \
+                widget_key = CASE WHEN ? THEN ? WHEN ? THEN NULL ELSE widget_key END, \
+                widget_allowed_origins = COALESCE(?, widget_allowed_origins), \
+                widget_theme = COALESCE(?, widget_theme), \
                 updated_at = ? \
              WHERE cs_agent_id = ? \
              RETURNING {AGENT_COLUMNS}"
@@ -122,6 +163,15 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
             .bind(params.enabled)
             .bind(params.max_concurrent)
             .bind(params.audit_retention_days)
+            .bind(params.widget_enabled)
+            .bind(params.rotate_widget_key == Some(true))
+            .bind(match params.rotate_widget_key {
+                Some(true) => Some(new_widget_key()),
+                _ => None,
+            })
+            .bind(params.rotate_widget_key == Some(false))
+            .bind(&params.widget_allowed_origins)
+            .bind(&params.widget_theme)
             .bind(now)
             .bind(cs_agent_id)
             .fetch_optional(&self.pool)
@@ -967,6 +1017,10 @@ mod tests {
             audit_retention_days: 30,
             created_at: 1,
             updated_at: 1,
+            widget_enabled: false,
+            widget_key: None,
+            widget_allowed_origins: "[]".into(),
+            widget_theme: "{}".into(),
         }
     }
 

@@ -17,6 +17,10 @@ serde_json.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 dashmap.workspace = true
+# Only for the web-widget public routes: an embedded widget on a customer's
+# own domain is a genuine cross-origin browser call, which the app-level CORS
+# layer does not cover (it is enabled solely for the desktop webview).
+tower-http.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

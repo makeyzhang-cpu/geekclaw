@@ -27,6 +27,7 @@ import type { IBusinessEndpoint, ICsNote } from '@/common/adapter/ipcBridge';
 import { parseCsAgentId, type CsAgentId, type KnowledgeBaseId, type ProviderId } from '@/common/types/ids';
 import { useModelsForTask } from '@renderer/hooks/agent/useModelsForTask';
 import CsChannelBotsSection from './CsChannelBotsSection';
+import CsWidgetSection from './CsWidgetSection';
 import { useCsAgent } from './useCsAgents';
 import { useKnowledgeBaseOptions } from './useKnowledgeBaseOptions';
 
@@ -458,6 +459,13 @@ const CsAgentDetailPage: React.FC = () => {
         {csAgentId && (
           <Section title={t('customerService.sections.bindings', { defaultValue: '渠道机器人绑定' })}>
             <CsChannelBotsSection csAgentId={csAgentId} />
+          </Section>
+        )}
+
+        {/* 网页挂件 — 把这位客服嵌进客户官网，访客免登录即可对话（5.0.31） */}
+        {csAgentId && (
+          <Section title={t('customerService.sections.webWidget', { defaultValue: '网页挂件' })}>
+            <CsWidgetSection csAgentId={csAgentId} />
           </Section>
         )}
 

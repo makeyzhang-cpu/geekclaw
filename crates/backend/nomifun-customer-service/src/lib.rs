@@ -10,7 +10,14 @@ pub mod dialogue;
 pub mod routes;
 pub mod service;
 pub mod tools;
+pub mod widget;
 
 pub use dialogue::{CsDialogueEngine, LiveTurnRunner, TurnRunner};
-pub use routes::{CustomerServiceRouterState, customer_service_routes};
+pub use routes::{
+    CsWidgetRouterState, CustomerServiceRouterState, cs_widget_public_routes,
+    customer_service_routes,
+};
 pub use service::{CreateCsAgentInput, CreateCsNoteInput, CustomerServiceService};
+pub use widget::{
+    CsWidgetService, WEB_WIDGET_PLUGIN_ID, WidgetBootstrap, WidgetMessage, WidgetReply,
+};

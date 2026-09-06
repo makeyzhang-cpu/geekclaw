@@ -10,12 +10,27 @@ use nomifun_common::{AppError, CsAgentId, CsNoteId, now_ms};
 use nomifun_db::models::{CsAgentRow, CsChannelBindingRow, CsNoteRow, NewCsAgentRow};
 use nomifun_db::{ICustomerServiceRepository, UpdateCsAgentParams};
 
+use crate::widget::CsWidgetConfig;
+
 /// Inclusive bounds for `cs_agents.max_concurrent`.
 pub const MAX_CONCURRENT_RANGE: std::ops::RangeInclusive<i64> = 1..=64;
 /// Default per-agent concurrency ceiling.
 pub const DEFAULT_MAX_CONCURRENT: i64 = 8;
 /// Default audit retention in days.
 pub const DEFAULT_AUDIT_RETENTION_DAYS: i64 = 30;
+
+/// Input for updating one agent's web-widget configuration.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct UpdateWidgetConfigInput {
+    /// 开启 / 关闭匿名网页接入面。
+    pub enabled: Option<bool>,
+    /// `Some(true)` 重新生成站点标识（旧标识立即失效）；`Some(false)` 吊销。
+    pub rotate_key: Option<bool>,
+    /// 来源页白名单；空数组表示不限制来源。
+    pub allowed_origins: Option<Vec<String>>,
+    /// 外观配置（颜色 / 位置 / 标题等），原样透传给前端。
+    pub theme: Option<serde_json::Value>,
+}
 
 /// Input for creating a customer-service agent.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -147,6 +162,12 @@ impl CustomerServiceService {
             audit_retention_days,
             created_at: now,
             updated_at: now,
+            // Web widget starts disabled: an agent must opt in before it gets
+            // an anonymous public surface.
+            widget_enabled: false,
+            widget_key: None,
+            widget_allowed_origins: "[]".to_string(),
+            widget_theme: "{}".to_string(),
         };
         Ok(self.repo.create_agent(&row).await?)
     }
@@ -196,8 +217,76 @@ impl CustomerServiceService {
             enabled: input.enabled,
             max_concurrent: input.max_concurrent,
             audit_retention_days: input.audit_retention_days,
+            // Web-widget settings are managed by the dedicated widget endpoint
+            // (see `update_widget_config`) so that minting/rotating the public
+            // key never rides along a generic profile patch.
+            widget_enabled: None,
+            rotate_widget_key: None,
+            widget_allowed_origins: None,
+            widget_theme: None,
         };
         Ok(self.repo.update_agent(cs_agent_id, &params, now_ms()).await?)
+    }
+
+    // ── 网页访客挂件配置 ──────────────────────────────────────────
+
+    /// 读取一个智能体的网页挂件配置。
+    pub async fn get_widget_config(&self, cs_agent_id: &str) -> Result<CsWidgetConfig, AppError> {
+        let agent = self.get_agent(cs_agent_id).await?;
+        Ok(CsWidgetConfig::from_agent(&agent))
+    }
+
+    /// 更新网页挂件配置（开关 / 轮换站点标识 / 来源白名单 / 外观）。
+    ///
+    /// 两条隐式规则让管理员少踩坑：
+    /// - 首次开启时若还没有站点标识，自动分配一个（没有标识的挂件在公网上
+    ///   根本不会被命中，"先生成再开启"只是多一道无谓的步骤）；
+    /// - 关闭挂件时顺带吊销标识，避免留下一个仍能访问的历史入口。
+    pub async fn update_widget_config(
+        &self,
+        cs_agent_id: &str,
+        input: UpdateWidgetConfigInput,
+    ) -> Result<CsWidgetConfig, AppError> {
+        let agent = self.get_agent(cs_agent_id).await?;
+
+        if let Some(origins) = &input.allowed_origins {
+            for origin in origins {
+                let trimmed = origin.trim();
+                if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+                    return Err(AppError::BadRequest(format!(
+                        "来源地址必须以 http:// 或 https:// 开头：{trimmed}"
+                    )));
+                }
+            }
+        }
+
+        let rotate = match input.rotate_key {
+            explicit => match explicit {
+                Some(flag) => Some(flag),
+                None if input.enabled == Some(true) && agent.widget_key.is_none() => Some(true),
+                None if input.enabled == Some(false) => Some(false),
+                None => None,
+            },
+        };
+
+        let params = UpdateCsAgentParams {
+            widget_enabled: input.enabled,
+            rotate_widget_key: rotate,
+            widget_allowed_origins: input
+                .allowed_origins
+                .as_ref()
+                .and_then(|origins| serde_json::to_string(origins).ok()),
+            widget_theme: input
+                .theme
+                .as_ref()
+                .and_then(|theme| serde_json::to_string(theme).ok()),
+            ..Default::default()
+        };
+        let updated = self
+            .repo
+            .update_agent(cs_agent_id, &params, now_ms())
+            .await?;
+        Ok(CsWidgetConfig::from_agent(&updated))
     }
 
     pub async fn delete_agent(&self, cs_agent_id: &str) -> Result<(), AppError> {

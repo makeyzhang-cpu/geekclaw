@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ipcBridge } from '@/common';
-import type { ICsAgent, ICsAgentPatch, ICsNote } from '@/common/adapter/ipcBridge';
+import type { ICsAgent, ICsAgentPatch, ICsNote, ICsWidgetConfig } from '@/common/adapter/ipcBridge';
 import type { CsAgentId } from '@/common/types/ids';
 
 /**
@@ -127,4 +127,64 @@ export const useCsNotes = (csAgentId: CsAgentId | null) => {
   }, [load]);
 
   return { notes, loading, reload: load };
+};
+
+/**
+ * Web-widget configuration of one agent (5.0.31).
+ *
+ * Starts as `null` until the first read resolves so the UI can distinguish
+ * "still loading" from "widget disabled".
+ */
+export const useCsWidgetConfig = (csAgentId: CsAgentId | null) => {
+  const [config, setConfig] = useState<ICsWidgetConfig | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!csAgentId) {
+      setConfig(null);
+      return;
+    }
+    setLoading(true);
+    try {
+      setConfig(await ipcBridge.customerService.getWidgetConfig.invoke({ cs_agent_id: csAgentId }));
+    } catch {
+      setConfig(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [csAgentId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  /** Apply a partial update and return the new config (or `null` on failure). */
+  const update = useCallback(
+    async (patch: {
+      enabled?: boolean;
+      rotate_key?: boolean;
+      allowed_origins?: string[];
+      theme?: Record<string, unknown>;
+    }) => {
+      if (!csAgentId) return null;
+      setLoading(true);
+      try {
+        const next = await ipcBridge.customerService.putWidgetConfig.invoke({
+          cs_agent_id: csAgentId,
+          ...patch,
+        });
+        setConfig(next);
+        return next;
+      } catch {
+        // Keep the previous config on failure so the UI stays consistent with
+        // the server rather than showing a state that was never persisted.
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [csAgentId]
+  );
+
+  return { config, loading, reload: load, update };
 };

@@ -73,7 +73,29 @@
     "identity": "身份与话术",
     "modelKnowledge": "模型与知识库",
     "bindings": "渠道机器人绑定",
-    "notes": "客服笔记"
+    "notes": "客服笔记",
+    "webWidget": "网页挂件"
+  },
+  "widget": {
+    "enable": "启用网页挂件",
+    "enableHint": "开启后，官网访客无需登录即可与这位客服对话",
+    "siteKey": "站点标识",
+    "keyCopied": "站点标识已复制",
+    "copy": "复制",
+    "copyCode": "复制嵌入代码",
+    "codeCopied": "嵌入代码已复制",
+    "copyFailed": "复制失败，请手动选中复制",
+    "embedCode": "嵌入代码（粘贴到官网 </body> 前）",
+    "rotate": "重新生成",
+    "rotateConfirmTitle": "重新生成站点标识？",
+    "rotateConfirmContent": "旧标识会立即失效，已嵌入官网的旧代码将无法访问，需要同步替换。",
+    "rotatedToast": "站点标识已重新生成，旧代码立即失效",
+    "enabledToast": "网页挂件已启用",
+    "disabledToast": "网页挂件已停用",
+    "saveFailed": "保存失败，请重试",
+    "origins": "允许接入的网站（留空表示不限制）",
+    "addOrigin": "添加",
+    "originFormat": "来源地址需以 http:// 或 https:// 开头"
   },
   "bindings": {
     "saved": "绑定已更新",

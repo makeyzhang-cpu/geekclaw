@@ -397,6 +397,10 @@ mod tests {
             audit_retention_days: 30,
             created_at: 1,
             updated_at: 1,
+            widget_enabled: false,
+            widget_key: None,
+            widget_allowed_origins: "[]".into(),
+            widget_theme: "{}".into(),
         })
         .await
         .unwrap()
@@ -707,6 +711,10 @@ mod tests {
                 audit_retention_days: 30,
                 created_at: 1,
                 updated_at: 1,
+                widget_enabled: false,
+                widget_key: None,
+                widget_allowed_origins: "[]".into(),
+                widget_theme: "{}".into(),
             })
             .await
             .unwrap();

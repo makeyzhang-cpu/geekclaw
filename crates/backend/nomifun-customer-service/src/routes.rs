@@ -5,7 +5,10 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Extension, Json, Path, Query, State};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use axum::http::{HeaderMap, Method};
 use axum::routing::get;
+use tower_http::cors::{Any, CorsLayer};
 
 use nomifun_api_types::ApiResponse;
 use nomifun_auth::CurrentUser;
@@ -18,7 +21,11 @@ use nomifun_db::models::{
 use serde::{Deserialize, Serialize};
 
 use crate::dialogue::CsDialogueEngine;
-use crate::service::{CreateCsAgentInput, CreateCsNoteInput, CustomerServiceService, UpdateCsAgentInput};
+use crate::service::{
+    CreateCsAgentInput, CreateCsNoteInput, CustomerServiceService, UpdateCsAgentInput,
+    UpdateWidgetConfigInput,
+};
+use crate::widget::{CsWidgetConfig, CsWidgetService, WidgetBootstrap, WidgetMessage, WidgetReply};
 
 /// Router state for the customer-service domain.
 #[derive(Clone)]
@@ -38,6 +45,10 @@ pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
         .route(
             "/api/customer-service/agents/{cs_agent_id}",
             get(get_agent).patch(update_agent).delete(delete_agent),
+        )
+        .route(
+            "/api/customer-service/agents/{cs_agent_id}/widget",
+            get(get_widget_config).put(update_widget_config),
         )
         .route(
             "/api/customer-service/agents/{cs_agent_id}/bindings",
@@ -88,6 +99,137 @@ pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
         .with_state(state)
 }
 
+// ── 网页访客挂件（公开端点）──────────────────────────────────────────
+//
+// 这三条路由是客服域**唯一不需要登录**的入口：客户把挂件嵌在自己官网上，
+// 访客既没有账号也不该有账号。安全由三样东西保证：站点 `widget_key`、
+// 后端签发的加密访客令牌、以及 `widget_allowed_origins` 来源白名单。
+
+/// 访客令牌的 Authorization 前缀。
+const BEARER_PREFIX: &str = "Bearer ";
+
+/// Router state for the public web-widget surface.
+#[derive(Clone)]
+pub struct CsWidgetRouterState {
+    pub widget: Arc<CsWidgetService>,
+}
+
+/// Public routes for the embedded web chat widget.
+///
+/// CORS is enabled here (not by the app-level layer) because a widget on a
+/// customer's own domain is a genuine cross-origin browser call; the app-level
+/// layer only covers the desktop webview and is disabled on the cloud build.
+pub fn cs_widget_public_routes(state: CsWidgetRouterState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+    Router::new()
+        .route("/api/cs-widget/bootstrap", axum::routing::post(widget_bootstrap))
+        .route(
+            "/api/cs-widget/messages",
+            get(widget_list_messages).post(widget_post_message),
+        )
+        .layer(cors)
+        .with_state(state)
+}
+
+#[derive(Debug, Deserialize)]
+struct WidgetBootstrapRequest {
+    /// 站点公开标识（嵌在客户官网的 script 标签里）。
+    key: String,
+    /// 上次会话的令牌；有效时复用原会话。
+    #[serde(default)]
+    token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WidgetPostMessageRequest {
+    text: String,
+}
+
+async fn widget_bootstrap(
+    State(state): State<CsWidgetRouterState>,
+    headers: HeaderMap,
+    body: Result<Json<WidgetBootstrapRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<WidgetBootstrap>>, AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let origin = header_str(&headers, "origin");
+    let ip = client_ip(&headers);
+    let boot = state
+        .widget
+        .bootstrap(&req.key, &origin, req.token.as_deref(), &ip)
+        .await?;
+    Ok(Json(ApiResponse::ok(boot)))
+}
+
+async fn widget_post_message(
+    State(state): State<CsWidgetRouterState>,
+    headers: HeaderMap,
+    body: Result<Json<WidgetPostMessageRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<WidgetReply>>, AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let token = bearer_token(&headers)
+        .ok_or_else(|| AppError::Unauthorized("缺少访客会话令牌".into()))?;
+    Ok(Json(ApiResponse::ok(
+        state.widget.post_message(token, &req.text).await?,
+    )))
+}
+
+async fn widget_list_messages(
+    State(state): State<CsWidgetRouterState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<WidgetMessage>>>, AppError> {
+    let token = bearer_token(&headers)
+        .ok_or_else(|| AppError::Unauthorized("缺少访客会话令牌".into()))?;
+    Ok(Json(ApiResponse::ok(
+        state.widget.list_messages(token).await?,
+    )))
+}
+
+/// 取出 `Authorization: Bearer <token>` 中的令牌。
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix(BEARER_PREFIX))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// 读取单个请求头（非 ASCII 或缺失时退化为空串）。
+fn header_str(headers: &HeaderMap, name: &str) -> String {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// 尽力取出客户端 IP（优先 `X-Forwarded-For` > `X-Real-IP`）。
+///
+/// 仅用于限流分桶，不作为安全依据 —— 真正的滥用防护是按会话计数的
+/// `MESSAGE_LIMIT_PER_WINDOW`，其分桶键来自加密令牌，访客无法伪造。
+/// 部署在 nginx 之后时，建议把 `X-Forwarded-For` 设为 `$remote_addr`
+/// 以避免客户端伪造该头绕过分桶。
+fn client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("unknown")
+        .to_owned()
+}
+
 // ── agents ──────────────────────────────────────────────────────────
 
 async fn list_agents(
@@ -133,6 +275,36 @@ async fn delete_agent(
 ) -> Result<Json<ApiResponse<bool>>, AppError> {
     state.service.delete_agent(&cs_agent_id).await?;
     Ok(Json(ApiResponse::ok(true)))
+}
+
+// ── 网页挂件配置（管理端，需登录）────────────────────────────────
+//
+// 与下面 `/api/cs-widget/*` 的区别：这里读写的是"开关与凭据"，必须登录；
+// 那边是访客实际聊天的通道，凭站点标识访问。
+
+async fn get_widget_config(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_agent_id): Path<String>,
+) -> Result<Json<ApiResponse<CsWidgetConfig>>, AppError> {
+    Ok(Json(ApiResponse::ok(
+        state.service.get_widget_config(&cs_agent_id).await?,
+    )))
+}
+
+async fn update_widget_config(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Path(cs_agent_id): Path<String>,
+    body: Result<Json<UpdateWidgetConfigInput>, JsonRejection>,
+) -> Result<Json<ApiResponse<CsWidgetConfig>>, AppError> {
+    let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    Ok(Json(ApiResponse::ok(
+        state
+            .service
+            .update_widget_config(&cs_agent_id, input)
+            .await?,
+    )))
 }
 
 // ── bindings ────────────────────────────────────────────────────────

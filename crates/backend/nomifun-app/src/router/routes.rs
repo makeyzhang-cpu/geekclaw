@@ -22,7 +22,7 @@ use nomifun_auth::{
 use nomifun_channel::channel_routes;
 use nomifun_companion::{companion_public_routes, companion_routes};
 use crate::expert_market::expert_market_routes;
-use nomifun_customer_service::customer_service_routes;
+use nomifun_customer_service::{cs_widget_public_routes, customer_service_routes};
 use nomifun_workshop::{workshop_public_routes, workshop_routes};
 use nomifun_creation::creation_routes;
 use nomifun_conversation::{conversation_ops_routes, conversation_routes};
@@ -1021,6 +1021,11 @@ pub fn create_router_with_all_state(
     // and canvas ids; listing/upload/mutation stay authenticated.
     let workshop_public = workshop_public_routes(states.workshop);
 
+    // 网页访客挂件 — 客服域唯一的免登录入口：客户官网上的访客没有也不该有
+    // 账号。安全由站点 `widget_key`、加密访客令牌、`widget_allowed_origins`
+    // 来源白名单与固定窗口限流共同保证（见 `nomifun-customer-service::widget`）。
+    let cs_widget_public = cs_widget_public_routes(states.cs_widget);
+
     // WebSocket upgrade route — exempt from CSRF (no cookie-based
     // double-submit) but still gets security response headers.
     let ws_routes = Router::new()
@@ -1156,6 +1161,7 @@ pub fn create_router_with_all_state(
     .merge(public_assets)
     .merge(companion_public)
     .merge(workshop_public)
+    .merge(cs_widget_public)
     .layer(middleware::from_fn(security_headers_middleware));
 
     // Raise the default request body limit from axum's 2MB default to

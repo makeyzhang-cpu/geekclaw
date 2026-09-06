@@ -30,6 +30,18 @@ pub struct CsAgentRow {
     pub audit_retention_days: i64,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
+    // ── 网页访客挂件 (web widget) ────────────────────────────────────
+    /// Whether the agent accepts anonymous visitors from an embedded web
+    /// widget. Off by default so existing agents never gain a public surface
+    /// just by upgrading.
+    pub widget_enabled: bool,
+    /// Unguessable public identifier embedded in the customer's site.
+    /// `None` until the widget is first enabled. Rotatable.
+    pub widget_key: Option<String>,
+    /// JSON array of allowed page origins; empty means "allow any origin".
+    pub widget_allowed_origins: String,
+    /// JSON object of appearance settings (color, position, title, ...).
+    pub widget_theme: String,
 }
 
 impl CsAgentRow {
@@ -89,6 +101,12 @@ pub struct NewCsAgentRow {
     pub audit_retention_days: i64,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
+    /// Web-widget columns. Kept at the tail so existing constructors that
+    /// build a row without widget settings keep compiling via `..Default`.
+    pub widget_enabled: bool,
+    pub widget_key: Option<String>,
+    pub widget_allowed_origins: String,
+    pub widget_theme: String,
 }
 
 /// Row mapping for the `cs_channel_bindings` table — bot ↔ agent binding.
@@ -273,6 +291,10 @@ mod tests {
             audit_retention_days: 30,
             created_at: 1,
             updated_at: 2,
+            widget_enabled: false,
+            widget_key: None,
+            widget_allowed_origins: "[]".into(),
+            widget_theme: "{}".into(),
         };
         let json = serde_json::to_string(&row).unwrap();
         let back: CsAgentRow = serde_json::from_str(&json).unwrap();

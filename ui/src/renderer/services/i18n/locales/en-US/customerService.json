@@ -73,7 +73,29 @@
     "identity": "Identity & voice",
     "modelKnowledge": "Model & knowledge",
     "bindings": "Channel bot bindings",
-    "notes": "Service notes"
+    "notes": "Service notes",
+    "webWidget": "Web widget"
+  },
+  "widget": {
+    "enable": "Enable web widget",
+    "enableHint": "Once enabled, visitors on your website can chat with this agent without signing in",
+    "siteKey": "Site key",
+    "keyCopied": "Site key copied",
+    "copy": "Copy",
+    "copyCode": "Copy embed code",
+    "codeCopied": "Embed code copied",
+    "copyFailed": "Copy failed — please select and copy manually",
+    "embedCode": "Embed code (paste before </body>)",
+    "rotate": "Regenerate",
+    "rotateConfirmTitle": "Regenerate the site key?",
+    "rotateConfirmContent": "The old key stops working immediately. Code already embedded in your site will break until you replace it.",
+    "rotatedToast": "Site key regenerated — old code is now invalid",
+    "enabledToast": "Web widget enabled",
+    "disabledToast": "Web widget disabled",
+    "saveFailed": "Save failed, please retry",
+    "origins": "Allowed websites (leave empty to allow any)",
+    "addOrigin": "Add",
+    "originFormat": "Origin must start with http:// or https://"
   },
   "bindings": {
     "saved": "Bindings updated",

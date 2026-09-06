@@ -92,6 +92,9 @@ pub struct ModuleStates {
     pub companion: CompanionRouterState,
     /// 客服独立域 (customer-service domain).
     pub customer_service: nomifun_customer_service::CustomerServiceRouterState,
+    /// 网页访客挂件的公开面：免登录，凭站点 `widget_key` + 后端签发的加密
+    /// 访客令牌访问（客户官网跨域调用）。
+    pub cs_widget: nomifun_customer_service::CsWidgetRouterState,
     /// 创意工坊 (Creative Workshop) canvas/asset domain.
     pub workshop: WorkshopRouterState,
     /// 生成引擎 (creation) media task queue.
@@ -603,6 +606,13 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
                 services.database.pool().clone(),
             )),
             engine: services.cs_dialogue_engine.clone(),
+        },
+        cs_widget: nomifun_customer_service::CsWidgetRouterState {
+            widget: Arc::new(nomifun_customer_service::CsWidgetService::new(
+                services.customer_service_service.clone(),
+                services.cs_dialogue_engine.clone(),
+                services.encryption_key,
+            )),
         },
         workshop: build_workshop_state(services),
         creation: build_creation_state(services),
