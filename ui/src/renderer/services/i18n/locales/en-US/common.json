@@ -137,5 +137,15 @@
     "cta": "Sign in / Register",
     "waiting": "Put your AI team into your computer now",
     "hint": "Your exclusive Agent creates infinite possibilities"
+  },
+  "foreignTrade": {
+    "back": "Back",
+    "badge": "Trade",
+    "cardDesc": "AI-driven B2B outbound: automated lead generation, AI email and AI WhatsApp outreach.",
+    "cardTitle": "GeekFlow Trade Workspace",
+    "enter": "Open",
+    "openExternal": "Open in browser",
+    "subtitle": "An all-in-one B2B AI workspace combining AI trade expert teams, lead-gen agents, personalized AI email and WhatsApp outreach, AI CRM, a company brain and digital asset management.",
+    "title": "AI Trade Workspace"
   }
 }

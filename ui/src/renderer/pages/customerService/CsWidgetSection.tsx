@@ -177,7 +177,7 @@ const CsWidgetSection: React.FC<{ csAgentId: CsAgentId }> = ({ csAgentId }) => {
                 placeholder={DEFAULT_WIDGET_HOST}
               />
             </div>
-            <div className='rounded-6px bg-bg-secondary p-10px'>
+            <div className='rounded-6px bg-fill-2 p-10px'>
               <code className='block break-all text-12px'>{embedCode}</code>
             </div>
             <Button

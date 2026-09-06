@@ -139,7 +139,8 @@
     "empty": "No companions yet — create your first one!",
     "emptyTitle": "No companions yet",
     "emptyHint": "Create a companion, give it a name and a figure, then set a model to start chatting.",
-    "reorder": "Drag to reorder"
+    "reorder": "Drag to reorder",
+    "expertMarket": "Expert marketplace"
   },
   "expertMarket": {
     "title": "Expert Avatar Marketplace",

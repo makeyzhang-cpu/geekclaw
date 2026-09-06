@@ -64,5 +64,29 @@
     "yesterday": "yesterday",
     "daysAgo": "{{count}}d ago",
     "weeksAgo": "last week"
+  },
+  "market": {
+    "start": "Start creating"
+  },
+  "runner": {
+    "back": "Back",
+    "backToMarket": "Back to workshop",
+    "cancel": "Cancel",
+    "canceled": "Canceled",
+    "failed": "Generation failed",
+    "generate": "Generate",
+    "loadingText": "Loading…",
+    "noModel": "Configure an available generation model first.",
+    "noModelHint": "No usable generation model yet — add and enable an image/video/voice model in Model Center first.",
+    "notFound": "Agent not found",
+    "openInCanvas": "Open in canvas",
+    "pleaseFill": "Please fill in",
+    "regenerate": "Regenerate",
+    "resultPlaceholder": "Fill in the form on the left, then click Generate to start.",
+    "retry": "Retry"
+  },
+  "tab": {
+    "canvases": "My canvases",
+    "market": "Agent market"
   }
 }

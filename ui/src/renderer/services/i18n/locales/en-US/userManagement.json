@@ -40,8 +40,20 @@
     "createInviteFailed": "Failed to create invitation",
     "cannotDisableSelf": "You cannot disable your own account",
     "resetFailed": "Failed to reset password",
-    "cannotResetSelf": "You cannot reset your own password; use change password instead"
+    "cannotResetSelf": "You cannot reset your own password; use change password instead",
+    "cannotChangeSelf": "You cannot change your own password",
+    "changePasswordFailed": "Failed to change password",
+    "emptyPassword": "Password cannot be empty",
+    "passwordTooWeak": "Password too weak (at least 8 characters, and not a common weak password)",
+    "passwordsDoNotMatch": "The two passwords do not match"
   },
   "resetPassword": "Reset to Default Password",
-  "passwordReset": "Password reset to default A12345678. All sessions of this user (including the desktop app) have been signed out — ask them to log in again and change the password soon."
+  "passwordReset": "Password reset to default A12345678. All sessions of this user (including the desktop app) have been signed out — ask them to log in again and change the password soon.",
+  "changePassword": "Change password",
+  "changePasswordTitle": "Change password - {{username}}",
+  "confirmPassword": "Confirm new password",
+  "confirmPasswordPlaceholder": "Enter the new password again",
+  "newPassword": "New password",
+  "newPasswordPlaceholder": "Enter a new password",
+  "passwordChanged": "Password changed. All sessions of this user (including desktop) are now invalid — ask them to sign in again."
 }

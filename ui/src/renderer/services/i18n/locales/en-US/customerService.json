@@ -169,8 +169,48 @@
     "tickets": {
       "title": "Linked tickets",
       "createFromHere": "Create a ticket for this dialogue",
-      "open": "Open ticket"
-    }
+      "open": "Open ticket",
+      "empty": "No matching tickets"
+    },
+    "emptyUnified": "No conversations yet",
+    "fields": {
+      "agent": "Agent",
+      "channel": "Channel",
+      "created": "Created",
+      "operator": "Operator",
+      "state": "Status"
+    },
+    "filters": {
+      "ai": "AI",
+      "all": "All",
+      "allAgents": "All agents",
+      "allChannels": "All channels",
+      "closed": "Closed",
+      "human": "Human"
+    },
+    "inboxSubtitle": "All agents and channels in one place — AI takes over and replies on your behalf.",
+    "inboxTitle": "Unified inbox",
+    "kb": {
+      "hint": "Knowledge bases linked to this agent are retrieved automatically during inference; matched snippets will be shown here later."
+    },
+    "sessionId": "Session ID",
+    "tabs": {
+      "kb": "Knowledge",
+      "scripts": "Canned replies",
+      "tickets": "Tickets",
+      "visitor": "Visitor"
+    },
+    "tools": {
+      "autoReply": "Auto reply",
+      "comingSoon": "{{tool}} will be supported later",
+      "emoji": "Emoji",
+      "file": "File",
+      "image": "Image",
+      "rate": "Ask for rating",
+      "video": "Video",
+      "voice": "Voice"
+    },
+    "transferHint": "Transfer will be supported later"
   },
   "tickets": {
     "title": "Tickets",
