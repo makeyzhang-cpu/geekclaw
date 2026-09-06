@@ -1,11 +1,11 @@
 {
-  "version": "5.0.31",
-  "notes": "GeekClaw 5.0.31\n\n## 新增：网页访客挂件（官网接入）\n\n客服此前只能被已经是企微/微信好友的人触达。现在可以把它嵌进任意官网 ——\n客户只需在页面里加一行代码，陌生访客点开气泡就能和 AI 客服对话，无需注册登录。\n\n使用方式：\n1. 打开 客服 → 任一客服 → 详情页「网页挂件」区块\n2. 打开「启用网页挂件」开关，系统自动生成站点标识\n3. 复制嵌入代码，粘贴到官网 </body> 之前即可：\n\n   <script src=\"https://www.geekclaw.ai/widget.js\" data-key=\"<站点标识>\"></script>\n\n能力：\n- 访客刷新页面不丢上下文（会话按浏览器本地持久化）\n- AI 无法回答时可转人工，人工回复实时回传给访客\n- 站点标识可随时重新生成，旧代码立即失效\n- 可限制只允许指定网站接入，防止客服被挂到别人的站点上\n\n## 安全设计\n\n- 访客令牌由服务端用实例密钥加密签发，无法伪造或跨客服重放\n- 站点标识为 32 位随机串，可轮换\n- 来源白名单校验（Origin）\n- 接口限流：每条访客消息都会触发一次真实模型调用，防止被刷\n\n## 其他\n\n- 桌面端与云端均已支持该能力；挂件为免登录公开接口，仅暴露必要字段\n- 新增 8 个自动化测试用例覆盖主链路、令牌伪造、来源白名单与异常场景",
-  "pub_date": "2026-09-06T07:33:11.906Z",
+  "version": "5.0.32",
+  "notes": "GeekClaw 5.0.32\n\n## 新增一：模型自动择优（客服 AI 不再\"没配模型就罢工\"）\n\n以前每个客服都必须在详情页手动挑服务商和模型，挑错了或那家通道挂了，访客只会\n收到一句\"暂时无法回复\"。现在：\n\n- 服务商和模型**可以留空** —— 留空即\"自动择优\"，系统从你在 GeekClaw 里已配置\n  的模型通道中自动挑最优的一个\n- 排序规则：本地自建通道优先于云端托管（自己持有的密钥更可控），其次按你设置的\n  优先级；只挑启用且具备对话能力的模型，健康探针报失败的排后面\n- **失败自动兜底**：即使显式指定了模型，调用失败时也会自动换下一个候选重试一次\n  （最多 3 个）。托管模型临时下线、密钥过期、额度用尽这类情况不再直接暴露给访客\n\n## 新增二：统计报表看板（客服 → 统计报表）\n\n对外卖的客服，客户第一句永远是\"效果怎么样\"。新看板直接回答三个问题：\n\n- **规模与人力成本**：会话总数、转人工会话、转人工率\n- **SLA 履约**：平均首次响应时长、SLA 达成率、超时工单数、已自动升级数\n- **满意度**：平均评分、1–5 星分布直方图、最近评价原文\n\n支持按客服筛选、按时间范围（24 小时 / 7 天 / 30 天 / 全部）查看。\n\n## 新增三：访客满意度评价（CSAT）\n\n- 挂件里新增「评价」入口：访客点开即可打 1–5 星并补充文字说明\n- 一条会话只能评价一次，评完入口自动收起\n- 评价结果实时汇总到统计报表，坐席可以看到原文\n\n## 新增四：工单 SLA 超时升级\n\n- 工单按优先级自动计算首次响应与解决时限：紧急 15 分钟 / 4 小时，\n  高 30 分钟 / 8 小时，普通 4 小时 / 24 小时，低 24 小时 / 72 小时\n- 后台每 60 秒扫描一次：超时自动提升优先级并留痕，不需要有人打开页面\n- 统计报表页提供「扫描 SLA」按钮，可手动立即跑一次\n\n## 入口变化\n\n- 工作台顶部（打开客服后的落地页）新增「统计报表」入口\n- 客服管理页新增「统计报表」入口\n\n## 说明\n\n本版聚焦**商业闭环最小集**：满意度、统计报表、工单 SLA。帮助中心 / FAQ 自助门户\n与按坐席计费配额仍在规划中。\n\n另外发现一个与本版无关的生产问题：云端托管免费模型通道当前全部返回\n400（上游凭证或额度问题），所有依赖托管模型的云端 AI 功能都会受影响。\n5.0.32 的模型自动择优 + 失败兜底正是为此设计的缓解措施 —— 配置了你自己的\n模型通道后，客服会自动走你的通道。",
+  "pub_date": "2026-09-06T09:41:12.334Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVJWZE83NE1hLzN3ZmkzUFVHTUJJRVVTTkFsLy9sVDA4SzZsak0yOWd6TytEeHVvL0hhcWkvYStMTW9NZFdnbnVYK1lLYnk2ZHlUZk5FRTJkaUxERmdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Njc5NjMzCWZpbGU6R2Vla0NsYXdfNS4wLjMxX3g2NC1zZXR1cC5leGUKZUJqRUVWQ3BUUDMrQ3JVb0VDL1hldWUwM0ZjbUV5UVNpRHVzV2swTjB6ckQycWxRQnp2a1QyM0pheXc0K3FxcUxNZllYcjh3dm8wNXZaUXlocHpiRHc9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.31/GeekClaw_5.0.31_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWJpaVpNVjhZemdNbTc5ai9tVmtGU2E3dmdLRUtYOCsxcUxTdHBCYVR5QkJpMnpocnE3Wko1TjR5VWJKdDBpZTVxZmErdG9uTU01dGhpOE1PaFh4U2djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Njg3MzgxCWZpbGU6R2Vla0NsYXdfNS4wLjMyX3g2NC1zZXR1cC5leGUKNlFtSUVrenlhVmowSE5YK0NLL3R4MW45VEg3SUlCdTRmN29Xd1lvNzFRR2FOVjhjQ0dqUHpTckZ2WWxmRXJmcUZwTnJQdzZ1Y1MwT3pQZE94V0tDQ0E9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.32/GeekClaw_5.0.32_x64-setup.exe"
     }
   }
 }
