@@ -39,6 +39,7 @@ const CustomerServiceChatPage = React.lazy(() => import('@renderer/pages/custome
 const CustomerServiceWorkbenchPage = React.lazy(() => import('@renderer/pages/customerService/CsWorkbenchPage'));
 const CustomerServiceChannelsPage = React.lazy(() => import('@renderer/pages/customerService/CsChannelsPage'));
 const TicketsPage = React.lazy(() => import('@renderer/pages/customerService/TicketsPage'));
+const CsStatsPage = React.lazy(() => import('@renderer/pages/customerService/CsStatsPage'));
 const KnowledgeListPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeListPage'));
 const KnowledgeDetailPage = React.lazy(() => import('@renderer/pages/knowledge/KnowledgeDetailPage'));
 // 创意工坊 / A2A 跨境电商 当前以 ComingSoon 占位，避免加载庞大的旧模块
@@ -279,6 +280,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/customer-service/roster' element={withRouteFallback(CustomerServiceRosterPage)} />
           <Route path='/customer-service/channels' element={withRouteFallback(CustomerServiceChannelsPage)} />
           <Route path='/customer-service/tickets' element={withRouteFallback(TicketsPage)} />
+          {/* 必须排在 /customer-service/:cs_agent_id 之前，否则会被参数路由吃掉。 */}
+          <Route path='/customer-service/stats' element={withRouteFallback(CsStatsPage)} />
           <Route path='/customer-service/workbench' element={withRouteFallback(CustomerServiceWorkbenchPage)} />
           <Route path='/customer-service/:cs_agent_id' element={withRouteFallback(CustomerServiceDetailPage)} />
           <Route path='/customer-service/:cs_agent_id/chat' element={withRouteFallback(CustomerServiceChatPage)} />

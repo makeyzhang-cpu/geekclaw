@@ -11,8 +11,9 @@
     "locked": "终端 / 文件 / 电脑 / 浏览器 等高危能力从不注册"
   },
   "card": {
-    "noModel": "未配置模型",
-    "kbCount": "{{count}} 个知识库"
+    "noModel": "自动择优",
+    "kbCount": "{{count}} 个知识库",
+    "autoModel": "自动择优"
   },
   "home": {
     "empty": "还没有客服员工，先创建一个才能进入工作台。"
@@ -36,9 +37,9 @@
     "namePlaceholder": "例如：售后小助",
     "nameRequired": "请输入客服名称",
     "provider": "模型服务商",
-    "providerPlaceholder": "选择服务商",
+    "providerPlaceholder": "自动择优（推荐）",
     "model": "对话模型",
-    "modelPlaceholder": "选择模型",
+    "modelPlaceholder": "跟随服务商自动择优",
     "knowledgeBases": "知识库",
     "knowledgeBasesPlaceholder": "选择可检索的知识库",
     "greeting": "问候语",
@@ -288,5 +289,42 @@
       "deleteConfirm": "删除该机器人将断开其全部会话与访客，确认删除？",
       "hint": "绑定后，该机器人的来访消息会交给所选客服接待（陌生访客免配对码）。改绑会把机器人从原客服名下移除。"
     }
+  },
+  "stats": {
+    "title": "统计报表",
+    "subtitle": "接了多少、多久响应、访客打几分。",
+    "openStats": "统计报表",
+    "back": "返回",
+    "filter": {
+      "all": "全部客服"
+    },
+    "range": {
+      "24h": "近 24 小时",
+      "7d": "近 7 天",
+      "30d": "近 30 天",
+      "all": "全部"
+    },
+    "dialogues": "会话总数",
+    "takenOver": "转人工会话",
+    "takeOverRate": "转人工率 {{rate}}",
+    "ticketsOpen": "未结工单",
+    "ticketsResolved": "已解决工单",
+    "slaSection": "SLA 履约",
+    "avgFirstResponse": "平均首次响应",
+    "respondedCount": "{{count}} 条已响应",
+    "slaRate": "SLA 达成率",
+    "slaRateHint": "已判定 SLA 的工单中，按时完成的占比",
+    "breached": "超时工单",
+    "escalated": "已自动升级",
+    "escalatedHint": "超时后自动提优先级",
+    "scanSla": "扫描 SLA",
+    "scanDone": "扫描完成：检查 {{scanned}} 条，超时 {{breached}} 条，已升级 {{escalated}} 条",
+    "csatSection": "访客满意度",
+    "avgScore": "平均评分",
+    "ratingCount": "共 {{count}} 条评价",
+    "noRatings": "还没有评价。访客在挂件里点「评价」即可打分。",
+    "recentRatings": "最近评价",
+    "noComment": "（未填写评价内容）",
+    "empty": "暂无统计数据"
   }
 }

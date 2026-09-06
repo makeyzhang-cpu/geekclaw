@@ -36,6 +36,7 @@
 
   var BOOTSTRAP_URL = API + '/api/cs-widget/bootstrap';
   var MESSAGES_URL = API + '/api/cs-widget/messages';
+  var RATE_URL = API + '/api/cs-widget/rate';
   var STORAGE_KEY = 'geekclaw.widget.' + KEY;
   var POLL_MS = 3000;
 
@@ -50,6 +51,7 @@
   var sending = false;
   var pollTimer = null;
   var takenOver = false;
+  var rated = false;
 
   try {
     var saved = localStorage.getItem(STORAGE_KEY);
@@ -149,7 +151,29 @@
     'padding:0 16px;cursor:pointer;font-size:14px;height:40px}' +
     '.gcw-send[disabled]{opacity:.5;cursor:not-allowed}' +
     '.gcw-error{color:#B5492F;background:#FFF1F0;border:1px solid #FFCCC7;padding:8px 10px;' +
-    'border-radius:8px;font-size:12px;margin-bottom:10px}';
+    'border-radius:8px;font-size:12px;margin-bottom:10px}' +
+    // ── 满意度评价 (CSAT) ────────────────────────────────────────────
+    '.gcw-rate-btn{background:rgba(255,255,255,.18);border:0;color:#fff;font-size:12px;' +
+    'border-radius:999px;padding:4px 10px;cursor:pointer;margin-left:auto}' +
+    '.gcw-close{margin-left:8px}' +
+    '.gcw-rate{flex:0 0 auto;border-top:1px solid #EDEEF0;padding:14px;background:#fff;text-align:center}' +
+    '.gcw-rate[hidden]{display:none}' +
+    '.gcw-rate-title{font-size:14px;font-weight:600;margin-bottom:10px}' +
+    '.gcw-rate-sub{font-size:12px;color:#8A9099;margin-bottom:10px}' +
+    '.gcw-stars{display:flex;justify-content:center;gap:6px;margin-bottom:10px}' +
+    '.gcw-star{background:transparent;border:0;cursor:pointer;font-size:26px;line-height:1;' +
+    'padding:0 2px;color:#D9DDE3}' +
+    '.gcw-star.on{color:#FAAD14}' +
+    '.gcw-rate-comment{width:100%;box-sizing:border-box;border:1px solid #E3E5E8;border-radius:8px;' +
+    'padding:8px 10px;font-size:13px;resize:none;height:56px;font-family:inherit;outline:none}' +
+    '.gcw-rate-comment:focus{border-color:#E4393C}' +
+    '.gcw-rate-actions{display:flex;gap:8px;margin-top:10px}' +
+    '.gcw-rate-cancel{flex:1 1 auto;background:#F2F3F5;color:#4E5969;border:0;border-radius:8px;' +
+    'padding:0 12px;height:36px;cursor:pointer;font-size:13px}' +
+    '.gcw-rate-submit{flex:1 1 auto;background:#E4393C;color:#fff;border:0;border-radius:8px;' +
+    'padding:0 12px;height:36px;cursor:pointer;font-size:13px}' +
+    '.gcw-rate-submit[disabled]{opacity:.5;cursor:not-allowed}' +
+    '.gcw-done{text-align:center;font-size:13px;color:#8A9099;padding:10px 0}';
 
   var host = document.createElement('div');
   host.className = 'gcw-host';
@@ -170,9 +194,20 @@
     '<div class="gcw-head">' +
     CLAW_SVG +
     '<div><div class="gcw-title"></div><div class="gcw-sub"></div></div>' +
+    '<button class="gcw-rate-btn" type="button" hidden>评价</button>' +
     '<button class="gcw-close" type="button" aria-label="关闭">&times;</button>' +
     '</div>' +
     '<div class="gcw-body"></div>' +
+    '<div class="gcw-rate" hidden>' +
+    '<div class="gcw-rate-title">本次服务您还满意吗？</div>' +
+    '<div class="gcw-rate-sub">点击星星打分，可补充说明（选填）</div>' +
+    '<div class="gcw-stars"></div>' +
+    '<textarea class="gcw-rate-comment" placeholder="还有什么想告诉我们的？（选填）"></textarea>' +
+    '<div class="gcw-rate-actions">' +
+    '<button class="gcw-rate-cancel" type="button">暂不评价</button>' +
+    '<button class="gcw-rate-submit" type="button" disabled>提交评价</button>' +
+    '</div>' +
+    '</div>' +
     '<div class="gcw-foot">' +
     '<textarea class="gcw-input" placeholder="输入消息…" rows="1"></textarea>' +
     '<button class="gcw-send" type="button">发送</button>' +
@@ -192,6 +227,12 @@
   var inputEl = panel.querySelector('.gcw-input');
   var sendEl = panel.querySelector('.gcw-send');
   var closeEl = panel.querySelector('.gcw-close');
+  var rateBtnEl = panel.querySelector('.gcw-rate-btn');
+  var rateEl = panel.querySelector('.gcw-rate');
+  var starsEl = panel.querySelector('.gcw-stars');
+  var rateCommentEl = panel.querySelector('.gcw-rate-comment');
+  var rateCancelEl = panel.querySelector('.gcw-rate-cancel');
+  var rateSubmitEl = panel.querySelector('.gcw-rate-submit');
 
   function setError(text) {
     var prev = bodyEl.querySelector('.gcw-error');
@@ -235,7 +276,84 @@
       note.textContent = '已转人工客服，请稍候';
       wrap.appendChild(note);
     }
+    // ── 满意度评价 (CSAT) ────────────────────────────────────────────
+    // 每条会话只能评价一次（服务端唯一索引保证），所以评完就把入口收起来，
+    // 避免访客反复点、反复收到"已评价"的报错。
+    if (rated) {
+      var done = document.createElement('div');
+      done.className = 'gcw-done';
+      done.textContent = '本次会话已评价，感谢您的反馈';
+      wrap.appendChild(done);
+    }
     bodyEl.scrollTop = bodyEl.scrollHeight;
+    refreshRateEntry();
+  }
+
+  /** 有过 AI/人工回复且未评价时才露出「评价」入口。 */
+  function refreshRateEntry() {
+    var meaningful = messages.some(function (m) {
+      return m.role === 'agent';
+    });
+    if (booted && meaningful && !rated) rateBtnEl.removeAttribute('hidden');
+    else rateBtnEl.setAttribute('hidden', '');
+  }
+
+  var ratingScore = 0;
+
+  function renderStars() {
+    starsEl.innerHTML = '';
+    for (var i = 1; i <= 5; i++) {
+      var star = document.createElement('button');
+      star.type = 'button';
+      star.className = 'gcw-star' + (i <= ratingScore ? ' on' : '');
+      star.setAttribute('aria-label', i + ' 星');
+      star.textContent = i <= ratingScore ? '★' : '☆';
+      star.setAttribute('data-score', String(i));
+      starsEl.appendChild(star);
+    }
+    rateSubmitEl.disabled = ratingScore < 1;
+  }
+
+  function showRate() {
+    ratingScore = 0;
+    rateCommentEl.value = '';
+    renderStars();
+    rateEl.removeAttribute('hidden');
+    rateBtnEl.setAttribute('hidden', '');
+  }
+
+  function hideRate() {
+    rateEl.setAttribute('hidden', '');
+    refreshRateEntry();
+  }
+
+  function markRated() {
+    rated = true;
+    rateEl.setAttribute('hidden', '');
+    rateBtnEl.setAttribute('hidden', '');
+    renderMessages();
+  }
+
+  function submitRate() {
+    if (ratingScore < 1 || rated) return;
+    rateSubmitEl.disabled = true;
+    setError('');
+    api(RATE_URL, {
+      method: 'POST',
+      body: { score: ratingScore, comment: (rateCommentEl.value || '').trim() }
+    })
+      .then(markRated)
+      .catch(function (err) {
+        // 已评价过是正常终态（例如在另一个标签页评过），不当错误展示。
+        if (err && /已经评价|已评价/.test(err.message || '')) {
+          markRated();
+          return;
+        }
+        setError(err && err.message ? err.message : '评价提交失败，请稍后再试');
+      })
+      .then(function () {
+        rateSubmitEl.disabled = ratingScore < 1;
+      });
   }
 
   // ── 会话流程 ─────────────────────────────────────────────────────
@@ -342,6 +460,15 @@
   bubble.addEventListener('click', open);
   closeEl.addEventListener('click', close);
   sendEl.addEventListener('click', send);
+  rateBtnEl.addEventListener('click', showRate);
+  rateCancelEl.addEventListener('click', hideRate);
+  rateSubmitEl.addEventListener('click', submitRate);
+  starsEl.addEventListener('click', function (e) {
+    var star = e.target && e.target.closest ? e.target.closest('.gcw-star') : null;
+    if (!star) return;
+    ratingScore = parseInt(star.getAttribute('data-score'), 10) || 0;
+    renderStars();
+  });
   inputEl.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

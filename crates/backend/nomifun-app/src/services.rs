@@ -2748,19 +2748,28 @@ impl AppServices {
         let customer_service_service = Arc::new(
             nomifun_customer_service::CustomerServiceService::new(customer_service_repo.clone()),
         );
-        let cs_dialogue_engine = Arc::new(nomifun_customer_service::CsDialogueEngine::new(
-            customer_service_repo,
-            knowledge_service.clone(),
-            Arc::new(nomifun_customer_service::LiveTurnRunner {
-                deps: nomifun_ai_agent::OneShotDeps {
-                    provider_repo: provider_repo.clone()
-                        as Arc<dyn nomifun_db::IProviderRepository>,
-                    provider_model_repo: provider_model_repo.clone(),
-                    encryption_key,
-                    workspace: data_dir.clone(),
-                },
-            }),
-        ));
+        let cs_dialogue_engine = Arc::new(
+            nomifun_customer_service::CsDialogueEngine::new(
+                customer_service_repo,
+                knowledge_service.clone(),
+                Arc::new(nomifun_customer_service::LiveTurnRunner {
+                    deps: nomifun_ai_agent::OneShotDeps {
+                        provider_repo: provider_repo.clone()
+                            as Arc<dyn nomifun_db::IProviderRepository>,
+                        provider_model_repo: provider_model_repo.clone(),
+                        encryption_key,
+                        workspace: data_dir.clone(),
+                    },
+                }),
+            )
+            // 客服对外服务，模型通道挂了不能让访客吃"暂时无法回复"：智能体没
+            // 配模型或配的不可用时，自动择优用户已配置的通道；配了但调用失败
+            // 也能顺位换下一个重试。
+            .with_model_resolver(Arc::new(nomifun_customer_service::CsModelResolver::new(
+                provider_repo.clone() as Arc<dyn nomifun_db::IProviderRepository>,
+                provider_model_repo.clone(),
+            ))),
+        );
 
         // First-boot seed: the built-in desktop AI support agent, so the
         // customer-service roster is chat-ready out of the box. Best-effort

@@ -20,7 +20,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Empty, Message, Popconfirm, Select, Spin, Tag } from '@arco-design/web-react';
-import { Api, Left, Plus, Refresh } from '@icon-park/react';
+import { Api, Left, Link, Plus, Refresh } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import type { IChannelPluginStatus } from '@/common/types/channel/channel';
 import type { ChannelPluginId, CsAgentId } from '@/common/types/ids';
@@ -38,6 +38,7 @@ import type { ChannelPlatform } from '@/renderer/components/settings/SettingsMod
 import { HUB_PAGE_TITLE_CLASS } from '@/renderer/components/layout/HubPageShell';
 import { useCsAgents } from './useCsAgents';
 import { selectCsChannelBots } from './csChannelBots';
+import CsWidgetSection from './CsWidgetSection';
 
 /** 平台清单：12 个内置平台排前；扩展渠道按需在列表尾部补位。 */
 const BUILTIN_PLATFORM_IDS: ReadonlySet<string> = new Set(CHANNEL_PLATFORMS.map((p) => p.id));
@@ -61,6 +62,12 @@ const CsChannelsPage: React.FC = () => {
   const [configTarget, setConfigTarget] = useState<ChannelConfigTarget>(null);
   const [rebindingId, setRebindingId] = useState<ChannelPluginId | null>(null);
   const [deletingId, setDeletingId] = useState<ChannelPluginId | null>(null);
+  // 网页挂件的配置对象是某一位客服；这里默认落在第一位，避免用户面对空选择器。
+  const [widgetAgentId, setWidgetAgentId] = useState<CsAgentId | undefined>(undefined);
+
+  useEffect(() => {
+    if (!widgetAgentId && agents.length > 0) setWidgetAgentId(agents[0].cs_agent_id);
+  }, [agents, widgetAgentId]);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -272,6 +279,57 @@ const CsChannelsPage: React.FC = () => {
             <span className='text-12px text-t-tertiary'>
               {t('customerService.channels.empty.noAgents', {
                 defaultValue: '请先创建客服，再接入渠道机器人。',
+              })}
+            </span>
+          )}
+        </div>
+
+        {/* 网页挂件 —— 官网访客入口。它是最容易成交的渠道，所以放在渠道中心最上方，
+            不再让配置沉到「客服详情页」深处。 */}
+        <div className='flex flex-col gap-12px rd-16px px-16px py-14px border border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)]'>
+          <div className='flex items-center justify-between gap-12px flex-wrap'>
+            <div className='flex items-center gap-8px min-w-0'>
+              <Link
+                theme='outline'
+                size='16'
+                fill='rgb(var(--primary-6))'
+                className='block shrink-0'
+                style={{ lineHeight: 0 }}
+              />
+              <span className='text-14px font-500 text-t-primary'>
+                {t('customerService.channels.widget.title', {
+                  defaultValue: '网页挂件（官网访客入口）',
+                })}
+              </span>
+            </div>
+            <Select
+              size='small'
+              className='w-[220px] shrink-0'
+              placeholder={t('customerService.channels.widget.pickAgent', {
+                defaultValue: '选择客服',
+              })}
+              value={widgetAgentId}
+              onChange={(v) => setWidgetAgentId(v as CsAgentId)}
+            >
+              {agents.map((agent) => (
+                <Select.Option key={agent.cs_agent_id} value={agent.cs_agent_id}>
+                  {agent.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
+          <p className='m-0 text-12px text-t-tertiary leading-18px'>
+            {t('customerService.channels.widget.desc', {
+              defaultValue:
+                '不用加好友也能咨询 —— 复制一行代码粘到官网，陌生访客点开气泡就能和 AI 客服对话。',
+            })}
+          </p>
+          {widgetAgentId ? (
+            <CsWidgetSection csAgentId={widgetAgentId} />
+          ) : (
+            <span className='text-12px text-t-tertiary'>
+              {t('customerService.channels.widget.empty', {
+                defaultValue: '先创建一位客服，再开启挂件。',
               })}
             </span>
           )}

@@ -11,8 +11,9 @@
     "locked": "Terminal / files / computer / browser capabilities are never registered"
   },
   "card": {
-    "noModel": "No model configured",
-    "kbCount": "{{count}} knowledge bases"
+    "noModel": "Auto-select",
+    "kbCount": "{{count}} knowledge bases",
+    "autoModel": "Auto-select"
   },
   "home": {
     "empty": "No customer-service agents yet. Create one first to enter the workbench."
@@ -248,5 +249,42 @@
       "deleteConfirm": "Deleting this bot disconnects all of its dialogues and visitors. Delete?",
       "hint": "Once bound, the bot routes all visitor messages to the selected agent (strangers need no pairing code). Rebinding moves the bot from its current agent."
     }
+  },
+  "stats": {
+    "title": "Reports",
+    "subtitle": "Volume, responsiveness and visitor satisfaction.",
+    "openStats": "Reports",
+    "back": "Back",
+    "filter": {
+      "all": "All agents"
+    },
+    "range": {
+      "24h": "Last 24h",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "all": "All time"
+    },
+    "dialogues": "Conversations",
+    "takenOver": "Handed to human",
+    "takeOverRate": "Handover rate {{rate}}",
+    "ticketsOpen": "Open tickets",
+    "ticketsResolved": "Resolved tickets",
+    "slaSection": "SLA",
+    "avgFirstResponse": "Avg. first response",
+    "respondedCount": "{{count}} responded",
+    "slaRate": "SLA met",
+    "slaRateHint": "Share of SLA-judged tickets completed on time",
+    "breached": "Breached",
+    "escalated": "Auto-escalated",
+    "escalatedHint": "Priority raised automatically after a breach",
+    "scanSla": "Scan SLA",
+    "scanDone": "Scan done: {{scanned}} checked, {{breached}} breached, {{escalated}} escalated",
+    "csatSection": "Satisfaction",
+    "avgScore": "Average score",
+    "ratingCount": "{{count}} ratings",
+    "noRatings": "No ratings yet. Visitors can tap Rate in the widget.",
+    "recentRatings": "Recent ratings",
+    "noComment": "(no comment)",
+    "empty": "No data yet"
   }
 }

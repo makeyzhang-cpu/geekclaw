@@ -3,7 +3,8 @@ use nomifun_common::TimestampMs;
 use crate::error::DbError;
 use crate::models::{
     CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsInboxItem, CsMessageRow,
-    CsNoteRow, CsTicketRow, NewCsAgentRow, NewCsTicketRow,
+    CsNoteRow, CsOverviewStats, CsRatingRow, CsTicketRow, CsTicketSlaPatch, NewCsAgentRow,
+    NewCsRatingRow, NewCsTicketRow,
 };
 
 /// Identity triple that pins a visitor dialogue lane (一人一线).
@@ -295,4 +296,50 @@ pub trait ICustomerServiceRepository: Send + Sync {
 
     /// Delete a ticket by business ID. `DbError::NotFound` if absent.
     async fn delete_ticket(&self, cs_ticket_id: &str) -> Result<(), DbError>;
+
+    // ── 5.0.32 商业闭环：SLA 与满意度 ────────────────────────────────────
+
+    /// 局部更新工单的 SLA 列。
+    ///
+    /// `CsTicketSlaPatch` 里每个字段都是「双层 Option」：外层 `None` 表示本次
+    /// 不动这一列，内层 `None` 表示把它置回 NULL。这样 SLA 扫描任务既能落定
+    /// 时间戳，也能在不小心多写时精确回溯。`DbError::NotFound` 若工单不存在。
+    async fn update_ticket_sla(
+        &self,
+        cs_ticket_id: &str,
+        patch: CsTicketSlaPatch,
+        now: TimestampMs,
+    ) -> Result<CsTicketRow, DbError>;
+
+    /// 取出所有「SLA 尚未定终态且已到期或未到期但需重评」的开放工单，
+    /// 供后台扫描任务逐条判定。结果按创建时间升序、上限 500 条，
+    /// 保证单次扫描的耗时可控。
+    async fn list_tickets_with_open_sla(
+        &self,
+        now: TimestampMs,
+    ) -> Result<Vec<CsTicketRow>, DbError>;
+
+    /// 记录一次满意度评价。分数必须是 1..=5，否则 `DbError::Conflict`。
+    ///
+    /// 同一会话只允许评价一次（由迁移 043 的部分唯一索引保证），
+    /// 重复提交会返回 `DbError::Conflict`。
+    async fn create_rating(&self, row: &NewCsRatingRow) -> Result<CsRatingRow, DbError>;
+
+    /// 列出满意度评价，可按客服与起始时间过滤，按时间倒序。
+    async fn list_ratings(
+        &self,
+        cs_agent_id: Option<&str>,
+        since: Option<TimestampMs>,
+        limit: usize,
+    ) -> Result<Vec<CsRatingRow>, DbError>;
+
+    /// 客服域总览统计（会话量 / 工单 SLA / 满意度）。
+    ///
+    /// 全部走 SQL 聚合：统计页会频繁打开，把整表读进内存再数是不可接受的。
+    /// `cs_agent_id` 为 `None` 时统计全部客服。
+    async fn cs_overview_stats(
+        &self,
+        cs_agent_id: Option<&str>,
+        since: Option<TimestampMs>,
+    ) -> Result<CsOverviewStats, DbError>;
 }

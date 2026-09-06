@@ -31,6 +31,7 @@ use std::sync::Mutex;
 
 use nomifun_common::{AppError, generate_id, now_ms};
 use nomifun_db::{CsAgentRow, CsDialogueKey};
+use nomifun_db::models::NewCsRatingRow;
 use serde::{Deserialize, Serialize};
 
 use crate::dialogue::CsDialogueEngine;
@@ -374,6 +375,54 @@ impl CsWidgetService {
             .read(token)
             .ok_or_else(|| AppError::Unauthorized("访客会话无效或已过期".into()))?;
         self.load_messages(&claims.did).await
+    }
+
+    /// 访客给本次会话打分（1–5 星，可附留言）。
+    ///
+    /// 一次会话只允许评价一条：迁移 043 在 `cs_ratings(cs_dialogue_id)` 上建了
+    /// 部分唯一索引，重复提交会撞库，这里转成 409 让前端给出人话提示。
+    /// 打分不校验 Origin —— 访客可能先关页面再从邮件链接回来，此时没有来源，
+    /// 而令牌本身已经证明了他就是那段会话的当事人。
+    pub async fn rate(&self, token: &str, score: i64, comment: &str) -> Result<(), AppError> {
+        if !(1..=5).contains(&score) {
+            return Err(AppError::BadRequest(
+                "score must be between 1 and 5".into(),
+            ));
+        }
+        if comment.chars().count() > 1000 {
+            return Err(AppError::BadRequest(
+                "comment exceeds 1000 characters".into(),
+            ));
+        }
+        let claims = self
+            .codec
+            .read(token)
+            .ok_or_else(|| AppError::Unauthorized("invalid visitor token".into()))?;
+        // 令牌指向的会话必须还在：已删除的会话不该被追评。
+        self.service
+            .repo()
+            .get_dialogue(&claims.did)
+            .await?
+            .ok_or_else(|| AppError::NotFound("dialogue not found".into()))?;
+        match self
+            .service
+            .repo()
+            .create_rating(&NewCsRatingRow {
+                cs_ticket_id: None,
+                cs_dialogue_id: Some(claims.did.clone()),
+                cs_agent_id: Some(claims.aid.clone()),
+                score,
+                comment: comment.trim().to_owned(),
+                source: "widget".into(),
+            })
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(nomifun_db::DbError::Conflict(_)) => {
+                Err(AppError::Conflict("该会话已经评价过了".into()))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     async fn load_messages(&self, cs_dialogue_id: &str) -> Result<Vec<WidgetMessage>, AppError> {

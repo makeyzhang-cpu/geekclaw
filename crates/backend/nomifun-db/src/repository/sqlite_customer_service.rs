@@ -7,7 +7,8 @@ use sqlx::SqlitePool;
 use crate::error::DbError;
 use crate::models::{
     CsAgentRow, CsAuditEventRow, CsChannelBindingRow, CsDialogueRow, CsInboxItem, CsMessageRow,
-    CsNoteRow, CsTicketRow, NewCsAgentRow, NewCsTicketRow,
+    CsNoteRow, CsOverviewStats, CsRatingRow, CsTicketRow, CsTicketSlaPatch, NewCsAgentRow,
+    NewCsRatingRow, NewCsTicketRow,
 };
 use crate::repository::customer_service::{
     CsDialogueKey, ICustomerServiceRepository, UpdateCsAgentParams, UpdateCsTicketParams,
@@ -21,7 +22,16 @@ const DIALOGUE_COLUMNS: &str = "cs_dialogue_id, cs_agent_id, channel_plugin_id, 
 const MESSAGE_COLUMNS: &str = "cs_message_id, cs_dialogue_id, role, content, sender_kind, created_at";
 const NOTE_COLUMNS: &str = "cs_note_id, cs_agent_id, kind, content, enabled, created_at, updated_at";
 const TICKET_COLUMNS: &str = "cs_ticket_id, title, description, status, priority, cs_dialogue_id, \
-     cs_agent_id, assignee_id, visitor_name, visitor_handle, created_at, updated_at";
+     cs_agent_id, assignee_id, visitor_name, visitor_handle, created_at, updated_at, \
+     first_response_due_at, first_responded_at, resolution_due_at, resolved_at, closed_at, \
+     sla_state, sla_escalated";
+/// 插入时只写业务字段，SLA 列走数据库默认值；SLA 策略由服务层在插入后
+/// 通过 `update_ticket_sla` 落定 —— 存储层不该知道「紧急工单 30 分钟首响」
+/// 这类会随套餐变化的商务规则。
+const TICKET_INSERT_COLUMNS: &str = "cs_ticket_id, title, description, status, priority, \
+     cs_dialogue_id, cs_agent_id, assignee_id, visitor_name, visitor_handle, created_at, updated_at";
+const RATING_COLUMNS: &str = "cs_rating_id, cs_ticket_id, cs_dialogue_id, cs_agent_id, \
+     score, comment, source, created_at";
 
 /// Mint a fresh public widget key.
 ///
@@ -653,7 +663,7 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         let cs_ticket_id = nomifun_common::generate_id();
         let sql = format!(
             "INSERT INTO cs_tickets \
-                 ({TICKET_COLUMNS}) \
+                 ({TICKET_INSERT_COLUMNS}) \
              VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?) \
              RETURNING {TICKET_COLUMNS}"
         );
@@ -986,6 +996,251 @@ impl ICustomerServiceRepository for SqliteCustomerServiceRepository {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected())
+    }
+
+    // ── 5.0.32 商业闭环：SLA 与满意度 ────────────────────────────────────
+
+    async fn update_ticket_sla(
+        &self,
+        cs_ticket_id: &str,
+        patch: CsTicketSlaPatch,
+        now: TimestampMs,
+    ) -> Result<CsTicketRow, DbError> {
+        canonical_id("cs_ticket_id", cs_ticket_id)?;
+        if let Some(state) = patch.sla_state.as_deref() {
+            if !matches!(state, "none" | "met" | "breached") {
+                return Err(DbError::Conflict(format!("unknown sla_state '{state}'")));
+            }
+        }
+        let timestamps: [(&'static str, Option<Option<TimestampMs>>); 5] = [
+            ("first_response_due_at", patch.first_response_due_at),
+            ("first_responded_at", patch.first_responded_at),
+            ("resolution_due_at", patch.resolution_due_at),
+            ("resolved_at", patch.resolved_at),
+            ("closed_at", patch.closed_at),
+        ];
+        let mut sets: Vec<String> = Vec::new();
+        let mut pending: Vec<Option<TimestampMs>> = Vec::new();
+        for (column, value) in timestamps {
+            if let Some(value) = value {
+                sets.push(format!("{column} = ?"));
+                pending.push(value);
+            }
+        }
+        let state_bind = patch.sla_state.clone();
+        if state_bind.is_some() {
+            sets.push("sla_state = ?".into());
+        }
+        if patch.sla_escalated.is_some() {
+            sets.push("sla_escalated = ?".into());
+        }
+        if sets.is_empty() {
+            // 没有可写字段时退化成一次读取，让调用方不必特判空补丁。
+            return self
+                .get_ticket(cs_ticket_id)
+                .await?
+                .ok_or_else(|| DbError::NotFound(format!("cs ticket {cs_ticket_id}")));
+        }
+        sets.push("updated_at = ?".into());
+        let sql = format!(
+            "UPDATE cs_tickets SET {} WHERE cs_ticket_id = ? RETURNING {TICKET_COLUMNS}",
+            sets.join(", ")
+        );
+        let mut q = sqlx::query_as::<_, CsTicketRow>(&sql);
+        for value in pending {
+            q = q.bind(value);
+        }
+        if let Some(state) = state_bind {
+            q = q.bind(state);
+        }
+        if let Some(flag) = patch.sla_escalated {
+            q = q.bind(flag);
+        }
+        let row = q
+            .bind(now)
+            .bind(cs_ticket_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.ok_or_else(|| DbError::NotFound(format!("cs ticket {cs_ticket_id}")))
+    }
+
+    async fn list_tickets_with_open_sla(&self, now: TimestampMs) -> Result<Vec<CsTicketRow>, DbError> {
+        // 只捞「还没到终态」的工单：未首响 或 未解决，且未关闭、未定终态。
+        // SLA 扫描每分钟跑一次，全表扫描不可接受，故走迁移 043 建的两个部分索引。
+        let sql = format!(
+            "SELECT {TICKET_COLUMNS} FROM cs_tickets \
+             WHERE closed_at IS NULL AND sla_state = 'none' \
+               AND ( \
+                    (first_responded_at IS NULL AND first_response_due_at IS NOT NULL) \
+                 OR (resolved_at IS NULL AND resolution_due_at IS NOT NULL) \
+               ) \
+             ORDER BY created_at ASC LIMIT 500"
+        );
+        let _ = now;
+        Ok(sqlx::query_as::<_, CsTicketRow>(&sql)
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    async fn create_rating(&self, row: &NewCsRatingRow) -> Result<CsRatingRow, DbError> {
+        if !(1..=5).contains(&row.score) {
+            return Err(DbError::Conflict(format!(
+                "rating score must be 1..=5, got {}",
+                row.score
+            )));
+        }
+        if !matches!(row.source.as_str(), "widget" | "operator" | "system") {
+            return Err(DbError::Conflict(format!(
+                "unknown rating source '{}'",
+                row.source
+            )));
+        }
+        for (label, value) in [
+            ("cs_ticket_id", &row.cs_ticket_id),
+            ("cs_dialogue_id", &row.cs_dialogue_id),
+            ("cs_agent_id", &row.cs_agent_id),
+        ] {
+            if let Some(id) = value {
+                canonical_id(label, id)?;
+            }
+        }
+        if row.comment.chars().count() > 1000 {
+            return Err(DbError::Conflict("rating comment exceeds 1000 chars".into()));
+        }
+        let cs_rating_id = nomifun_common::generate_id();
+        let sql = format!(
+            "INSERT INTO cs_ratings ({RATING_COLUMNS}) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             RETURNING {RATING_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, CsRatingRow>(&sql)
+            .bind(&cs_rating_id)
+            .bind(&row.cs_ticket_id)
+            .bind(&row.cs_dialogue_id)
+            .bind(&row.cs_agent_id)
+            .bind(row.score)
+            .bind(&row.comment)
+            .bind(&row.source)
+            .bind(nomifun_common::now_ms())
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row)
+    }
+
+    async fn list_ratings(
+        &self,
+        cs_agent_id: Option<&str>,
+        since: Option<TimestampMs>,
+        limit: usize,
+    ) -> Result<Vec<CsRatingRow>, DbError> {
+        if let Some(agent_id) = cs_agent_id {
+            canonical_id("cs_agent_id", agent_id)?;
+        }
+        let mut sql = format!("SELECT {RATING_COLUMNS} FROM cs_ratings");
+        let mut conditions: Vec<&'static str> = Vec::new();
+        if cs_agent_id.is_some() {
+            conditions.push("cs_agent_id = ?");
+        }
+        if since.is_some() {
+            conditions.push("created_at >= ?");
+        }
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+        sql.push_str(" ORDER BY created_at DESC LIMIT ?");
+        let mut q = sqlx::query_as::<_, CsRatingRow>(&sql);
+        if let Some(agent_id) = cs_agent_id {
+            q = q.bind(agent_id);
+        }
+        if let Some(since) = since {
+            q = q.bind(since);
+        }
+        Ok(q.bind(limit as i64).fetch_all(&self.pool).await?)
+    }
+
+    async fn cs_overview_stats(
+        &self,
+        cs_agent_id: Option<&str>,
+        since: Option<TimestampMs>,
+    ) -> Result<CsOverviewStats, DbError> {
+        if let Some(agent_id) = cs_agent_id {
+            canonical_id("cs_agent_id", agent_id)?;
+        }
+        let since = since.unwrap_or(0);
+        // cs_dialogues / cs_tickets / cs_ratings 三张表都带 cs_agent_id，
+        // 所以同一段过滤条件可以复用；不传客服时统计全域。
+        let agent = if cs_agent_id.is_some() {
+            " AND cs_agent_id = ?"
+        } else {
+            ""
+        };
+        let mut stats = CsOverviewStats::default();
+
+        let sql = format!(
+            "SELECT COUNT(*), \
+                    COALESCE(SUM(CASE WHEN state = 'human' THEN 1 ELSE 0 END), 0) \
+             FROM cs_dialogues WHERE created_at >= ?{agent}"
+        );
+        let mut q = sqlx::query_as::<_, (i64, i64)>(&sql).bind(since);
+        if let Some(agent_id) = cs_agent_id {
+            q = q.bind(agent_id);
+        }
+        let (dialogues_total, dialogues_taken_over) = q.fetch_one(&self.pool).await?;
+        stats.dialogues_total = dialogues_total;
+        stats.dialogues_taken_over = dialogues_taken_over;
+
+        let sql = format!(
+            "SELECT COUNT(*), \
+                    COALESCE(SUM(CASE WHEN closed_at IS NULL AND resolved_at IS NULL THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN resolved_at IS NOT NULL THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN sla_state = 'breached' THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN sla_state = 'met' THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN sla_escalated = 1 THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN first_responded_at IS NOT NULL THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN first_responded_at IS NOT NULL \
+                                      THEN first_responded_at - created_at ELSE 0 END), 0) \
+             FROM cs_tickets WHERE created_at >= ?{agent}"
+        );
+        let mut q = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64, i64)>(&sql).bind(since);
+        if let Some(agent_id) = cs_agent_id {
+            q = q.bind(agent_id);
+        }
+        let (total, open, resolved, breached, met, escalated, responded, response_sum) =
+            q.fetch_one(&self.pool).await?;
+        stats.tickets_total = total;
+        stats.tickets_open = open;
+        stats.tickets_resolved = resolved;
+        stats.tickets_breached = breached;
+        stats.tickets_met = met;
+        stats.tickets_escalated = escalated;
+        stats.tickets_responded = responded;
+        stats.first_response_ms_sum = response_sum;
+
+        let sql = format!(
+            "SELECT COUNT(*), COALESCE(SUM(score), 0) FROM cs_ratings WHERE created_at >= ?{agent}"
+        );
+        let mut q = sqlx::query_as::<_, (i64, i64)>(&sql).bind(since);
+        if let Some(agent_id) = cs_agent_id {
+            q = q.bind(agent_id);
+        }
+        let (ratings_count, ratings_score_sum) = q.fetch_one(&self.pool).await?;
+        stats.ratings_count = ratings_count;
+        stats.ratings_score_sum = ratings_score_sum;
+
+        let sql = format!(
+            "SELECT score, COUNT(*) FROM cs_ratings WHERE created_at >= ?{agent} GROUP BY score"
+        );
+        let mut q = sqlx::query_as::<_, (i64, i64)>(&sql).bind(since);
+        if let Some(agent_id) = cs_agent_id {
+            q = q.bind(agent_id);
+        }
+        for (score, count) in q.fetch_all(&self.pool).await? {
+            if let Some(slot) = stats.ratings_histogram.get_mut((score - 1) as usize) {
+                *slot = count;
+            }
+        }
+        Ok(stats)
     }
 }
 

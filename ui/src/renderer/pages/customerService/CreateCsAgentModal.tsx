@@ -86,7 +86,7 @@ const CreateCsAgentModal: React.FC<Props> = ({ visible, onClose, onCreated, crea
         <div className='grid grid-cols-2 gap-x-12px'>
           <Form.Item label={t('customerService.fields.provider', { defaultValue: '模型服务商' })} field='provider_id'>
             <Select
-              placeholder={t('customerService.fields.providerPlaceholder', { defaultValue: '选择服务商' })}
+              placeholder={t('customerService.fields.providerPlaceholder', { defaultValue: '自动择优（可留空）' })}
               allowClear
               onChange={(value) => {
                 setProviderId(value as ProviderId | undefined);

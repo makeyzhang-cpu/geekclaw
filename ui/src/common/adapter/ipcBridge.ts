@@ -5945,6 +5945,46 @@ export interface ICsWidgetConfig {
   theme: Record<string, unknown> | null;
 }
 
+/** 一次访客满意度评价（CSAT）。一条会话最多一条。 */
+export interface ICsRating {
+  cs_rating_id: string;
+  cs_dialogue_id: string | null;
+  cs_ticket_id: string | null;
+  cs_agent_id: string | null;
+  /** 1–5 星。 */
+  score: number;
+  comment: string;
+  /** `widget`（访客自评） / `operator`（坐席代录） / `system`。 */
+  source: 'widget' | 'operator' | 'system';
+  created_at: number;
+}
+
+/** 客服域总览统计（统计报表看板）。计数均为整数；时间字段为毫秒。 */
+export interface ICsStats {
+  dialogues_total: number;
+  dialogues_taken_over: number;
+  tickets_total: number;
+  tickets_open: number;
+  tickets_resolved: number;
+  tickets_breached: number;
+  tickets_met: number;
+  tickets_escalated: number;
+  /** 首响耗时之和（毫秒）；除以 `tickets_responded` 得平均值。 */
+  first_response_ms_sum: number;
+  tickets_responded: number;
+  ratings_count: number;
+  ratings_score_sum: number;
+  /** [1星, 2星, 3星, 4星, 5星] 各自的条数。 */
+  ratings_histogram: number[];
+}
+
+/** SLA 超时扫描结果（手动触发 / 后台每 60s 自动跑）。 */
+export interface ICsSlaScanReport {
+  scanned: number;
+  breached: number;
+  escalated: number;
+}
+
 const fromApiCsAgent = (raw: unknown): ICsAgent => {
   const agent = asWireObject(raw, 'customer-service agent');
   if (Object.prototype.hasOwnProperty.call(agent, 'id')) {
@@ -6206,6 +6246,34 @@ export const customerService = {
       allowed_origins: p.allowed_origins,
       theme: p.theme,
     })
+  ),
+  // ── 商业闭环最小集 (5.0.32) ──────────────────────────────────────
+  /** 满意度评价列表（最新在前）。`since` 为毫秒时间戳下界。 */
+  listRatings: httpGet<
+    ICsRating[],
+    { cs_agent_id?: CsAgentId; since?: number; limit?: number }
+  >((p) => {
+    const q = new URLSearchParams();
+    if (p.cs_agent_id) q.set('cs_agent_id', p.cs_agent_id);
+    if (p.since != null) q.set('since', String(p.since));
+    if (p.limit != null) q.set('limit', String(p.limit));
+    const qs = q.toString();
+    return qs ? `/api/customer-service/ratings?${qs}` : '/api/customer-service/ratings';
+  }),
+  /** 总览统计。`since` 为毫秒时间戳下界，省略表示全量。 */
+  getStats: httpGet<ICsStats, { cs_agent_id?: CsAgentId; since?: number }>((p) => {
+    const q = new URLSearchParams();
+    if (p.cs_agent_id) q.set('cs_agent_id', p.cs_agent_id);
+    if (p.since != null) q.set('since', String(p.since));
+    const qs = q.toString();
+    return qs ? `/api/customer-service/stats?${qs}` : '/api/customer-service/stats';
+  }),
+  /**
+   * 立即跑一次 SLA 超时扫描。后台每 60s 也会自动跑，这里只是让坐席能手动
+   * 催一次（例如刚改完优先级想马上看到升级结果）。
+   */
+  scanTicketSla: httpPost<ICsSlaScanReport, Record<string, never>>(
+    '/api/customer-service/tickets/sla/scan'
   ),
 };
 

@@ -573,6 +573,9 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
     conversation.service.with_supervision_hook(idmm_hook.clone());
     services.terminal_service.with_terminal_supervision_hook(idmm_hook);
     let execution_conversation = conversation.service.clone();
+    // SLA 超时升级是「无人值守也必须发生」的能力：没有人打开工单页面时，
+    // 后台扫描器每 60s 重新评估未完成 SLA 的工单，超时则升级优先级并留痕。
+    nomifun_customer_service::spawn_sla_monitor(services.customer_service_service.repo().clone());
     let states = ModuleStates {
         system: build_system_state(services),
         conversation,

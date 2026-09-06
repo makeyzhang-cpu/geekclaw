@@ -50,6 +50,7 @@ pub(crate) const PRODUCT_TABLES: &[&str] = &[
     "cs_dialogues",
     "cs_messages",
     "cs_notes",
+    "cs_ratings",
     "cs_tickets",
     "idmm_action_reservations",
     "idmm_interventions",
@@ -135,6 +136,7 @@ const UUIDV7_BUSINESS_COLUMNS: &[(&str, &str)] = &[
     ("cs_dialogues", "cs_dialogue_id"),
     ("cs_messages", "cs_message_id"),
     ("cs_notes", "cs_note_id"),
+    ("cs_ratings", "cs_rating_id"),
     ("cs_tickets", "cs_ticket_id"),
     ("idmm_action_reservations", "reservation_id"),
     ("idmm_interventions", "intervention_id"),
@@ -218,6 +220,7 @@ const NON_REFERENCE_ID_COLUMNS: &[(&str, &str)] = &[
     ("cs_dialogues", "chat_id"),
     ("cs_messages", "cs_message_id"),
     ("cs_notes", "cs_note_id"),
+    ("cs_ratings", "cs_rating_id"),
     ("cs_tickets", "cs_ticket_id"),
     ("idmm_action_reservations", "reservation_id"),
     ("idmm_interventions", "intervention_id"),
@@ -711,6 +714,12 @@ pub(crate) const LOGICAL_REFERENCES: &[LogicalReference] = &[
     // Audit events are retained after the agent is deleted; retention-days
     // cleanup is the only pruning authority.
     text_ref!("cs_audit_events", "cs_agent_id" => "cs_agents", "cs_agent_id", false, "idx_cs_audit_agent_time", KeepHistory),
+    // ── 5.0.32 commercial loop: SLA + CSAT ────────────────────────────────
+    // A rating hangs off a ticket / dialogue / agent — all nullable, because a
+    // visitor can rate a pure AI conversation that never became a ticket.
+    text_ref!("cs_ratings", "cs_ticket_id" => "cs_tickets", "cs_ticket_id", true, "idx_cs_ratings_ticket", SetNull),
+    text_ref!("cs_ratings", "cs_dialogue_id" => "cs_dialogues", "cs_dialogue_id", true, "idx_cs_ratings_dialogue", SetNull),
+    text_ref!("cs_ratings", "cs_agent_id" => "cs_agents", "cs_agent_id", true, "idx_cs_ratings_agent", SetNull),
     text_ref!("creation_tasks", "canvas_id" => "workshop_canvases", "canvas_id", true, "idx_creation_tasks_canvas_id", SetNull),
     text_ref!("creation_tasks", "provider_id" => "providers", "provider_id", false, "idx_creation_tasks_provider_id", Restrict),
     text_ref!("idmm_action_reservations", "user_id" => "users", "user_id", false, "idx_idmm_action_reservations_user_id", Cascade),

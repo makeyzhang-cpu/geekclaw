@@ -25,6 +25,7 @@ use nomifun_db::{CsDialogueKey, ICustomerServiceRepository};
 use nomifun_knowledge::KnowledgeService;
 use tokio::sync::{Mutex, Semaphore};
 
+use crate::model_resolver::CsModelResolver;
 use crate::tools::build_cs_tools;
 
 /// Hard wall-clock budget for one engine turn.
@@ -69,6 +70,9 @@ pub struct CsDialogueEngine {
     semaphores: DashMap<String, Arc<Semaphore>>,
     /// Per-dialogue lanes (pending buffer + serial lock).
     lanes: DashMap<String, Arc<LaneState>>,
+    /// 模型自动择优目录。`None` 时退化为"只用智能体显式配置的模型"
+    /// （单元测试注入的 stub runner 走这条路）。
+    model_resolver: Option<Arc<CsModelResolver>>,
 }
 
 impl CsDialogueEngine {
@@ -83,7 +87,14 @@ impl CsDialogueEngine {
             runner,
             semaphores: DashMap::new(),
             lanes: DashMap::new(),
+            model_resolver: None,
         }
+    }
+
+    /// 挂上模型目录，启用自动择优 + 失败兜底链。
+    pub fn with_model_resolver(mut self, resolver: Arc<CsModelResolver>) -> Self {
+        self.model_resolver = Some(resolver);
+        self
     }
 
     /// Handle one inbound visitor message.
@@ -220,12 +231,33 @@ impl CsDialogueEngine {
         cs_dialogue_id: &str,
         batch: &[String],
     ) -> Result<String, AppError> {
-        let (Some(provider_id), Some(model)) = (agent.provider_id.clone(), agent.model.clone())
-        else {
-            return Err(AppError::Conflict(
-                "customer-service agent has no provider/model configured".into(),
-            ));
+        // 模型选择：显式配置优先，其后是自动择优候选；前者失败时自动换下一个。
+        // 这样"用户自己配的模型"永远第一顺位，而托管/备用通道只在必要时顶上。
+        let candidates = match self.model_resolver.as_deref() {
+            Some(resolver) => resolver.candidates(agent).await,
+            None => match (agent.provider_id.clone(), agent.model.clone()) {
+                (Some(provider_id), Some(model)) => vec![nomifun_common::ProviderWithModel {
+                    provider_id,
+                    model,
+                    use_model: None,
+                }],
+                _ => Vec::new(),
+            },
         };
+        if candidates.is_empty() {
+            return Err(AppError::Conflict(
+                "customer-service agent has no usable provider/model configured".into(),
+            ));
+        }
+        if let Some(first) = candidates.first() {
+            tracing::debug!(
+                cs_agent_id = %agent.cs_agent_id,
+                provider_id = %first.provider_id,
+                model = %first.model,
+                candidates = candidates.len(),
+                "customer-service turn model selected"
+            );
+        }
 
         // Window BEFORE persisting the new batch: the batch itself is the
         // one-shot `user_text`, so it must not appear twice.
@@ -262,19 +294,6 @@ impl CsDialogueEngine {
             kb_ids,
         );
 
-        let request = OneShotTurnRequest {
-            provider: nomifun_common::ProviderWithModel {
-                provider_id,
-                model,
-                use_model: None,
-            },
-            system_prompt: build_system_prompt(agent),
-            history,
-            user_text,
-            tools,
-            timeout_secs: TURN_TIMEOUT_SECS,
-        };
-
         let semaphore = self
             .semaphores
             .entry(agent.cs_agent_id.clone())
@@ -287,11 +306,51 @@ impl CsDialogueEngine {
             .await
             .map_err(|_| AppError::Internal("customer-service semaphore closed".into()))?;
 
-        let reply = self.runner.run(request).await?;
-        self.repo
-            .append_message(cs_dialogue_id, "agent", &reply, now_ms())
-            .await?;
-        Ok(reply)
+        // 依次尝试候选模型：第一个成功即返回。显式配置的模型排第一，所以它
+        // 正常时行为与从前完全一致——自动择优只在它缺失或失败时才可见。
+        let mut last_error: Option<AppError> = None;
+        for (index, candidate) in candidates.iter().enumerate() {
+            let request = OneShotTurnRequest {
+                provider: candidate.clone(),
+                system_prompt: build_system_prompt(agent),
+                history: history.clone(),
+                user_text: user_text.clone(),
+                tools: tools.clone(),
+                timeout_secs: TURN_TIMEOUT_SECS,
+            };
+            match self.runner.run(request).await {
+                Ok(reply) => {
+                    if index > 0 {
+                        tracing::warn!(
+                            cs_agent_id = %agent.cs_agent_id,
+                            cs_dialogue_id,
+                            provider_id = %candidate.provider_id,
+                            model = %candidate.model,
+                            attempt = index + 1,
+                            "customer-service turn recovered on a fallback model"
+                        );
+                    }
+                    self.repo
+                        .append_message(cs_dialogue_id, "agent", &reply, now_ms())
+                        .await?;
+                    return Ok(reply);
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        cs_agent_id = %agent.cs_agent_id,
+                        cs_dialogue_id,
+                        provider_id = %candidate.provider_id,
+                        model = %candidate.model,
+                        attempt = index + 1,
+                        %error,
+                        "customer-service turn failed on candidate model"
+                    );
+                    last_error = Some(error);
+                }
+            }
+        }
+        Err(last_error
+            .unwrap_or_else(|| AppError::Conflict("customer-service agent has no usable model".into())))
     }
 
     async fn audit(&self, cs_agent_id: &str, kind: &str, cs_dialogue_id: &str, error: &str) {

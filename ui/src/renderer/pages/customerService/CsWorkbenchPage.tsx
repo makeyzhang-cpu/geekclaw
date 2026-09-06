@@ -34,6 +34,7 @@ import {
 const TextArea = Input.TextArea;
 import {
   Api,
+  ChartHistogram,
   Headset,
   ListView,
   Plus,
@@ -579,6 +580,12 @@ const CsWorkbenchPage: React.FC = () => {
             <span className='inline-flex items-center gap-4px'>
               <Ticket theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
               {t('customerService.tickets.openTickets', { defaultValue: '工单' })}
+            </span>
+          </Button>
+          <Button size='small' type='text' onClick={() => void navigate('/customer-service/stats')}>
+            <span className='inline-flex items-center gap-4px'>
+              <ChartHistogram theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.stats.openStats', { defaultValue: '统计报表' })}
             </span>
           </Button>
           <span className='inline-flex items-center gap-4px text-12px text-t-tertiary'>

@@ -348,7 +348,7 @@ const CsAgentDetailPage: React.FC = () => {
               <div className='mb-4px text-12px text-t-tertiary'>{t('customerService.fields.provider', { defaultValue: '模型服务商' })}</div>
               <Select
                 value={agent.provider_id ?? undefined}
-                placeholder={t('customerService.fields.providerPlaceholder', { defaultValue: '选择服务商' })}
+                placeholder={t('customerService.fields.providerPlaceholder', { defaultValue: '自动择优（推荐）' })}
                 allowClear
                 onChange={(value) => void patch({ provider_id: (value as ProviderId | undefined) ?? null, model: null })}
               >
@@ -363,7 +363,7 @@ const CsAgentDetailPage: React.FC = () => {
               <div className='mb-4px text-12px text-t-tertiary'>{t('customerService.fields.model', { defaultValue: '对话模型' })}</div>
               <Select
                 value={agent.model ?? undefined}
-                placeholder={t('customerService.fields.modelPlaceholder', { defaultValue: '选择模型' })}
+                placeholder={t('customerService.fields.modelPlaceholder', { defaultValue: '跟随服务商自动择优' })}
                 allowClear
                 onChange={(value) => void patch({ model: (value as string | undefined) ?? null })}
               >

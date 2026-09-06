@@ -252,6 +252,95 @@ pub struct CsTicketRow {
     pub visitor_handle: String,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
+    // ── SLA（迁移 043）──────────────────────────────────────────────────
+    /// 首次响应截止时间。`None` 表示该工单未开启首响 SLA。
+    pub first_response_due_at: Option<TimestampMs>,
+    /// 首次人工响应的实际时刻。一旦落定不再改写（SLA 判定以首次为准）。
+    pub first_responded_at: Option<TimestampMs>,
+    /// 解决截止时间。`None` 表示未开启解决 SLA。
+    pub resolution_due_at: Option<TimestampMs>,
+    pub resolved_at: Option<TimestampMs>,
+    pub closed_at: Option<TimestampMs>,
+    /// `none`（未到判定点）| `met`（时限内完成）| `breached`（已超时）。
+    /// `met` / `breached` 是终态，SLA 扫描任务只重评 `none`。
+    pub sla_state: String,
+    /// 是否已由 SLA 扫描任务自动升级（提优先级 + 写审计事件）。
+    pub sla_escalated: bool,
+}
+
+/// 一次满意度评价（迁移 043）。
+///
+/// 三个关联字段全部可空：访客可以只评价一段纯 AI 对话，它未必转成工单。
+/// 统计时按 `cs_agent_id` 聚合即可得到「某位客服的满意度」。
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CsRatingRow {
+    pub cs_rating_id: String,
+    pub cs_ticket_id: Option<String>,
+    pub cs_dialogue_id: Option<String>,
+    pub cs_agent_id: Option<String>,
+    /// 1–5 分，由数据库 CHECK 约束保证。
+    pub score: i64,
+    pub comment: String,
+    /// `widget`（访客在挂件里打分）| `operator` | `system`。
+    pub source: String,
+    pub created_at: TimestampMs,
+}
+
+/// 插入一条满意度评价。`cs_rating_id` 与 `created_at` 由服务端生成。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewCsRatingRow {
+    pub cs_ticket_id: Option<String>,
+    pub cs_dialogue_id: Option<String>,
+    pub cs_agent_id: Option<String>,
+    pub score: i64,
+    pub comment: String,
+    pub source: String,
+}
+
+/// 工单 SLA 的可写字段（迁移 043）。
+///
+/// 全部为 `Option`：`None` 表示「本次不修改该列」，由仓储层转成
+/// `COALESCE(?, col)`，保证局部更新不会把已有时间戳抹成 NULL。
+#[derive(Debug, Clone, Default)]
+pub struct CsTicketSlaPatch {
+    pub first_response_due_at: Option<Option<TimestampMs>>,
+    pub first_responded_at: Option<Option<TimestampMs>>,
+    pub resolution_due_at: Option<Option<TimestampMs>>,
+    pub resolved_at: Option<Option<TimestampMs>>,
+    pub closed_at: Option<Option<TimestampMs>>,
+    pub sla_state: Option<String>,
+    pub sla_escalated: Option<bool>,
+}
+
+/// 客服域总览统计（迁移 043 起）。
+///
+/// 全部用 SQL 聚合算出来，不做内存统计 —— 数据量一大，把整表读进内存再数
+/// 是不可接受的。评分用「总分 + 条数」而不是平均数返回，让调用方自己决定
+/// 精度（也避免 i64 除法在条数为 0 时的分支）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CsOverviewStats {
+    /// 会话总数（按 `created_at >= since` 过滤）。
+    pub dialogues_total: i64,
+    /// 其中曾被人工接管的会话数。
+    pub dialogues_taken_over: i64,
+    pub tickets_total: i64,
+    /// 未关闭且未解决的工单。
+    pub tickets_open: i64,
+    pub tickets_resolved: i64,
+    /// SLA 判定为 `breached` 的工单数。
+    pub tickets_breached: i64,
+    /// SLA 判定为 `met` 的工单数。
+    pub tickets_met: i64,
+    /// 触发过自动升级的工单数。
+    pub tickets_escalated: i64,
+    /// 已完结工单的首响耗时总和（毫秒）；配合 `tickets_responded` 求均值。
+    pub first_response_ms_sum: i64,
+    /// 有首响时间戳的工单数。
+    pub tickets_responded: i64,
+    pub ratings_count: i64,
+    pub ratings_score_sum: i64,
+    /// 评分分布，索引 0 对应 1 星，索引 4 对应 5 星。
+    pub ratings_histogram: [i64; 5],
 }
 
 /// Values accepted when inserting a `cs_tickets` row. `cs_ticket_id`,
@@ -269,6 +358,7 @@ pub struct NewCsTicketRow {
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
 }
+
 
 #[cfg(test)]
 mod tests {

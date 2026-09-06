@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button, Spin, Tag } from '@arco-design/web-react';
-import { Api, BookOne, Headset, Left, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
+import { Api, BookOne, ChartHistogram, Headset, Left, Lock, Plus, SafeRetrieval, Send } from '@icon-park/react';
 import { useCsAgents } from './useCsAgents';
 import CreateCsAgentModal from './CreateCsAgentModal';
 import type { ICsAgent } from '@/common/adapter/ipcBridge';
@@ -60,7 +60,7 @@ const CsAgentCard: React.FC<{ agent: ICsAgent; onOpen: () => void; onWorkbench: 
           <span className='truncate'>
             {modelReady
               ? agent.model
-              : t('customerService.card.noModel', { defaultValue: '未配置模型' })}
+              : t('customerService.card.autoModel', { defaultValue: '自动择优' })}
           </span>
         </span>
         <span className='inline-flex items-center gap-5px shrink-0'>
@@ -164,6 +164,16 @@ const CustomerServiceRosterPage: React.FC = () => {
             onClick={() => void navigate('/customer-service/tickets')}
           >
             {t('customerService.tickets.openTickets', { defaultValue: '工单' })}
+          </Button>
+          <Button
+            size='default'
+            className='shrink-0'
+            onClick={() => void navigate('/customer-service/stats')}
+          >
+            <span className='inline-flex items-center gap-6px'>
+              <ChartHistogram theme='outline' size='15' fill='currentColor' />
+              {t('customerService.stats.openStats', { defaultValue: '统计报表' })}
+            </span>
           </Button>
         </div>
 

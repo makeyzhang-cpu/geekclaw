@@ -14,9 +14,10 @@ use nomifun_api_types::ApiResponse;
 use nomifun_auth::CurrentUser;
 use nomifun_common::AppError;
 use nomifun_common::now_ms;
+use nomifun_db::ICustomerServiceRepository;
 use nomifun_db::models::{
     CsAgentRow, CsChannelBindingRow, CsDialogueRow, CsInboxItem, CsMessageRow, CsNoteRow,
-    CsTicketRow, NewCsTicketRow,
+    CsOverviewStats, CsRatingRow, CsTicketRow, NewCsRatingRow, NewCsTicketRow,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,8 @@ use crate::service::{
     CreateCsAgentInput, CreateCsNoteInput, CustomerServiceService, UpdateCsAgentInput,
     UpdateWidgetConfigInput,
 };
+use crate::sla;
+use crate::sla_monitor::SlaScanReport;
 use crate::widget::{CsWidgetConfig, CsWidgetService, WidgetBootstrap, WidgetMessage, WidgetReply};
 
 /// Router state for the customer-service domain.
@@ -89,12 +92,19 @@ pub fn customer_service_routes(state: CustomerServiceRouterState) -> Router {
             "/api/customer-service/tickets",
             get(list_tickets).post(create_ticket),
         )
+        // 静态子路径必须排在 `{cs_ticket_id}` 之前，否则会被参数路由吃掉。
+        .route(
+            "/api/customer-service/tickets/sla/scan",
+            axum::routing::post(scan_ticket_sla),
+        )
         .route(
             "/api/customer-service/tickets/{cs_ticket_id}",
             get(get_ticket)
                 .patch(update_ticket)
                 .delete(delete_ticket),
         )
+        .route("/api/customer-service/ratings", get(list_ratings))
+        .route("/api/customer-service/stats", get(get_cs_stats))
         .route("/api/customer-service/chat", axum::routing::post(chat))
         .with_state(state)
 }
@@ -130,6 +140,7 @@ pub fn cs_widget_public_routes(state: CsWidgetRouterState) -> Router {
             "/api/cs-widget/messages",
             get(widget_list_messages).post(widget_post_message),
         )
+        .route("/api/cs-widget/rate", axum::routing::post(widget_rate))
         .layer(cors)
         .with_state(state)
 }
@@ -174,6 +185,25 @@ async fn widget_post_message(
     Ok(Json(ApiResponse::ok(
         state.widget.post_message(token, &req.text).await?,
     )))
+}
+
+#[derive(Debug, Deserialize)]
+struct WidgetRateRequest {
+    score: i64,
+    #[serde(default)]
+    comment: String,
+}
+
+async fn widget_rate(
+    State(state): State<CsWidgetRouterState>,
+    headers: HeaderMap,
+    body: Result<Json<WidgetRateRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<bool>>, AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let token = bearer_token(&headers)
+        .ok_or_else(|| AppError::Unauthorized("缺少访客会话令牌".into()))?;
+    state.widget.rate(token, req.score, &req.comment).await?;
+    Ok(Json(ApiResponse::ok(true)))
 }
 
 async fn widget_list_messages(
@@ -645,9 +675,8 @@ async fn create_ticket(
 ) -> Result<Json<ApiResponse<CsTicketRow>>, AppError> {
     let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
     let now = now_ms();
-    let row = state
-        .service
-        .repo()
+    let repo = state.service.repo();
+    let row = repo
         .create_ticket(&NewCsTicketRow {
             title: input.title,
             description: input.description,
@@ -660,6 +689,14 @@ async fn create_ticket(
             created_at: now,
             updated_at: now,
         })
+        .await?;
+    // 建单即落定 SLA 时限 —— 承诺从工单诞生的那一刻开始计时。
+    let row = repo
+        .update_ticket_sla(
+            &row.cs_ticket_id,
+            sla::initial_patch(&row.priority, row.created_at),
+            now,
+        )
         .await?;
     Ok(Json(ApiResponse::ok(row)))
 }
@@ -710,6 +747,10 @@ async fn update_ticket(
     body: Result<Json<UpdateTicketRequest>, JsonRejection>,
 ) -> Result<Json<ApiResponse<CsTicketRow>>, AppError> {
     let Json(input) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let now = now_ms();
+    // SLA 判定要用这次的新状态，先留一份 —— 下面 params 会把 input.status 移走。
+    let new_status = input.status.clone();
+    let repo = state.service.repo();
     let params = nomifun_db::UpdateCsTicketParams {
         title: input.title,
         description: input.description,
@@ -719,12 +760,121 @@ async fn update_ticket(
         visitor_name: input.visitor_name,
         visitor_handle: input.visitor_handle,
     };
-    let row = state
-        .service
-        .repo()
-        .update_ticket(&cs_ticket_id, &params, now_ms())
-        .await?;
+    let row = repo.update_ticket(&cs_ticket_id, &params, now).await?;
+
+    // ── SLA：终态流转补时间戳，随后判定达标 / 违约 ────────────────────
+    // 用「已补完时间戳」的投影行判定，避免为判定多写一次库。
+    let status_patch = new_status
+        .as_deref()
+        .and_then(|status| sla::on_status_change(status, now));
+    let mut projected = row.clone();
+    if let Some(patch) = &status_patch {
+        if let Some(Some(value)) = patch.resolved_at {
+            projected.resolved_at = Some(value);
+        }
+        if let Some(Some(value)) = patch.closed_at {
+            projected.closed_at = Some(value);
+        }
+    }
+    let mut patch = status_patch.unwrap_or_default();
+    let mut escalate = false;
+    let mut reason: Option<&'static str> = None;
+    if let Some(verdict) = sla::evaluate(&projected, now) {
+        escalate = verdict.escalate;
+        reason = Some(verdict.reason);
+        patch = sla::merge(patch, verdict.patch);
+    }
+    if escalate {
+        patch.sla_escalated = Some(true);
+    }
+    let row = repo.update_ticket_sla(&cs_ticket_id, patch, now).await?;
+
+    // 违约升级：往上顶一档优先级，让它在坐席列表里自己浮上来。
+    let row = if escalate {
+        let bumped = sla::escalated_priority(&row.priority);
+        repo.update_ticket(
+            &cs_ticket_id,
+            &nomifun_db::UpdateCsTicketParams {
+                priority: Some(bumped.into()),
+                ..Default::default()
+            },
+            now,
+        )
+        .await?
+    } else {
+        row
+    };
+    if let Some(reason) = reason {
+        crate::sla_monitor::record_sla_audit(repo, &row, reason, now).await;
+    }
     Ok(Json(ApiResponse::ok(row)))
+}
+
+/// 手动触发一次 SLA 扫描。
+///
+/// 后台任务每分钟自动跑，这里额外留一个口子：坐席在工单列表看到
+/// 「明明刚解决完却还标着超时」时，可以立刻刷新而不必等下一轮。
+async fn scan_ticket_sla(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+) -> Result<Json<ApiResponse<SlaScanReport>>, AppError> {
+    Ok(Json(ApiResponse::ok(
+        crate::sla_monitor::scan_once(state.service.repo(), now_ms()).await?,
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+struct ListRatingsQuery {
+    #[serde(default)]
+    cs_agent_id: Option<String>,
+    /// 只看该时间戳之后的评价（毫秒）。前端按时间范围筛选时传。
+    #[serde(default)]
+    since: Option<i64>,
+    #[serde(default = "default_rating_limit")]
+    limit: i64,
+}
+
+fn default_rating_limit() -> i64 {
+    200
+}
+
+async fn list_ratings(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Query(query): Query<ListRatingsQuery>,
+) -> Result<Json<ApiResponse<Vec<CsRatingRow>>>, AppError> {
+    let limit = query.limit.clamp(1, 1000) as usize;
+    Ok(Json(ApiResponse::ok(
+        state
+            .service
+            .repo()
+            .list_ratings(query.cs_agent_id.as_deref(), query.since, limit)
+            .await?,
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+struct CsStatsQuery {
+    /// 限定某位客服；不传则统计全域。
+    #[serde(default)]
+    cs_agent_id: Option<String>,
+    /// 起始时间（毫秒）。前端按时间范围筛选时传。
+    #[serde(default)]
+    since: Option<i64>,
+}
+
+async fn get_cs_stats(
+    State(state): State<CustomerServiceRouterState>,
+    Extension(_user): Extension<CurrentUser>,
+    Query(query): Query<CsStatsQuery>,
+) -> Result<Json<ApiResponse<CsOverviewStats>>, AppError> {
+    Ok(Json(ApiResponse::ok(
+        state
+            .service
+            .repo()
+            .cs_overview_stats(query.cs_agent_id.as_deref(), query.since)
+            .await?,
+    )))
 }
 
 async fn delete_ticket(
