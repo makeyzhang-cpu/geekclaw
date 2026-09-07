@@ -312,24 +312,6 @@ async fn probe_v3_database_pool(pool: &SqlitePool) -> Result<ExistingV3DatabaseP
                 "database does not satisfy the complete v3 ID schema contract: {error}"
             )));
         }
-        // 最后一道保险：先按声明的 SetNull / Cascade 策略清掉客服表的孤儿引用。
-        // 漏清的孤儿行会让下面的数据契约审计判整个数据集不合格 → 数据集被隔离、库被重置。
-        // 丢几条从属数据远比整库被隔离划算。
-        match nomifun_db::prune_customer_service_orphan_references(pool).await {
-            Ok(0) => {}
-            Ok(pruned) => {
-                tracing::warn!(
-                    pruned,
-                    "startup: pruned orphan customer-service references before the v3 data contract audit"
-                );
-            }
-            Err(error) => {
-                tracing::warn!(
-                    %error,
-                    "startup: customer-service orphan sweep failed; continuing to the v3 data contract audit"
-                );
-            }
-        }
         if let Err(error) = nomifun_db::validate_id_data_contract(pool).await {
             return Ok(ExistingV3DatabaseProbe::Incompatible(format!(
                 "database does not satisfy the complete v3 ID data contract: {error}"
@@ -426,6 +408,46 @@ async fn probe_v3_database_pool(pool: &SqlitePool) -> Result<ExistingV3DatabaseP
     Ok(ExistingV3DatabaseProbe::Current)
 }
 
+/// 用一条独立的**可写**连接清扫客服孤儿引用。只读探针池里执行不了写操作，
+/// 所以必须在打开 read-only 池之前单独做。任何失败都只记 warn —— 这是尽力的自愈，
+/// 不能因为清扫失败就拒绝启动（真正卡住数据的活还是交给后面的契约审计）。
+async fn prune_customer_service_orphans_writable(path: &Path) {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(false)
+        .busy_timeout(DATABASE_PROBE_BUSY_TIMEOUT);
+    let pool = match PoolOptions::<Sqlite>::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+    {
+        Ok(pool) => pool,
+        Err(error) => {
+            warn!(
+                %error,
+                "startup: cannot open the database writable for the customer-service orphan sweep; continuing"
+            );
+            return;
+        }
+    };
+    match nomifun_db::prune_customer_service_orphan_references(&pool).await {
+        Ok(0) => {}
+        Ok(pruned) => {
+            warn!(
+                pruned,
+                "startup: pruned orphan customer-service references before the v3 data contract audit"
+            );
+        }
+        Err(error) => {
+            warn!(
+                %error,
+                "startup: customer-service orphan sweep failed; continuing to the v3 data contract audit"
+            );
+        }
+    }
+    pool.close().await;
+}
+
 async fn probe_existing_v3_database(path: &Path) -> Result<ExistingV3DatabaseProbe> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -443,6 +465,12 @@ async fn probe_existing_v3_database(path: &Path) -> Result<ExistingV3DatabasePro
             path.display()
         );
     }
+
+    // 最后一道保险：审计之前先按声明的 SetNull / Cascade 策略清掉客服表的孤儿引用。
+    // 漏清的孤儿行会让下面的数据契约审计判**整个数据集**不合格 → 数据集被隔离、库被重置
+    //（5.0.33 线上事故：删客服漏清 cs_ratings）。丢几条从属数据远比整库被隔离划算。
+    // 必须用**可写**连接：下面的身份探针是 read-only 池，写不进去。
+    prune_customer_service_orphans_writable(path).await;
 
     let options = SqliteConnectOptions::new()
         .filename(path)

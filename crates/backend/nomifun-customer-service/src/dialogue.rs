@@ -59,6 +59,24 @@ fn is_transient_error(error: &AppError) -> bool {
     .iter()
     .any(|needle| text.contains(needle))
 }
+
+/// 工具协议 / 流式 tool_call 适配类错误。
+///
+/// 部分 Anthropic 系代理在流式 tool_call 上会漏发 function name，整轮直接失败。
+/// 换模型救不了（别的代理可能有同样的 quirk），但**同一个模型去掉工具**通常就能
+/// 正常出话 —— 客服绝大多数回复根本不需要调工具。
+fn is_tool_protocol_error(error: &AppError) -> bool {
+    let text = error.to_string().to_lowercase();
+    [
+        "missing function name",
+        "tool call",
+        "tool_call",
+        "function name",
+        "invalid tool",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
 /// Context window: at most this many recent messages …
 pub const WINDOW_MESSAGE_LIMIT: usize = 30;
 /// … within this many content characters.
@@ -399,11 +417,16 @@ impl CsDialogueEngine {
             }
         }
 
-        // 所有候选都失败，且失败发生在带工具的请求上：最后以「不带工具」再试一次。
-        // 部分 Anthropic 系代理在流式 tool_call 上会漏发 function name，导致整轮
-        // 直接失败；客服绝大多数回复不需要调工具，去掉工具即可正常出话——宁可少
-        // 用工具，也不能让访客看到"暂时无法回复"。
-        if !tools.is_empty() {
+        // 所有候选都失败：仅当最后那次错误看起来像工具协议 quirk（典型：Anthropic
+        // 系代理流式 tool_call 漏发 function name）时，再以「不带工具」重试首候选。
+        // 客服绝大多数回复不需要调工具，去掉工具即可正常出话——宁可少用工具，也
+        // 不能让访客看到"暂时无法回复"。其他类型的失败（鉴权/网络/上游下线）跳过
+        // 这一步，直接把最后一次错误抛回去。
+        let should_retry_without_tools = !tools.is_empty()
+            && last_error
+                .as_ref()
+                .is_some_and(is_tool_protocol_error);
+        if should_retry_without_tools {
             if let Some(candidate) = candidates.first() {
                 let request = OneShotTurnRequest {
                     provider: candidate.clone(),
