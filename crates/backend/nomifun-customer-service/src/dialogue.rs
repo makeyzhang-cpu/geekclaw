@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use nomifun_ai_agent::{OneShotDeps, OneShotTurnRequest, run_one_shot_turn};
-use nomifun_common::{AppError, KnowledgeBaseId, ProviderWithModel, now_ms};
+use nomifun_common::{AppError, KnowledgeBaseId, now_ms};
 use nomifun_db::models::{
     CsAgentRow, CsAuditEventRow, CS_DIALOGUE_STATE_CLOSED, CS_DIALOGUE_STATE_HUMAN,
 };
@@ -356,12 +356,6 @@ impl CsDialogueEngine {
         // 依次尝试候选模型：第一个成功即返回。显式配置的模型排第一，所以它
         // 正常时行为与从前完全一致——自动择优只在它缺失或失败时才可见。
         let mut last_error: Option<AppError> = None;
-        // 记住"最后一次失败的候选"。下面的去工具重试必须打在它身上：它才是
-        // 撞上工具协议 quirk 的那个模型。用 candidates.first() 是错的——首选
-        // 可能早在第一轮就因别的原因（模型下线/鉴权）失败了，拿它重试必然再
-        // 失败一次（2026-09-07 线上：首选 big-pickle 400 model_unavailable，
-        // 次选 claude 撞工具协议，重试却打回 big-pickle → 访客收到"暂时无法回复"）。
-        let mut last_failed_candidate: Option<&ProviderWithModel> = None;
         'candidates: for (index, candidate) in candidates.iter().enumerate() {
             // 每个候选最多两次：首次失败且属瞬时拥塞(限流/上游忙/超时)时退避重试。
             // 托管免费模型经常只是"现在忙"，等一下同一个模型就能出话。
@@ -417,55 +411,55 @@ impl CsDialogueEngine {
                             "customer-service turn failed on candidate model"
                         );
                         last_error = Some(error);
-                        last_failed_candidate = Some(candidate);
-                        continue 'candidates;
-                    }
-                }
-            }
-        }
 
-        // 所有候选都失败：仅当最后那次错误看起来像工具协议 quirk（典型：Anthropic
-        // 系代理流式 tool_call 漏发 function name）时，再以「不带工具」重试首候选。
-        // 客服绝大多数回复不需要调工具，去掉工具即可正常出话——宁可少用工具，也
-        // 不能让访客看到"暂时无法回复"。其他类型的失败（鉴权/网络/上游下线）跳过
-        // 这一步，直接把最后一次错误抛回去。
-        let should_retry_without_tools = !tools.is_empty()
-            && last_error
-                .as_ref()
-                .is_some_and(is_tool_protocol_error);
-        if should_retry_without_tools {
-            if let Some(candidate) = last_failed_candidate.or_else(|| candidates.first()) {
-                let request = OneShotTurnRequest {
-                    provider: candidate.clone(),
-                    system_prompt: build_system_prompt(agent),
-                    history: history.clone(),
-                    user_text: user_text.clone(),
-                    tools: Vec::new(),
-                    timeout_secs: TURN_TIMEOUT_SECS,
-                };
-                match self.runner.run(request).await {
-                    Ok(reply) => {
-                        tracing::warn!(
-                            cs_agent_id = %agent.cs_agent_id,
-                            cs_dialogue_id,
-                            provider_id = %candidate.provider_id,
-                            model = %candidate.model,
-                            previous_error = %last_error.as_ref().map(|e| e.to_string()).unwrap_or_default(),
-                            "customer-service turn recovered with tools disabled"
-                        );
-                        self.repo
-                            .append_message(cs_dialogue_id, "agent", &reply, now_ms())
-                            .await?;
-                        return Ok(reply);
-                    }
-                    Err(error) => {
-                        tracing::warn!(
-                            cs_agent_id = %agent.cs_agent_id,
-                            cs_dialogue_id,
-                            %error,
-                            "customer-service turn failed with tools disabled"
-                        );
-                        last_error = Some(error);
+                        // 工具协议 quirk：这个模型本身是通的（能连上、能出 token），
+                        // 只是流式 tool_call 漏发 function name。立刻用**同一个模型**
+                        // 去掉工具再试一次——客服绝大多数回复不需要调工具，这比换
+                        // 下一个候选更快出话。
+                        //
+                        // 必须"立刻"而不是等所有候选跑完：后面的候选各自会以别的
+                        // 原因失败，把最后一个错误冲刷掉，届时再判断"最后错误是不是
+                        // 工具协议问题"就永远为假（2026-09-07 线上：claude 撞工具
+                        // 协议，下一个候选 deepseek 又撞 model_unavailable，去工具
+                        // 重试的机会就这样被洗掉了）。
+                        if !tools.is_empty() && last_error.as_ref().is_some_and(is_tool_protocol_error)
+                        {
+                            let request = OneShotTurnRequest {
+                                provider: candidate.clone(),
+                                system_prompt: build_system_prompt(agent),
+                                history: history.clone(),
+                                user_text: user_text.clone(),
+                                tools: Vec::new(),
+                                timeout_secs: TURN_TIMEOUT_SECS,
+                            };
+                            match self.runner.run(request).await {
+                                Ok(reply) => {
+                                    tracing::warn!(
+                                        cs_agent_id = %agent.cs_agent_id,
+                                        cs_dialogue_id,
+                                        provider_id = %candidate.provider_id,
+                                        model = %candidate.model,
+                                        "customer-service turn recovered with tools disabled"
+                                    );
+                                    self.repo
+                                        .append_message(cs_dialogue_id, "agent", &reply, now_ms())
+                                        .await?;
+                                    return Ok(reply);
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        cs_agent_id = %agent.cs_agent_id,
+                                        cs_dialogue_id,
+                                        provider_id = %candidate.provider_id,
+                                        model = %candidate.model,
+                                        %error,
+                                        "customer-service turn still failed with tools disabled"
+                                    );
+                                    last_error = Some(error);
+                                }
+                            }
+                        }
+                        continue 'candidates;
                     }
                 }
             }
@@ -638,6 +632,100 @@ mod tests {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
             Ok(format!("reply to: {}", req.user_text))
         }
+    }
+
+    /// 只会撞上工具协议 quirk 的 runner：带工具调用必失败（上游流式 tool_call
+    /// 漏发 function name），去掉工具就正常出话。
+    struct ToolProtocolRunner {
+        calls: StdMutex<Vec<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl TurnRunner for ToolProtocolRunner {
+        async fn run(&self, req: OneShotTurnRequest) -> Result<String, AppError> {
+            let tool_names: Vec<String> = req.tools.iter().map(|t| t.name.clone()).collect();
+            self.calls.lock().unwrap().push(tool_names.clone());
+            if tool_names.is_empty() {
+                return Ok("reply without tools".into());
+            }
+            Err(AppError::BadGateway(
+                "LLM stream error: OpenAI-compatible provider returned a tool call with a missing function name (call `call_x`)".into(),
+            ))
+        }
+    }
+
+    /// 无论有没有工具都失败的 runner（鉴权/上游下线类）。
+    struct AlwaysFailingRunner {
+        calls: StdMutex<Vec<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl TurnRunner for AlwaysFailingRunner {
+        async fn run(&self, req: OneShotTurnRequest) -> Result<String, AppError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(req.tools.iter().map(|t| t.name.clone()).collect());
+            Err(AppError::BadGateway(
+                "LLM provider error: API error 400: model_unavailable".into(),
+            ))
+        }
+    }
+
+    /// 工具协议 quirk 必须**就地**去掉工具重试：后面的候选会各自以别的原因
+    /// 失败，把"最后一个错误"冲刷掉，等到所有候选跑完再判断就永远为假
+    /// （2026-09-07 线上：claude 撞工具协议 → 下一个候选又 model_unavailable
+    /// → 去工具重试的机会被洗掉 → 访客看到"暂时无法回复"）。
+    #[tokio::test]
+    async fn tool_protocol_error_retries_without_tools_immediately() {
+        let fx = fixture().await;
+        let agent = create_agent(&fx.repo, 8).await;
+        let runner = Arc::new(ToolProtocolRunner {
+            calls: StdMutex::new(Vec::new()),
+        });
+        let engine = Arc::new(CsDialogueEngine::new(
+            Arc::clone(&fx.repo),
+            Arc::clone(&fx.knowledge),
+            runner.clone(),
+        ));
+
+        let (plugin, visitor) = ids();
+        let reply = engine
+            .handle_visitor_message(&agent.cs_agent_id, &plugin, &visitor, "chat", "多少钱")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(reply, "reply without tools");
+        let calls = runner.calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 2, "带工具失败后应就地去掉工具重试一次");
+        assert!(!calls[0].is_empty(), "第一次请求必须带工具");
+        assert!(calls[1].is_empty(), "重试请求必须不带工具");
+    }
+
+    /// 非工具协议类失败（鉴权/上游下线）不该浪费一次去工具往返。
+    #[tokio::test]
+    async fn non_tool_errors_do_not_retry_without_tools() {
+        let fx = fixture().await;
+        let agent = create_agent(&fx.repo, 8).await;
+        let runner = Arc::new(AlwaysFailingRunner {
+            calls: StdMutex::new(Vec::new()),
+        });
+        let engine = Arc::new(CsDialogueEngine::new(
+            Arc::clone(&fx.repo),
+            Arc::clone(&fx.knowledge),
+            runner.clone(),
+        ));
+
+        let (plugin, visitor) = ids();
+        let result = engine
+            .handle_visitor_message(&agent.cs_agent_id, &plugin, &visitor, "chat", "多少钱")
+            .await;
+
+        assert!(result.is_err());
+        let calls = runner.calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 1, "非工具协议失败不应触发去工具重试");
+        assert!(!calls[0].is_empty());
     }
 
     fn ids() -> (String, String) {
