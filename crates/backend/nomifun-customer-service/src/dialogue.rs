@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use nomifun_ai_agent::{OneShotDeps, OneShotTurnRequest, run_one_shot_turn};
-use nomifun_common::{AppError, KnowledgeBaseId, now_ms};
+use nomifun_common::{AppError, KnowledgeBaseId, ProviderWithModel, now_ms};
 use nomifun_db::models::{
     CsAgentRow, CsAuditEventRow, CS_DIALOGUE_STATE_CLOSED, CS_DIALOGUE_STATE_HUMAN,
 };
@@ -356,6 +356,12 @@ impl CsDialogueEngine {
         // 依次尝试候选模型：第一个成功即返回。显式配置的模型排第一，所以它
         // 正常时行为与从前完全一致——自动择优只在它缺失或失败时才可见。
         let mut last_error: Option<AppError> = None;
+        // 记住"最后一次失败的候选"。下面的去工具重试必须打在它身上：它才是
+        // 撞上工具协议 quirk 的那个模型。用 candidates.first() 是错的——首选
+        // 可能早在第一轮就因别的原因（模型下线/鉴权）失败了，拿它重试必然再
+        // 失败一次（2026-09-07 线上：首选 big-pickle 400 model_unavailable，
+        // 次选 claude 撞工具协议，重试却打回 big-pickle → 访客收到"暂时无法回复"）。
+        let mut last_failed_candidate: Option<&ProviderWithModel> = None;
         'candidates: for (index, candidate) in candidates.iter().enumerate() {
             // 每个候选最多两次：首次失败且属瞬时拥塞(限流/上游忙/超时)时退避重试。
             // 托管免费模型经常只是"现在忙"，等一下同一个模型就能出话。
@@ -411,6 +417,7 @@ impl CsDialogueEngine {
                             "customer-service turn failed on candidate model"
                         );
                         last_error = Some(error);
+                        last_failed_candidate = Some(candidate);
                         continue 'candidates;
                     }
                 }
@@ -427,7 +434,7 @@ impl CsDialogueEngine {
                 .as_ref()
                 .is_some_and(is_tool_protocol_error);
         if should_retry_without_tools {
-            if let Some(candidate) = candidates.first() {
+            if let Some(candidate) = last_failed_candidate.or_else(|| candidates.first()) {
                 let request = OneShotTurnRequest {
                     provider: candidate.clone(),
                     system_prompt: build_system_prompt(agent),
