@@ -5428,7 +5428,6 @@ export type I18nKey =
   | 'userManagement.userEnabled'
   | 'userManagement.username'
   | 'userManagement.usersList'
-  | 'userMenu.appearance'
   | 'userMenu.buddyStation'
   | 'userMenu.checkInPoints'
   | 'userMenu.checkUpdate'

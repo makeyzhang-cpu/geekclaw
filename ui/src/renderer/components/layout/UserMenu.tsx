@@ -5,7 +5,6 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Input, Message, Modal } from '@arco-design/web-react';
 import { IconDown } from '@arco-design/web-react/icon';
 import {
   CloseOne,
@@ -23,10 +22,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useUpdateAvailability } from '@renderer/hooks/system/useUpdateAvailability';
 import { isBrowserCapabilityUnavailable, useBrowserOverview } from '@renderer/pages/browser/useBrowserInventory';
-import AppearancePanel from '@renderer/components/settings/AppearancePanel';
-import CssThemeModal from '@renderer/pages/settings/DisplaySettings/CssThemeModal';
-import { useCssTheme } from '@renderer/hooks/ui/useCssTheme';
-import type { ICssTheme } from '@/common/config/storage';
 import { blurActiveElement } from '@renderer/utils/ui/focus';
 import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { isDesktopShell } from '@renderer/utils/platform';
@@ -136,52 +131,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
     window.dispatchEvent(new CustomEvent('geekclaw-open-update-modal', { detail: { source: 'user-menu' } }));
     closeMenu();
   }, [closeMenu]);
-
-  // Appearance (外观) — full surface lives in AppearancePanel; the editor modal
-  // is rendered at this component root (outside the popup) so it survives the
-  // popup unmounting when the user clicks into it.
-  const { saveUserTheme, deleteUserTheme } = useCssTheme();
-  const [themeModalVisible, setThemeModalVisible] = useState(false);
-  const [editingTheme, setEditingTheme] = useState<ICssTheme | null>(null);
-
-  const openThemeModal = useCallback(
-    (theme: ICssTheme | null) => {
-      setEditingTheme(theme);
-      setThemeModalVisible(true);
-      closeMenu();
-    },
-    [closeMenu]
-  );
-
-  const closeThemeModal = useCallback(() => {
-    setThemeModalVisible(false);
-    setEditingTheme(null);
-  }, []);
-
-  const handleThemeSave = useCallback(
-    async (data: Omit<ICssTheme, 'id' | 'created_at' | 'updated_at' | 'is_preset'>) => {
-      await saveUserTheme(data, editingTheme);
-      closeThemeModal();
-      Message.success(t('common.saveSuccess'));
-    },
-    [saveUserTheme, editingTheme, closeThemeModal, t]
-  );
-
-  const canDeleteTheme = !!editingTheme && !editingTheme.is_preset;
-  const handleThemeDelete = useCallback(() => {
-    if (!editingTheme || editingTheme.is_preset) return;
-    const target = editingTheme;
-    Modal.confirm({
-      title: t('common.confirmDelete'),
-      content: t('settings.cssTheme.deleteConfirm'),
-      okButtonProps: { status: 'danger' },
-      onOk: async () => {
-        await deleteUserTheme(target.id);
-        closeThemeModal();
-        Message.success(t('common.deleteSuccess'));
-      },
-    });
-  }, [editingTheme, deleteUserTheme,  closeThemeModal, t]);
 
   const menuItemClass =
     'group flex items-center gap-8px px-10px h-34px rounded-8px text-13px text-t-primary cursor-pointer transition-colors hover:bg-fill-2 active:bg-fill-3 border-none bg-transparent p-0 m-0 text-left';
@@ -307,11 +256,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
             </button>
             {settingsExpanded && (
               <div className='flex flex-col gap-1px'>
-                {/* 外观 — full appearance surface (light/dark + scaling + CSS presets) */}
-                <div className='mt-2px mb-2px'>
-                  <div className='text-12px font-500 text-t-tertiary px-10px pt-2px pb-4px'>{t('userMenu.appearance')}</div>
-                  <AppearancePanel onEditTheme={openThemeModal} />
-                </div>
+                {/* 外观/主题 由功能栏底部的衣服图标 (SiderThemeControl) 承担，避免在两处设置同一处参数 */}
                 <button type='button' className={subMenuItemClass} onClick={handleOpenUpdateModal}>
                   <span className={subMenuIconClass}>
                     <UpdateRotation theme='outline' size='16' fill='currentColor' />
@@ -365,13 +310,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
           )}
         </div>
       )}
-      <CssThemeModal
-        visible={themeModalVisible}
-        theme={editingTheme}
-        onClose={closeThemeModal}
-        onSave={(data) => void handleThemeSave(data)}
-        onDelete={canDeleteTheme ? handleThemeDelete : undefined}
-      />
     </div>
   );
 };
