@@ -1,11 +1,11 @@
 {
-  "version": "5.0.35",
-  "notes": "GeekClaw 5.0.35\n\n一次交互整理 + 两个稳定性修复。\n\n## 界面：外观设置入口收敛为一处\n\n设置里的\"外观\"整块（明暗模式 / 界面缩放 / 预设主题）去掉了。\n功能栏底部那个衣服形状的图标本来就是同一个东西，两处都放等于同一个参数\n有两个入口，改了这边那边不跟着变，容易误以为没生效。\n\n现在外观相关的设置统一从**功能栏底部的衣服图标**进入，功能和之前完全一致：\n浅色/深色、界面缩放、预设主题（律动暗黑 / 经典 / 暗夜霓虹 / 冰晶幻境 /\n落日余晖）以及手动添加 CSS。\n\n## 界面：用户功能栏点进去不再\"消失\"\n\n点击左下角头像打开用户功能栏，再点里面的邀请 / 积分 / 定价 / 远程&开放能力，\n以前弹层会立刻收起、露出背后的主功能栏，正在操作的这一栏凭空不见。\n\n现在导航后**保持展开**，可以连续切换；只有点弹层外面或再点一次头像才收起。\n检查更新、退出登录这类会盖住整个屏幕的操作仍然会自动收起。\n\n顺带把只剩一项的\"设置\"折叠组去掉了，\"检查更新\"直接和邀请 / 积分 / 定价\n并列，少点一层。\n\n## 修复：启动自检用错了数据库连接\n\n5.0.34 加的\"孤儿引用启动自检\"写在了只读连接上，而清理孤儿是要写库的 ——\n这个自愈实际上一次都没生效过。\n\n现在改成先用一条独立的可写连接完成清扫，再走原来的只读身份探针和契约审计。\n清扫失败只记录警告、不阻断启动（真正拦截脏数据的活仍由契约审计负责）。\n\n## 修复：AI 客服不再做无意义的重试\n\n模型全部尝试失败后，系统原本会固定再\"不带工具\"重试一次。这个兜底是为\n部分模型在流式工具调用上漏发函数名的毛病准备的，但之前不加判断一律重试，\n遇到鉴权失败、网络断开这类根本不是工具问题的错误也照样多跑一趟，\n白白拉长了访客的等待时间。\n\n现在只有错误看起来确实像工具协议问题才重试，其他情况直接返回错误。",
-  "pub_date": "2026-09-07T09:48:11.881Z",
+  "version": "5.0.36",
+  "notes": "GeekClaw v5.0.36\n\n修复\n\nAI 客服：访客收不到 AI 回复（线上真因定位）\n- 场景：已配置的模型通道首选因「模型当前不可用」失败、次选撞上工具协议兼容\n  问题时，兜底的「不带工具重试」会错误地打回首选模型（那个已经确认挂掉的），\n  于是重试必然再失败一次，访客最终看到「暂时无法回复，请稍后再试」。\n- 修复：兜底重试现在打在真正撞上工具协议问题的那个候选模型上，而不是首选。\n\nAI 客服：模型自动择优不再浪费可用模型\n- 原先每个模型服务商只贡献一个候选（它排序最靠前的那个）。免费模型池里\n  常见「个别模型单独下线、同池其余模型正常」，首选一挂就等于整家服务商被跳过。\n- 修复：每个服务商最多贡献两个候选，按「先每家最好的、再每家次好的」轮转\n  排列 —— 换服务商优先于同服务商降级，单次回合计最多尝试四个模型。\n\n改进\n- 用户菜单：移除重复的外观/主题入口。外观设置统一由功能栏底部的衣服图标\n  承担（明暗、界面缩放、主题列表），避免同一类参数在两处设置。\n- 用户菜单：移除只剩一项的「设置」折叠组，「检查更新」提为顶层快捷链接。\n- 用户菜单：点击邀请 / 积分 / 定价等项后菜单不再自动收起，可以连续切换。\n\n内部\n- 客服从属数据清理补齐（删除客服 / 工单时同步解除评价引用），并新增启动期\n  孤儿引用自愈，避免数据集在启动时被判定不合格。\n- 新增回归测试：模型候选链构造、删除客服后的引用完整性。",
+  "pub_date": "2026-09-07T11:04:39.979Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZWFBUzQyZjdTWDNhcWpxdE5sUDdlSGt0TC9JZGExSTVYWDZZeGI1blBBd0M1MWozWTh1SG1HN0NoTzN2VzhTMi9tZHpFSXByZnM5TG5tWkVhWHFqaXdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Nzc0MzIyCWZpbGU6R2Vla0NsYXdfNS4wLjM1X3g2NC1zZXR1cC5leGUKek5JWlpLMkJiWDlQWVlSdEFFdzloYytEcXNRZ05rcGJXd1c0YmhKdElDdTNzM3lMTkFsdWxqZy94Z285d3NYU3BuZG5ybnFkbGIzajRYaGpVMzUwQlE9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.35/GeekClaw_5.0.35_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVg4Mkw4bk1rOWt2VWh4OU15c1RRRVhNNGtRcSswVWJLWnpVdDFENTd4RFpVa0tmc1FYb2xnc0xnMi9MVWphUmQwVFl5YjlFTldUVFdMZDM3TVZuYndJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Nzc4NjAyCWZpbGU6R2Vla0NsYXdfNS4wLjM2X3g2NC1zZXR1cC5leGUKckhyUEp2bGMzUXpYMHNzVGVTVGZoY1dUM3ZTVncybFRad0c2ZzdwQ2t4UmU5SE9BRUNpWDVyTHV4aU5aTHFvVmNrbmUyM2c2U1MvdzVZSHArSGVwQ2c9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.36/GeekClaw_5.0.36_x64-setup.exe"
     }
   }
 }
