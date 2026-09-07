@@ -90,6 +90,10 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
     return () => document.removeEventListener('mousedown', handleDocClick);
   }, [open]);
 
+  // 导航后**保持菜单打开**：邀请/积分/定价/远程能力是同一组用户入口，
+  // 关掉弹层会立刻露出背后的主功能左侧栏、打断连续切换。
+  // 收起交给：点弹层外部（handleDocClick）或再次点触发器。
+  // 例外是那些要盖全屏的动作（检查更新弹窗 / 登出），它们自行 closeMenu。
   const navTo = useCallback(
     (target: string) => {
       cleanupSiderTooltips();
@@ -97,9 +101,8 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
       Promise.resolve(navigate(target)).catch((error) => {
         console.error('Navigation failed:', error);
       });
-      closeMenu();
     },
-    [navigate, closeMenu]
+    [navigate]
   );
 
   const handleBrowserClick = useCallback(() => {
