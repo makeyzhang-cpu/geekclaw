@@ -1,11 +1,11 @@
 {
-  "version": "5.0.36",
-  "notes": "GeekClaw v5.0.36\n\n修复\n\nAI 客服：访客收不到 AI 回复（线上真因定位）\n- 场景：已配置的模型通道首选因「模型当前不可用」失败、次选撞上工具协议兼容\n  问题时，兜底的「不带工具重试」会错误地打回首选模型（那个已经确认挂掉的），\n  于是重试必然再失败一次，访客最终看到「暂时无法回复，请稍后再试」。\n- 修复：兜底重试现在打在真正撞上工具协议问题的那个候选模型上，而不是首选。\n\nAI 客服：模型自动择优不再浪费可用模型\n- 原先每个模型服务商只贡献一个候选（它排序最靠前的那个）。免费模型池里\n  常见「个别模型单独下线、同池其余模型正常」，首选一挂就等于整家服务商被跳过。\n- 修复：每个服务商最多贡献两个候选，按「先每家最好的、再每家次好的」轮转\n  排列 —— 换服务商优先于同服务商降级，单次回合计最多尝试四个模型。\n\n改进\n- 用户菜单：移除重复的外观/主题入口。外观设置统一由功能栏底部的衣服图标\n  承担（明暗、界面缩放、主题列表），避免同一类参数在两处设置。\n- 用户菜单：移除只剩一项的「设置」折叠组，「检查更新」提为顶层快捷链接。\n- 用户菜单：点击邀请 / 积分 / 定价等项后菜单不再自动收起，可以连续切换。\n\n内部\n- 客服从属数据清理补齐（删除客服 / 工单时同步解除评价引用），并新增启动期\n  孤儿引用自愈，避免数据集在启动时被判定不合格。\n- 新增回归测试：模型候选链构造、删除客服后的引用完整性。",
-  "pub_date": "2026-09-07T11:04:39.979Z",
+  "version": "5.0.37",
+  "notes": "GeekClaw v5.0.37\n\n修复\n\nAI 客服：访客收不到 AI 回复（继续修，本次为最后一层原因）\n- 上一版已修好模型候选链，但去掉工具重试的触发条件仍挂在「最后一次失败的错误」\n  上：当可用模型 A 撞上工具调用兼容问题、而排在它后面的模型 B 又因为别的\n  原因失败时，最后一次错误就不再是工具兼容问题，重试条件永远不成立，\n  于是那个本来能正常出话的模型 A 没被重试，访客看到「暂时无法回复」。\n- 修复：任一模型一旦撞上工具调用兼容问题，立即用同一个模型去掉工具重试一次。\n  这个模型本身是通的，去掉工具后通常立刻出话，访客等待也更短。\n\n改进\n- 模型自动择优：每个模型服务商最多贡献两个候选，按「先各家的首选、再各家的\n  次选」排列。避免某个模型单独下线时，整家服务商被整体跳过。\n\n上一版（v5.0.36）已包含\n- 移除用户菜单里重复的外观 / 主题入口，统一由功能栏底部的主题图标承担。\n- 移除只剩一项的「设置」折叠组，「检查更新」提为顶层入口。\n- 点击邀请 / 积分 / 定价后菜单不再自动收起。\n- 客服从属数据清理补齐，并新增启动期孤儿引用自愈。\n\n内部\n- 新增回归测试：工具调用兼容问题的就地重试、非工具类失败不浪费重试、\n  模型候选链构造、删除客服后的引用完整性。",
+  "pub_date": "2026-09-07T12:10:12.941Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVg4Mkw4bk1rOWt2VWh4OU15c1RRRVhNNGtRcSswVWJLWnpVdDFENTd4RFpVa0tmc1FYb2xnc0xnMi9MVWphUmQwVFl5YjlFTldUVFdMZDM3TVZuYndJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Nzc4NjAyCWZpbGU6R2Vla0NsYXdfNS4wLjM2X3g2NC1zZXR1cC5leGUKckhyUEp2bGMzUXpYMHNzVGVTVGZoY1dUM3ZTVncybFRad0c2ZzdwQ2t4UmU5SE9BRUNpWDVyTHV4aU5aTHFvVmNrbmUyM2c2U1MvdzVZSHArSGVwQ2c9PQo=",
-      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.36/GeekClaw_5.0.36_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSaFhLbVYvKzlvZVE3QndLUTBIZ0RJRllWbFVIMDcxMGZoU0FlZG05Z3pqNER2L2h0NTUvY2pjV2FiZVRXOGRjR0d2NmdJYjhiMHFZaTZ3UW93QzFpL010UENTZFdIeFFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NzgyODMyCWZpbGU6R2Vla0NsYXdfNS4wLjM3X3g2NC1zZXR1cC5leGUKWDZJb1VTRXkvanZpOUlIeDdiNEtXa0FSbStLZExBb1dmUm1mMnd5dzRzNzNiK3Mvak5la3h1eUdxQUdtWWl4bzlnZUZOZzFDanc0VXhWM3hJZ0RQQ3c9PQo=",
+      "url": "https://github.com/makeyzhang-cpu/geekclaw/releases/download/v5.0.37/GeekClaw_5.0.37_x64-setup.exe"
     }
   }
 }
