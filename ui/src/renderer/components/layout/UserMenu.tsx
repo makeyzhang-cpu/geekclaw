@@ -10,7 +10,6 @@ import {
   CloseOne,
   Crown,
   People,
-  SettingTwo,
   Share,
   UpdateRotation,
   Wallet,
@@ -54,7 +53,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
   const USERNAME_STORAGE_KEY = 'geekclaw.displayUsername';
 
   const [open, setOpen] = useState(false);
-  const [settingsExpanded,  setSettingsExpanded] = useState(true);
   const [localUsername, setLocalUsername] = useState<string | null>(() => {
     try {
       return localStorage.getItem(USERNAME_STORAGE_KEY);
@@ -135,10 +133,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
   const menuItemClass =
     'group flex items-center gap-8px px-10px h-34px rounded-8px text-13px text-t-primary cursor-pointer transition-colors hover:bg-fill-2 active:bg-fill-3 border-none bg-transparent p-0 m-0 text-left';
   const menuIconClass = 'size-18px flex items-center justify-center shrink-0 text-t-secondary group-hover:text-t-primary';
-  const subMenuItemClass =
-    'group flex items-center gap-8px pl-32px pr-10px h-34px rounded-8px text-13px text-t-primary cursor-pointer transition-colors hover:bg-fill-2 active:bg-fill-3 border-none bg-transparent p-0 m-0 text-left';
-  const subMenuIconClass =
-    'size-16px flex items-center justify-center shrink-0 text-t-tertiary group-hover:text-t-primary';
 
   const browserVisible =
     !browserCapabilityUnavailable && browserOverview?.supported !== false && browserOverview?.enabled !== false;
@@ -215,6 +209,17 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
               </span>
               <span className='flex-1 truncate'>{t('pricing.menuEntry')}</span>
             </div>
+            {/* 检查更新 — 原先收在「设置」折叠组里，该组去掉后直接并入快捷链接。
+                外观/主题不在此处，统一由功能栏底部的衣服图标 (SiderThemeControl) 承担。 */}
+            <button type='button' className={menuItemClass} onClick={handleOpenUpdateModal}>
+              <span className={menuIconClass}>
+                <UpdateRotation theme='outline' size='16' fill='currentColor' />
+              </span>
+              <span className='flex-1 truncate text-left'>{t('userMenu.checkUpdate')}</span>
+              {updateAvailability.available && (
+                <span className='shrink-0 size-8px rounded-full bg-primary-6' aria-label={t('update.availableTitle')} />
+              )}
+            </button>
           </div>
 
           {/* Settings moved from sidebar */}
@@ -237,37 +242,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
                 {t('settings.openCapabilities.railTitle', { defaultValue: '远程&开放能力' })}
               </span>
             </button>
-            {/* Settings collapsible subgroup */}
-            <button
-              type='button'
-              className={menuItemClass}
-              onClick={() => setSettingsExpanded((prev) => !prev)}
-            >
-              <span className={menuIconClass}>
-                <SettingTwo theme='outline' size='16' fill='currentColor' />
-              </span>
-              <span className='flex-1 truncate text-left'>{t('common.settings')}</span>
-              <IconDown
-                className={classNames(
-                  'shrink-0 text-t-tertiary transition-transform duration-200 text-12px',
-                  settingsExpanded && 'rotate-180'
-                )}
-              />
-            </button>
-            {settingsExpanded && (
-              <div className='flex flex-col gap-1px'>
-                {/* 外观/主题 由功能栏底部的衣服图标 (SiderThemeControl) 承担，避免在两处设置同一处参数 */}
-                <button type='button' className={subMenuItemClass} onClick={handleOpenUpdateModal}>
-                  <span className={subMenuIconClass}>
-                    <UpdateRotation theme='outline' size='16' fill='currentColor' />
-                  </span>
-                  <span className='flex-1 truncate text-left'>{t('userMenu.checkUpdate')}</span>
-                  {updateAvailability.available && (
-                    <span className='shrink-0 size-8px rounded-full bg-primary-6' aria-label={t('update.availableTitle')} />
-                  )}
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Cloud account / logout */}
