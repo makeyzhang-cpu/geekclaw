@@ -34,6 +34,7 @@ import { Button, Input, Spin, Typography } from '@arco-design/web-react';
 import { uuid } from '@/common/utils';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { NomiModelSelection } from '@/renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
 
 const { Text } = Typography;
 
@@ -82,7 +83,11 @@ const buildHistory = (list: IMessageText[], windowSize: number): string[] => {
   return texts;
 };
 
-const CollaboratorPanel: React.FC<{ conversation_id: ConversationId }> = ({ conversation_id }) => {
+const CollaboratorPanel: React.FC<{
+  conversation_id: ConversationId;
+  /** 会话主模型选择器：协作者未显式配置 provider/model 时跟随它，保证与会话一致。 */
+  modelSelection: NomiModelSelection;
+}> = ({ conversation_id, modelSelection }) => {
   const { t } = useTranslation();
   const [stored] = useConfig('coAgent.config');
   const config: ICoAgentConfig = useMemo(
@@ -103,8 +108,20 @@ const CollaboratorPanel: React.FC<{ conversation_id: ConversationId }> = ({ conv
       const entryId = uuid();
       setEntries((prev) => [...prev, { id: entryId, question, loading: true }]);
       try {
-        const history = buildHistory(listRef.current as IMessageText[], config.history_window || 0);
-        const res = await ipcBridge.coAgent.run.invoke({ config, message: question, history });
+      const history = buildHistory(listRef.current as IMessageText[], config.history_window || 0);
+      // 模型跟随会话：设置页未显式指定协作者 provider/model 时，注入当前会话主模型
+      // （provider_id=modelSelection.current_model.id / model=use_model）。避免回落后端
+      // 全局 resolve_default_model → 本地会话 + 云端默认模型渠道缺失 → 502 Bad gateway。
+      const cur = modelSelection.current_model;
+      const requestConfig: ICoAgentConfig =
+        cur?.id && cur.use_model && (!config.provider_id || !config.model)
+          ? { ...config, provider_id: cur.id, model: cur.use_model }
+          : config;
+      const res = await ipcBridge.coAgent.run.invoke({
+        config: requestConfig,
+        message: question,
+        history,
+      });
         if (!res) {
           // 后端门关闭（例如 mode=off）：直接丢弃本次空条目，不渲染。
           setEntries((prev) => prev.filter((e) => e.id !== entryId));
@@ -120,7 +137,7 @@ const CollaboratorPanel: React.FC<{ conversation_id: ConversationId }> = ({ conv
         setExpanded(true);
       }
     },
-    [config]
+    [config, modelSelection.current_model?.id, modelSelection.current_model?.use_model]
   );
 
   // 订阅协同共答触发事件（按会话过滤）。

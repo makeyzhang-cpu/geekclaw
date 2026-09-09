@@ -124,7 +124,7 @@ const NomiChat: React.FC<{
             />
           </FlexFullContainer>
           {/* 协同共答「协作者」面板：独立于消息流渲染，不触碰流式内部。 */}
-          <CollaboratorPanel conversation_id={conversation_id} />
+          <CollaboratorPanel conversation_id={conversation_id} modelSelection={modelSelection} />
           {!readOnly && !hideSendBox && (
             <NomiSendBox
               conversation_id={conversation_id}
