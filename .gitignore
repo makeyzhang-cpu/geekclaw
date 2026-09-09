@@ -13,3 +13,7 @@ ui/dist.bak.*/
 *.bak
 .cargo/config.toml.tmp
 apps/desktop/updater/latest.json.bak.*
+
+# --- updater 签名密钥（gitignored，防泄漏；丢失需全盘找回或换新钥）---
+apps/desktop/signing/*.key
+apps/desktop/signing/*.key.pub
