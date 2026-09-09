@@ -10,11 +10,13 @@
 //! they dispatch through `AgentRuntimeHandle` via `ConversationService`.
 
 pub mod agent;
+pub mod capability;
 pub mod co_agent;
 pub mod remote;
 pub mod state;
 
 pub use agent::agent_routes;
+pub use capability::{CapabilityRouterState, capability_routes};
 pub use co_agent::{CoAgentRouterState, co_agent_routes};
 pub use remote::remote_agent_routes;
 pub use state::AgentRouterState;

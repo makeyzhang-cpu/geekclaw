@@ -3,86 +3,97 @@
  * Copyright 2025-2026 GeekClaw (geekclaw.com)
  * SPDX-License-Identifier: Apache-2.0
  *
- * 智能能力路由（Auto Capability Routing）前端契约类型。
+ * Capability-routing shared types. Single source of truth for both the
+ * frontend registry and the /api/capability/route backend contract.
  *
- * 设计要点：
- * - 四类能力（技能 / MCP / 专家预设 / 插件）统一成 `CapabilityItem`，路由器只看这一层。
- * - 决策结果 `RouterDecision` 镜像后端 `POST /api/capability/route` 的响应结构，
- *   前端只做校验与展示，不信任任何未在候选集内出现的 id（防模型幻觉）。
- * - 所有配置经 `configKey capabilityRouting.config` 持久化，后端无 DB 迁移。
+ * Design rules:
+ * - `type` is a fixed vocabulary (`skill` / `expert` / `mcp` / `plugin` /
+ *   `market_install`); a backend change to the vocabulary is a breaking change
+ *   for both ends.
+ * - `id` is the only key the LLM is allowed to reference — anything else is
+ *   treated as hallucination and dropped.
+ * - `confidence` is the user-visible quality signal: 0 (irrelevant) … 1
+ *   (definitely relevant).
  */
 
-/** 可被 AI 自动识别并挂载的能力类型。 */
-export type CapabilityType = 'skill' | 'mcp' | 'preset' | 'plugin';
+export type CapabilityType =
+  | 'skill'
+  | 'expert'
+  | 'mcp'
+  | 'plugin'
+  | 'market_install';
 
-/** 统一能力条目：四类来源聚合后的形态。 */
+/** A flattened in-memory capability, fed into both the recall stage and the
+ *  backend prompt (the backend's `CapabilityCandidate`). */
 export interface CapabilityItem {
-  /** 全局唯一 id，形如 `skill:excel-report` / `mcp:github` / `preset:legal` / `plugin:xxx`。 */
+  /** Stable id within the source market, e.g. `skill:browse-web-1`. The router
+   *  uses this as the only allowed return key. */
   id: string;
-  type: CapabilityType;
-  /** 展示名。 */
+  /** Localized label, copied into the response so the UI does not have to
+   *  re-resolve the candidate. */
+  label: string;
+  /** Internal name/slug — used for tokenization. Not user-facing. */
   name: string;
-  /** 供模型判断的摘要（≤220 字）。 */
-  description: string;
-  /** 领域/场景标签，用于召回打分（技能直接复用后端 scenario_tags / audience_tags）。 */
+  type: CapabilityType;
+  /** Lower-cased scenario tags (e.g. `["browser","web","form-fill"]`). */
   tags: string[];
-  /** 是否已安装/可用；false 时建议条展示「去安装」而非「挂载」。 */
+  /** Short description; also tokenized for recall. */
+  description: string;
+  /** True if the user already has this mounted locally. Already-mounted items
+   *  are not suggested again (idempotency). */
   installed: boolean;
-  /** 当前会话是否已挂载，用于幂等与去重。 */
-  enabled: boolean;
-  /** 各类型挂载所需参数，交由对应的挂载适配器消费。 */
-  mount_payload: Record<string, unknown>;
+  /** Backend-specific payload, e.g. mcp server id, preset id, market
+   *  package id. The mount-action helpers consume this verbatim. */
+  payload?: Record<string, unknown>;
 }
 
-/** 路由命中项（后端返回 + 前端校验后）。 */
-export interface RouteCandidateRef {
+/** A single suggestion returned by the backend (or fallback). */
+export interface CapabilityDecision {
   id: string;
   type: CapabilityType;
-  /** 0~1，低于阈值丢弃。 */
+  label: string;
+  /** 0..1, clamped on the response side. */
   confidence: number;
-  /** 展示给用户：为什么推荐。 */
-  reason: string;
+  /** Optional short rationale, ≤ 120 chars. */
+  reason?: string;
 }
 
-/** 后端 `POST /api/capability/route` 的响应结构。 */
-export interface RouterDecision {
-  need: RouteCandidateRef[];
-  no_need: boolean;
-}
-
-/** 智能能力识别模式。suggest = 只建议不自动执行（默认，零误操作风险）。 */
-export type CapabilityMode = 'off' | 'suggest' | 'auto';
-
-/** 持久化配置（configKey `capabilityRouting.config`）。 */
 export interface CapabilityRoutingConfig {
-  mode: CapabilityMode;
-  /** 置信度阈值，低于该值的命中项丢弃。 */
-  confidence_threshold: number;
-  /** 单次最多建议条数。 */
+  /** When false the entire suggestion bar is hidden. */
+  enabled: boolean;
+  /** Hard cap on visible suggestions (also enforced server-side). */
   max_suggestions: number;
-  /** 是否允许建议 MCP（决策 3：即便允许也需逐次授权，不自动启用）。 */
+  /** Confidence floor, suggestions below are dropped. */
+  confidence_threshold: number;
+  /** Whether MCP servers can be suggested for mount (per user policy — needs
+   *  explicit grant). */
   allow_mcp: boolean;
-  /** 是否允许建议切换专家分身（决策 4：建议模式下需用户确认）。 */
+  /** Whether to suggest a preset/expert switch (per user policy). */
   allow_preset_switch: boolean;
-  /** 是否纳入市场未安装能力（决策 5：展示为「去安装」）。 */
-  include_market: boolean;
+  /** Whether to include market_install entries in recall + display. */
+  include_market_in_suggestions: boolean;
+  /** Bounded budget for the LLM call, in ms. */
+  llm_timeout_ms: number;
 }
 
-/** 默认配置：建议模式 + 主会话模型路由。 */
 export const DEFAULT_CAPABILITY_ROUTING_CONFIG: CapabilityRoutingConfig = {
-  mode: 'suggest',
-  confidence_threshold: 0.6,
+  enabled: true,
   max_suggestions: 3,
-  allow_mcp: true,
+  confidence_threshold: 0.6,
+  allow_mcp: false,
   allow_preset_switch: true,
-  include_market: true,
+  include_market_in_suggestions: true,
+  llm_timeout_ms: 8000,
 };
 
-/** 构造统一 id：`type:name`。 */
-export const capabilityId = (type: CapabilityType, name: string): string => `${type}:${name}`;
+/** Helper: convert a Candidate item into the `CapabilityCandidate` payload the
+ *  backend expects on `/api/capability/route`. */
+export const toBackendCandidate = (item: CapabilityItem) => ({
+  id: item.id,
+  label: item.label,
+  type: item.type,
+  hint: `${item.tags.join(' ')} ${item.description}`.trim().slice(0, 220),
+});
 
-/** 从统一 id 反解类型；不合法返回 undefined。 */
-export const parseCapabilityType = (id: string): CapabilityType | undefined => {
-  const prefix = id.slice(0, id.indexOf(':'));
-  return prefix === 'skill' || prefix === 'mcp' || prefix === 'preset' || prefix === 'plugin' ? prefix : undefined;
-};
+/** Empty-state sentinel — never displayed, used while the hook is loading. */
+export const EMPTY_DECISIONS: CapabilityDecision[] = [];

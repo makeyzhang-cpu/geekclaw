@@ -3,45 +3,49 @@
  * Copyright 2025-2026 GeekClaw (geekclaw.com)
  * SPDX-License-Identifier: Apache-2.0
  *
- * 能力路由器：本地召回 + 决策解析校验（纯函数，易单测、不依赖 UI）。
+ * Capability router (P0 "建议模式") — frontend side.
  *
- * 两段式设计（先召回后决策，避免把全量能力塞进 prompt）：
- *   1) `recallCandidates`  本地按标签/关键词打分，取 Top-K；
- *   2) `parseRouteDecision` 校验模型返回的结构化决策，越权 id 一律丢弃。
- *
- * 降级策略：模型不可用 / 返回非法 JSON 时，用召回结果直接展示建议
- * （`fallbackFromRecall`），保证「没有模型也能给建议」，绝不阻塞主对话。
+ * Pipeline:
+ *   1. registry          aggregates live candidates from skills / experts / MCP / plugins
+ *                        / market_install sources. Any source that fails is dropped
+ *                        via `Promise.allSettled`, so a single broken market cannot
+ *                        take the suggestion bar down.
+ *   2. recallCandidates  local scoring over the candidates that survived — pure,
+ *                        unit-testable, no network.
+ *   3. backend /api/capability/route gives the LLM the recalled shortlist and asks
+ *      for ranked ids; ids the LLM invents (hallucination) are dropped here.
+ *   4. fallbackFromRecall is what we show when the network call fails / times out
+ *      / returns unparseable — local recall only, no LLM, never blocks the user.
  */
 
 import {
   DEFAULT_CAPABILITY_ROUTING_CONFIG,
+  type CapabilityDecision,
   type CapabilityItem,
   type CapabilityRoutingConfig,
-  type RouteCandidateRef,
-  type RouterDecision,
 } from './capabilityTypes';
 
-/** 把用户消息切成可用于匹配的词：英文按空格，中文取 2~4 字滑动窗口。 */
+export * from './capabilityTypes';
+
+// -------------------------- Local recall (pure) ---------------------------
+
 const tokenize = (text: string): string[] => {
   const normalized = text.toLowerCase();
   const words = normalized
     .split(/[^\p{L}\p{N}]+/u)
     .filter((w) => w.length > 0);
   const tokens = new Set<string>(words);
-
-  // 中文无空格，取 2-gram 作为粗粒度特征（成本低、召回够用）。
   const cjk = normalized.replace(/[^\p{Script=Han}]+/gu, '');
   for (let i = 0; i + 2 <= cjk.length; i += 1) tokens.add(cjk.slice(i, i + 2));
   return [...tokens];
 };
 
-/** 单个能力的召回打分：标签命中权重最高，其次名称、描述。 */
 const scoreCapability = (item: CapabilityItem, tokens: string[]): number => {
-  if (item.enabled) return -1; // 已挂载的能力不重复建议（幂等）
+  // Suggested-but-already-mounted items stay out of the bar (idempotent).
+  if (item.installed) return -1;
   const tags = item.tags.join(' ').toLowerCase();
   const name = item.name.toLowerCase();
   const description = item.description.toLowerCase();
-
   let score = 0;
   tokens.forEach((token) => {
     if (tags.includes(token)) score += 3;
@@ -52,15 +56,12 @@ const scoreCapability = (item: CapabilityItem, tokens: string[]): number => {
 };
 
 export interface RecallOptions {
-  /** 返回候选上限（默认 8，给模型判断用；最终建议条再按 max_suggestions 截断）。 */
+  /** Max candidates returned (default 8, fed to the LLM). */
   limit?: number;
-  /** 是否纳入未安装能力（市场项）。 */
+  /** When false, only items that are locally installed are considered. */
   includeMarket?: boolean;
 }
 
-/**
- * 本地召回 Top-K 候选。返回打分大于 0 的条目，按分数降序。
- */
 export const recallCandidates = (
   registry: CapabilityItem[],
   message: string,
@@ -79,81 +80,67 @@ export const recallCandidates = (
     .map((x) => x.item);
 };
 
-/** 从模型输出中提取首个 JSON 对象（模型常夹带解释文字，需容错）。 */
-const extractJson = (raw: string): unknown | undefined => {
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) return undefined;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return undefined;
-  }
-};
+// ----------------------- Backend response handling -------------------------
 
 /**
- * 校验模型决策：只保留候选集内、且置信度达标的命中项。
- * 任何异常（非法 JSON / 字段缺失 / 越权 id）都返回空数组，由调用方静默降级。
+ * Validate the backend's flat-array decision list against the candidate set
+ * we sent it. Any id invented by the LLM is dropped silently here so we never
+ * hand the UI a path that does not exist in the registry.
  */
-export const parseRouteDecision = (
-  raw: string,
+export const validateDecision = (
+  rawDecisions: ReadonlyArray<CapabilityDecision> | null | undefined,
   candidates: CapabilityItem[],
   config: CapabilityRoutingConfig = DEFAULT_CAPABILITY_ROUTING_CONFIG
-): RouteCandidateRef[] => {
-  const parsed = extractJson(raw);
-  if (!parsed || typeof parsed !== 'object') return [];
-
-  const data = parsed as { need?: unknown; no_need?: unknown };
-  if (data.no_need === true || !Array.isArray(data.need)) return [];
+): CapabilityDecision[] => {
+  if (!Array.isArray(rawDecisions)) return [];
 
   const allowed = new Map(candidates.map((item) => [item.id, item]));
-  const result: RouteCandidateRef[] = [];
+  const out: CapabilityDecision[] = [];
 
-  data.need.forEach((entry) => {
-    if (!entry || typeof entry !== 'object') return;
-    const e = entry as { id?: unknown; type?: unknown; confidence?: unknown; reason?: unknown };
-    const id = typeof e.id === 'string' ? e.id : '';
+  for (const entry of rawDecisions) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = typeof entry.id === 'string' ? entry.id : '';
     const item = allowed.get(id);
-    if (!item) return; // 越权/幻觉 id，直接丢弃
+    if (!item) continue; // hallucinated id — drop.
+    if (typeof entry.confidence !== 'number' || !Number.isFinite(entry.confidence)) continue;
 
-    const confidence = typeof e.confidence === 'number' ? e.confidence : Number(e.confidence);
-    if (!Number.isFinite(confidence) || confidence < config.confidence_threshold) return;
+    // Type-based policy gate: MCP / preset switches need explicit user opt-in
+    // (decided as P0 step 3/4 in the capabilities roadmap).
+    if (item.type === 'mcp' && !config.allow_mcp) continue;
+    if (item.type === 'expert' && !config.allow_preset_switch) continue;
 
-    // 类型过滤：MCP 与专家切换由配置独立控制（决策 3 / 决策 4）。
-    if (item.type === 'mcp' && !config.allow_mcp) return;
-    if (item.type === 'preset' && !config.allow_preset_switch) return;
+    const confidence = Math.max(0, Math.min(1, entry.confidence));
+    if (confidence < config.confidence_threshold) continue;
 
-    result.push({
-      id: item.id,
+    out.push({
+      id,
       type: item.type,
+      label: item.label,
       confidence,
-      reason: typeof e.reason === 'string' && e.reason.trim() ? e.reason.trim() : `可能适用于：${item.name}`,
+      reason: typeof entry.reason === 'string' && entry.reason.trim()
+        ? entry.reason.trim()
+        : `可能适用于：${item.name}`,
     });
-  });
+  }
 
-  return result
+  return out
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, config.max_suggestions);
 };
 
-/** 模型不可用时的降级：直接用本地召回结果构造建议（置信度按排名递减）。 */
+/**
+ * When the backend is unavailable / timed-out / returned unparseable JSON, fall
+ * back to using the recalled items directly. Confidence is a fake monotonic
+ * decay based on rank so the bar still feels ordered.
+ */
 export const fallbackFromRecall = (
   candidates: CapabilityItem[],
   config: CapabilityRoutingConfig = DEFAULT_CAPABILITY_ROUTING_CONFIG
-): RouteCandidateRef[] =>
+): CapabilityDecision[] =>
   candidates.slice(0, config.max_suggestions).map((item, index) => ({
     id: item.id,
     type: item.type,
-    confidence: Math.max(config.confidence_threshold, 0.9 - index * 0.1),
+    label: item.label,
+    confidence: Math.max(config.confidence_threshold, 0.85 - index * 0.1),
     reason: `与当前任务相关：${item.name}`,
   }));
-
-/** 把后端返回的决策对象（已解析）走同一套校验，做双保险。 */
-export const validateDecision = (
-  decision: RouterDecision | null | undefined,
-  candidates: CapabilityItem[],
-  config: CapabilityRoutingConfig = DEFAULT_CAPABILITY_ROUTING_CONFIG
-): RouteCandidateRef[] => {
-  if (!decision || decision.no_need || !Array.isArray(decision.need)) return [];
-  return parseRouteDecision(JSON.stringify(decision), candidates, config);
-};

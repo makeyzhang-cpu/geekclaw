@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nomifun_ai_agent::{
-    AgentRouterState, AgentRuntimeRegistry, AgentService, CoAgentRouterState, RemoteAgentRouterState,
-    RemoteAgentService,
+    AgentRouterState, AgentRuntimeRegistry, AgentService, CapabilityRouterState, CoAgentRouterState,
+    RemoteAgentRouterState, RemoteAgentService,
 };
 use nomifun_api_types::TerminalExitEvent;
 use nomifun_preset::{BuiltinPresetRegistry, PresetRouterState, PresetService};
@@ -77,6 +77,10 @@ pub struct ModuleStates {
     pub agent: AgentRouterState,
     /// 协同共答 (co-agent) 端点状态 — 复用系统已配置 provider/key。
     pub co_agent: CoAgentRouterState,
+    /// Capability routing ("AI 自动选择技能/插件") — reuses the same
+    /// provider/key plumbing as the co-agent endpoint, so routing decisions
+    /// always run on a model the user already has configured.
+    pub capability: CapabilityRouterState,
 
     pub connection_test: ConnectionTestRouterState,
     pub file: FileRouterState,
@@ -586,6 +590,12 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
             service: agent_service,
         },
         co_agent: CoAgentRouterState {
+            provider_repo: services.provider_repo.clone(),
+            provider_model_repo: services.provider_model_repo.clone(),
+            encryption_key: services.encryption_key,
+            data_dir: services.data_dir.clone(),
+        },
+        capability: CapabilityRouterState {
             provider_repo: services.provider_repo.clone(),
             provider_model_repo: services.provider_model_repo.clone(),
             encryption_key: services.encryption_key,

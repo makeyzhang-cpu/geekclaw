@@ -10,7 +10,9 @@ use axum::routing::{get, post};
 use axum::{Router, middleware};
 use tower_http::cors::{Any, CorsLayer};
 
-use nomifun_ai_agent::{agent_routes, co_agent_routes, remote_agent_routes};
+use nomifun_ai_agent::{
+    agent_routes, capability_routes, co_agent_routes, remote_agent_routes,
+};
 use nomifun_assets::{AssetRouterState, asset_routes};
 use nomifun_preset::preset_routes;
 use nomifun_team::team_routes;
@@ -756,6 +758,16 @@ pub fn create_router_with_all_state(
         &instance_owner_state,
     );
 
+    // Capability routing endpoint ("AI 自动选择技能/插件") — additive, the main
+    // conversation turn is never touched. Reuses the same provider/key
+    // plumbing as the co-agent route so user model selection applies to
+    // both. Protected by auth + instance-owner consistent with peers.
+    let capability_authenticated = protect_instance_owner(
+        capability_routes(states.capability),
+        &auth_mw_state,
+        &instance_owner_state,
+    );
+
     // Phase 3 (review #6/#12): global model-failover config GET/PUT, auth-gated.
     // Path string must match the frontend `agentModelFailover` exactly.
     let model_failover_authenticated = protect_instance_owner(
@@ -1134,7 +1146,8 @@ pub fn create_router_with_all_state(
         .merge(preset_authenticated)
         .merge(team_authenticated)
         .merge(expert_market_authenticated)
-        .merge(co_agent_authenticated);
+        .merge(co_agent_authenticated)
+        .merge(capability_authenticated);
 
     // Phase 2b: mount the login-browser routes (browser-use builds only).
     #[cfg(feature = "browser-use")]

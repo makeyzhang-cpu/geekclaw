@@ -95,6 +95,7 @@ pub use co_agent::{
     CoAgentConfig, CoAgentLlm, CoAgentMode, CoAgentOrchestrator, CoAgentResult, SystemProviderCoAgent,
 };
 pub use routes::{CoAgentRouterState, co_agent_routes};
+pub use routes::{CapabilityRouterState, capability_routes};
 pub use services::AgentService;
 pub use services::RemoteAgentService;
 pub use runtime_registry::{AgentRuntimeRegistry, InMemoryAgentRuntimeRegistry};

@@ -6534,3 +6534,53 @@ export const coAgent = {
     history: req.history ?? [],
   })),
 };
+
+// ---------------------------------------------------------------------------
+// Capability routing — the "AI 自动选择技能/插件" backend.
+//
+// The frontend sends a snapshot of currently-available capabilities (skill /
+// expert / mcp / plugin / market_install) plus the user's recent message; the
+// backend returns a structured JSON suggestion list whose ids are always
+// pinned to the candidate set so the LLM cannot suggest capability it has
+// never seen. See `crates/backend/nomifun-ai-agent/src/routes/capability.rs`.
+// ---------------------------------------------------------------------------
+export interface ICapabilityDecision {
+  type: 'skill' | 'expert' | 'mcp' | 'plugin' | 'market_install';
+  id: string;
+  label: string;
+  /** 0..1 — already clamped by the backend. */
+  confidence: number;
+  /** Optional short rationale from the LLM (≤ 120 chars). */
+  reason?: string;
+}
+
+export interface ICapabilityRouteRequest {
+  message: string;
+  candidates: Array<{
+    id: string;
+    label: string;
+    type: string;
+    hint?: string;
+  }>;
+  provider_id?: string;
+  model?: string;
+  max_suggestions?: number;
+  threshold?: number;
+}
+
+export const capabilityRoute = httpPost<
+  ICapabilityDecision[],
+  ICapabilityRouteRequest
+>('/api/capability/route', (req) => ({
+  message: req.message,
+  candidates: req.candidates.map((c) => ({
+    id: c.id,
+    label: c.label,
+    type: c.type,
+    hint: c.hint ?? '',
+  })),
+  provider_id: req.provider_id,
+  model: req.model,
+  max_suggestions: req.max_suggestions,
+  threshold: req.threshold,
+}));
