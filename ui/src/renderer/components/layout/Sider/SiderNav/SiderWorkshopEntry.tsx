@@ -19,7 +19,7 @@ interface SiderWorkshopEntryProps {
   onClick: () => void;
 }
 
-/** Creative Workshop (创意工坊) rail entry — the infinite-canvas AI creation surface. */
+/** AI创艺工作台 rail entry (formerly 创意工坊) — the AI creation surface. */
 const SiderWorkshopEntry: React.FC<SiderWorkshopEntryProps> = ({
   isMobile,
   isActive,
@@ -28,9 +28,9 @@ const SiderWorkshopEntry: React.FC<SiderWorkshopEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('workshop.nav.entry', { defaultValue: '创意工坊' });
+  const label = t('workshop.nav.entry', { defaultValue: 'AI创艺工作台' });
   const betaLabel = t('workshop.beta.tag', { defaultValue: 'Beta' });
-  const tooltipContent = t('workshop.beta.navTooltip', { defaultValue: '创意工坊（Beta）' });
+  const tooltipContent = t('workshop.beta.navTooltip', { defaultValue: 'AI创艺工作台（Beta）' });
 
   if (collapsed) {
     return (

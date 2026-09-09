@@ -27,7 +27,7 @@ import { useFigures, useFiguresInUse } from './useFigures';
  * wizard creates a library figure and auto-selects it on completion.
  */
 const CharacterPicker: React.FC<{
-  /** Selected character id ('mochi'…'custom'). */
+  /** Selected character id ('geekclaw' | 'ink' | 'bolt' | 'custom'). */
   value: string;
   /** Selected library figure id when `value === 'custom'`. */
   figureId?: FigureId;

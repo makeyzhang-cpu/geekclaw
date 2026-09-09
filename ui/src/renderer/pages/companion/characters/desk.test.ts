@@ -15,7 +15,7 @@ describe('getDeskSpec', () => {
   });
 
   it('keeps every roster character on the default desk', () => {
-    for (const id of ['mochi', 'ink', 'bolt']) {
+    for (const id of ['ink', 'bolt']) {
       expect(getDeskSpec(id)).toBe(DEFAULT_DESK);
     }
   });

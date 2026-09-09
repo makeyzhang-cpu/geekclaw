@@ -502,9 +502,9 @@
     "attachImage": "Add image"
   },
   "characters": {
-    "mochi": {
-      "name": "Mochi",
-      "style": "Soft Japanese · mochi bunny"
+    "geekclaw": {
+      "name": "GeekClaw",
+      "style": "GeekClaw"
     },
     "ink": {
       "name": "Ink",

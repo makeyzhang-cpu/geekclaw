@@ -28,6 +28,7 @@ import {
   Spin,
   Tag,
   Tabs,
+  Tooltip,
 } from '@arco-design/web-react';
 
 // ArcO exposes the multiline input as a member of `Input`, not a top-level export.
@@ -506,31 +507,29 @@ const CsWorkbenchPage: React.FC = () => {
 
   return (
     <div className='flex h-full w-full flex-col box-border bg-bg-1'>
-      <div className='flex shrink-0 items-center gap-12px border-b border-solid border-[var(--color-border-2)] px-16px py-10px'>
-        {/* 客服管理 + 收件箱标题 */}
-        <Button
-          size='small'
-          type='text'
-          onClick={() => void navigate('/customer-service/roster')}
-        >
-          <span className='inline-flex items-center gap-4px'>
-            <ListView theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
-            {t('customerService.workbench.manageAgents', { defaultValue: '客服管理' })}
-          </span>
-        </Button>
-
-        <span className='inline-flex items-center gap-6px text-15px font-500'>
-          <Headset theme='outline' size='15' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
-          {t('customerService.workbench.inboxTitle', { defaultValue: '统一收件箱' })}
-        </span>
-        <span className='text-12px text-t-tertiary'>
-          {t('customerService.workbench.inboxSubtitle', {
+      {/* 统一收件箱工具条 — 严格单行：品牌标题 │ 筛选 │ (右) 导航入口 + 操作员 */}
+      <div className='flex shrink-0 items-center gap-10px overflow-x-auto border-b border-solid border-[var(--color-border-2)] px-16px py-8px'>
+        {/* 品牌：统一收件箱（副标题收进 tooltip，避免长文案挤压工具条） */}
+        <Tooltip
+          content={t('customerService.workbench.inboxSubtitle', {
             defaultValue: '聚合全部客服与渠道 — AI 接管通讯，代替本人与粉丝/客户对话。',
           })}
-        </span>
+          position='bottom'
+        >
+          <span className='inline-flex shrink-0 items-center gap-8px cursor-default'>
+            <span className='size-26px flex items-center justify-center rounded-8px bg-primary-1 text-primary-6 shrink-0'>
+              <Headset theme='outline' size='15' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+            </span>
+            <span className='text-14px font-600 text-t-primary whitespace-nowrap'>
+              {t('customerService.workbench.inboxTitle', { defaultValue: '统一收件箱' })}
+            </span>
+          </span>
+        </Tooltip>
+
+        <span className='h-16px w-1px shrink-0 bg-[var(--color-border-2)]' />
 
         {/* 客服 / 渠道 筛选 */}
-        <span className='ml-auto inline-flex items-center gap-8px'>
+        <span className='inline-flex shrink-0 items-center gap-8px'>
           <Select
             size='small'
             style={{ width: 140 }}
@@ -568,8 +567,17 @@ const CsWorkbenchPage: React.FC = () => {
           </Select>
         </span>
 
-        {/* 渠道中心 + 工单 + 操作员 */}
-        <span className='inline-flex items-center gap-8px'>
+        {/* 右侧：导航入口 + 操作员（统一收口，保证主行清爽） */}
+        <span className='ml-auto inline-flex shrink-0 items-center gap-6px'>
+          <Button size='small' type='text' onClick={() => void navigate('/customer-service/roster')}>
+            <span className='inline-flex items-center gap-4px'>
+              <ListView theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
+              {t('customerService.workbench.manageAgents', { defaultValue: '客服管理' })}
+            </span>
+          </Button>
+
+          <span className='h-16px w-1px shrink-0 bg-[var(--color-border-2)]' />
+
           <Button size='small' type='text' onClick={() => void navigate('/customer-service/channels')}>
             <span className='inline-flex items-center gap-4px'>
               <Api theme='outline' size='14' fill='currentColor' className='block' style={{ lineHeight: 0 }} />
@@ -588,11 +596,13 @@ const CsWorkbenchPage: React.FC = () => {
               {t('customerService.stats.openStats', { defaultValue: '统计报表' })}
             </span>
           </Button>
-          <span className='inline-flex items-center gap-4px text-12px text-t-tertiary'>
+          <span className='h-16px w-1px shrink-0 bg-[var(--color-border-2)]' />
+
+          <span className='inline-flex shrink-0 items-center gap-4px text-12px text-t-tertiary'>
             <User theme='outline' size='14' fill='currentColor' />
             <Input
               size='mini'
-              style={{ width: '200px' }}
+              style={{ width: '160px' }}
               value={operatorId}
               onChange={setOperatorId}
               placeholder={t('customerService.workbench.operatorPlaceholder', {

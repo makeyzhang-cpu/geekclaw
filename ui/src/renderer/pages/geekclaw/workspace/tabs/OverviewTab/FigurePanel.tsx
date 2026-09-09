@@ -94,7 +94,7 @@ const FigurePanel: React.FC<FigurePanelProps> = ({ profile, patchCompanion, figu
     <div className='flex flex-col gap-14px'>
       <CharacterPicker
         compact
-        value={profile.character || 'mochi'}
+        value={profile.character || 'geekclaw'}
         figureId={figure?.figureId}
         onSelectCharacter={(character) => void patchCompanion({ character, appearance: { custom_figure: null } })}
         onSelectFigure={(fig) =>

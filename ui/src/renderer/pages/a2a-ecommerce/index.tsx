@@ -8,24 +8,21 @@ import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import HubPageShell from '@renderer/components/layout/HubPageShell';
 import WebviewHost from '@renderer/components/media/WebviewHost';
-import { Film, Left, LinkOut, VideoTwo } from '@icon-park/react';
+import { ShoppingBag, Left, LinkOut } from '@icon-park/react';
 import { openExternalUrl } from '@/renderer/utils/platform';
 
-/** AI创艺工作台 — 视频/AI 内容创作平台入口（aivideo.jkyunge.com） */
-const WORKSHOP_URL = 'http://aivideo.jkyunge.com';
+/** A2A 跨境电商入口 */
+const A2A_ECOMMERCE_URL = 'http://www.nexsalehub.com/';
 
 /**
- * WorkshopHomePage — AI创艺工作台入口页（5.0.26 重构）。
+ * A2AEcommercePage — A2A 跨境电商 hub.
  *
- * 把AI创艺工作台从一个本地 ComingSoon 占位，改为跳转到云端视频/AI 内容创作平台
- * （http://aivideo.jkyunge.com）。提供两个入口：
- *   - 进入平台：在应用内 WebviewHost 内嵌打开（无需离开软件）
- *   - 在浏览器中打开：调用系统默认浏览器打开
- *
- * 旧的 /workshop/:id 路由继续指向原 WorkshopListPage（保留 deep link 兼容），
- * 本页只接管 /workshop 路由。
+ * 与「AI 外贸工作台」保持同一形态：右侧内容区先呈现入口卡片，
+ * 点击「进入平台」在应用内 WebviewHost 内嵌打开 A2A 跨境电商
+ * （http://www.nexsalehub.com/），并提供「在浏览器中打开」跳转，
+ * 无需离开软件即可使用。
  */
-const WorkshopHomePage: React.FC = () => {
+const A2AEcommercePage: React.FC = () => {
   const { t } = useTranslation();
   const [active, setActive] = useState(false);
   const handleBack = useCallback(() => setActive(false), []);
@@ -34,10 +31,10 @@ const WorkshopHomePage: React.FC = () => {
   if (!active) {
     return (
       <HubPageShell
-        title={t('workshop.home.title', { defaultValue: 'AI创艺工作台' })}
-        subtitle={t('workshop.home.subtitle', {
+        title={t('a2aEcommerce.title', { defaultValue: 'A2A跨境电商平台（Agent-to-Agent）' })}
+        subtitle={t('a2aEcommerce.subtitle', {
           defaultValue:
-            'AI 视频生成 / 文生视频 / 图生视频 / 数字人短片 — 一站式云端内容创作工作台。在 GeekClaw 内直接打开，无需切换软件。',
+            'AIgoo 是新一代 A2A（Agent-to-Agent）跨境电商平台，致力于让每一个好产品都能触达世界每一个角落。',
         })}
         maxWidthClass='md:max-w-1600px'
       >
@@ -49,42 +46,40 @@ const WorkshopHomePage: React.FC = () => {
             >
               <div className='flex items-start justify-between'>
                 <span className='size-40px flex items-center justify-center rounded-10px bg-primary-1 text-primary-6'>
-                  <VideoTwo theme='outline' size='24' fill='currentColor' />
+                  <ShoppingBag theme='outline' size='24' fill='currentColor' />
                 </span>
                 <span className='text-12px leading-18px px-8px py-2px rounded-full bg-fill-2 text-t-tertiary'>
-                  {t('workshop.home.badge', { defaultValue: '云端' })}
+                  {t('a2aEcommerce.badge', { defaultValue: '跨境电商' })}
                 </span>
               </div>
               <h2 className='mt-16px text-16px font-600 text-t-primary'>
-                {t('workshop.home.cardTitle', { defaultValue: 'aivideo.jkyunge.com — AI创艺工作台' })}
+                {t('a2aEcommerce.cardTitle', { defaultValue: 'A2A 跨境电商' })}
               </h2>
               <p className='mt-8px text-13px leading-20px text-t-secondary'>
-                {t('workshop.home.cardDesc', {
-                  defaultValue: 'AI 短视频 · 数字人 · 文生视频 · 图生视频 · 多镜头脚本编排',
-                })}
+                {t('a2aEcommerce.cardDesc', { defaultValue: '助力中小企业出海的 A2A 跨境电商一站式工作平台' })}
               </p>
               <div className='mt-16px flex items-center gap-12px'>
                 <span className='text-13px font-500 text-primary-6 group-hover:underline'>
-                  {t('workshop.home.enter', { defaultValue: '进入平台' })} →
+                  {t('a2aEcommerce.enter', { defaultValue: '进入平台' })} →
                 </span>
                 <span
                   role='button'
                   tabIndex={0}
                   onClick={(e) => {
                     e.stopPropagation();
-                    openExternalUrl(WORKSHOP_URL);
+                    openExternalUrl(A2A_ECOMMERCE_URL);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       e.stopPropagation();
-                      openExternalUrl(WORKSHOP_URL);
+                      openExternalUrl(A2A_ECOMMERCE_URL);
                     }
                   }}
                   className='inline-flex items-center gap-4px text-12px text-t-tertiary hover:text-primary-6 cursor-pointer transition-colors'
                 >
                   <LinkOut theme='outline' size={14} />
-                  {t('workshop.home.openExternal', { defaultValue: '在浏览器中打开' })}
+                  {t('a2aEcommerce.openExternal', { defaultValue: '在浏览器中打开' })}
                 </span>
               </div>
             </button>
@@ -105,26 +100,26 @@ const WorkshopHomePage: React.FC = () => {
               className='flex items-center gap-4px text-13px text-t-secondary hover:text-primary-6 cursor-pointer transition-colors'
             >
               <Left theme='outline' size={16} />
-              {t('workshop.home.back', { defaultValue: '返回' })}
+              {t('a2aEcommerce.back', { defaultValue: '返回' })}
             </button>
             <span className='text-14px font-600 text-t-primary'>
-              {t('workshop.home.cardTitle', { defaultValue: 'aivideo.jkyunge.com — AI创艺工作台' })}
+              {t('a2aEcommerce.cardTitle', { defaultValue: 'A2A 跨境电商' })}
             </span>
           </div>
           <button
-            onClick={() => openExternalUrl(WORKSHOP_URL)}
+            onClick={() => openExternalUrl(A2A_ECOMMERCE_URL)}
             className='inline-flex items-center gap-6px px-12px py-6px text-12px font-500 text-primary-6 border border-primary-6 rounded-8px hover:bg-primary-1 cursor-pointer transition-colors'
           >
             <LinkOut theme='outline' size={14} />
-            {t('workshop.home.openExternal', { defaultValue: '在浏览器中打开' })}
+            {t('a2aEcommerce.openExternal', { defaultValue: '在浏览器中打开' })}
           </button>
         </div>
         <div className='h-[calc(100vh-120px)] min-h-480px border border-[var(--color-border-2)] rounded-12px overflow-hidden bg-[var(--color-bg-2)]'>
-          <WebviewHost key='workshop' url={WORKSHOP_URL} showNavBar cacheBustOnLoad />
+          <WebviewHost key='a2a-ecommerce' url={A2A_ECOMMERCE_URL} showNavBar cacheBustOnLoad />
         </div>
       </div>
     </div>
   );
 };
 
-export default WorkshopHomePage;
+export default A2AEcommercePage;

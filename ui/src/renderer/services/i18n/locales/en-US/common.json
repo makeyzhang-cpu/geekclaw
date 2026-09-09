@@ -147,5 +147,16 @@
     "openExternal": "Open in browser",
     "subtitle": "An all-in-one B2B AI workspace combining AI trade expert teams, lead-gen agents, personalized AI email and WhatsApp outreach, AI CRM, a company brain and digital asset management.",
     "title": "AI Trade Workspace"
+  },
+  "a2aEcommerce": {
+    "back": "Back",
+    "badge": "Cross-border",
+    "cardDesc": "Next-generation cross-border commerce platform powered by Agent-to-Agent collaboration.",
+    "cardTitle": "A2A Cross-border E-commerce Platform",
+    "enter": "Open",
+    "openExternal": "Open in browser",
+    "siderLabel": "A2A Cross-border",
+    "subtitle": "AIgoo is a new-generation A2A (Agent-to-Agent) cross-border e-commerce platform, dedicated to letting every great product reach every corner of the world.",
+    "title": "A2A Cross-border E-commerce Platform (Agent-to-Agent)"
   }
 }

@@ -66,7 +66,7 @@ const AgentNotFound: React.FC = () => {
           {t('workshop.runner.notFound', { defaultValue: '未找到该智能体' })}
         </span>
         <Button type='primary' onClick={() => navigate('/workshop')}>
-          {t('workshop.runner.backToMarket', { defaultValue: '返回创意工坊' })}
+          {t('workshop.runner.backToMarket', { defaultValue: '返回AI创艺工作台' })}
         </Button>
       </div>
     </div>

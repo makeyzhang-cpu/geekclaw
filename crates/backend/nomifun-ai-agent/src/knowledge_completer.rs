@@ -123,11 +123,21 @@ pub async fn resolve_default_model(
     for row in &rows {
         grouped.entry(row.provider_id.as_str()).or_default().push(row);
     }
-    providers.iter().filter(|p| p.enabled).find_map(|p| {
-        let provider_rows = grouped.get(p.provider_id.as_str())?;
-        first_enabled_model(provider_rows.iter().copied())
-            .map(|model| (p.provider_id.clone(), model))
-    })
+    providers.iter()
+        // 品牌化兜底:跳过内置的 `geekclaw-free-model` 平台——它的所有模型都是免费占位,
+        // 供应商侧常临时 400 model_unavailable(见协作者调用 502 Bad gateway 问题)。
+        // 同时保留字符串后缀过滤作为云端同步命名变化的兜底(老格式 `:free`、新格式 `-free`)。
+        .filter(|p| p.enabled && p.platform != "geekclaw-free-model")
+        .find_map(|p| {
+            let provider_rows = grouped.get(p.provider_id.as_str())?;
+            // 优先选用第一个可用的付费模型;仅当某 provider 全部为 free 时才跳过该 provider。
+            let non_free_rows = provider_rows.iter().filter(|row| {
+                let m = row.model.trim();
+                !m.ends_with(":free") && !m.ends_with("-free")
+            });
+            first_enabled_model(non_free_rows.copied())
+                .map(|model| (p.provider_id.clone(), model))
+        })
 }
 
 #[cfg(test)]

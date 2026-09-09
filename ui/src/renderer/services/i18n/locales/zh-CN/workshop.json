@@ -1,13 +1,13 @@
 {
-  "title": "创意工坊",
+  "title": "AI创艺工作台",
   "subtitle": "在一张无限画布上，用节点与连线组织素材与 AI 生成，图片、视频、文本自由混排创作。",
   "beta": {
     "tag": "Beta",
-    "notice": "创意工坊目前处于 Beta 阶段，功能尚不稳定、可能出错或调整，暂不建议正式使用。",
-    "navTooltip": "创意工坊（Beta）"
+    "notice": "AI创艺工作台目前处于 Beta 阶段，功能尚不稳定、可能出错或调整，暂不建议正式使用。",
+    "navTooltip": "AI创艺工作台（Beta）"
   },
   "nav": {
-    "entry": "创意工坊"
+    "entry": "AI创艺工作台"
   },
   "list": {
     "searchPlaceholder": "搜索画布...",
@@ -74,7 +74,7 @@
   },
   "runner": {
     "notFound": "未找到该智能体",
-    "backToMarket": "返回创意工坊",
+    "backToMarket": "返回AI创艺工作台",
     "back": "返回",
     "resultPlaceholder": "在左侧填写信息，点击「生成」即可开始创作。",
     "cancel": "取消",

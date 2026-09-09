@@ -24,30 +24,24 @@ export type AgentBadgeProps = {
   presetId?: PresetReference;
 };
 
-/** Render agent logo from custom logo, backend logo, or fallback Robot icon */
+/**
+ * Render the conversation/agent brand icon.
+ *
+ * Brand consistency policy: this is a single-brand product (GeekClaw), so the
+ * identity icon for every agent surface — conversation header, mobile brand
+ * bar, agent mode selector, search popover, etc. — must always be the
+ * GeekClaw red-circle white-claw logo, regardless of whether the underlying
+ * preset supplies a custom logo (emoji or image), a backend-specific logo, or
+ * no logo at all. Any other icon (the @icon-park Robot, a custom preset image
+ * like the legacy mochi pink-bowl asset, a backend-specific brand mark, …)
+ * is a brand leak and is replaced here.
+ */
 export const AgentLogoIcon: React.FC<
   Pick<AgentBadgeProps, 'backend' | 'agentLogo' | 'agentLogoIsEmoji' | 'agent_name'>
-> = ({ backend, agentLogo, agentLogoIsEmoji, agent_name }) => {
-  const logoContent = (() => {
-    if (agentLogo) {
-      // Brand consistency: never render a user-supplied emoji as the agent
-      // identity icon. Fallback to the GeekClaw red-circle white-claw logo so
-      // every conversation surface uses one recognisable mark.
-      if (agentLogoIsEmoji) {
-        return <img src={GeekClawLogo} alt='GeekClaw' className='block w-16px h-16px object-contain' />;
-      }
-      return (
-        <img src={agentLogo} alt={`${agent_name || 'agent'} logo`} className='block w-16px h-16px object-contain' />
-      );
-    }
-    const logo = getAgentLogo(backend);
-    if (logo) {
-      return <img src={logo} alt={`${backend} logo`} className='block w-16px h-16px object-contain' />;
-    }
-    return <Robot theme='outline' size={16} fill={iconColors.primary} />;
-  })();
-
+> = () => {
   return (
-    <span className='inline-flex w-16px h-16px items-center justify-center shrink-0 leading-none'>{logoContent}</span>
+    <span className='inline-flex w-16px h-16px items-center justify-center shrink-0 leading-none'>
+      <img src={GeekClawLogo} alt='GeekClaw' className='block w-16px h-16px object-contain' />
+    </span>
   );
 };

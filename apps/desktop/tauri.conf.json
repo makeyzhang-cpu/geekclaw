@@ -6,7 +6,7 @@
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "bun run --filter=./ui dev",
-    "beforeBuildCommand": "bun scripts/prune-build.mjs --pre && bun run --filter=./ui build"
+    "beforeBuildCommand": "echo GeekClaw frontend dist prebuilt"
   },
   "app": {
     "windows": [],

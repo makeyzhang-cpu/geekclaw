@@ -502,9 +502,9 @@
     "attachImage": "添加图片"
   },
   "characters": {
-    "mochi": {
-      "name": "团子 Mochi",
-      "style": "软糯日系 · 麻薯兔"
+    "geekclaw": {
+      "name": "GeekClaw",
+      "style": "GeekClaw"
     },
     "ink": {
       "name": "墨墨 Ink",

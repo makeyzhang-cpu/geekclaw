@@ -146,6 +146,19 @@ pub struct SystemProviderCoAgent {
 impl SystemProviderCoAgent {
     async fn resolve_target(&self) -> Result<(String, String), AppError> {
         if !self.provider_id.is_empty() && !self.model.is_empty() {
+            // 品牌化兜底:前端显式传入的也按 `:free`/`-free` 后缀过滤,
+            // 命中免费占位时强制改走 `resolve_default_model`,
+            // 避免 GeekClaw 内置免费模型被用户手工指定后触发 502 Bad gateway。
+            let m = self.model.trim();
+            if m.ends_with(":free") || m.ends_with("-free") {
+                return resolve_default_model(&self.provider_repo, &self.provider_model_repo)
+                    .await
+                    .ok_or_else(|| {
+                        AppError::Conflict(
+                            "co-agent unavailable: no enabled provider/model is configured".into(),
+                        )
+                    });
+            }
             return Ok((self.provider_id.clone(), self.model.clone()));
         }
         resolve_default_model(&self.provider_repo, &self.provider_model_repo)

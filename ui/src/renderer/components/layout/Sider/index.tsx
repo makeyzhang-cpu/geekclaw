@@ -87,7 +87,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleWorkCommunityClick = () => navTo('/work-community');
   const handleForeignTradeClick = () => navTo('/foreign-trade');
   const handleScheduledClick = () => navTo('/scheduled');
-  const handleRequirementsClick = () => navTo('/requirements');
+  const handleRequirementsClick = () => navTo('/a2a-ecommerce');
   const handleKnowledgeClick = () => navTo('/knowledge');
   const handleAssetLibraryClick = () => navTo('/assets');
   const handleNomiClick = () => navTo('/geekclaw');
@@ -184,15 +184,15 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleForeignTradeClick}
             />
-            {/* Requirements platform (A2A跨境电商) */}
+            {/* A2A 跨境电商 — 与「AI 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 nexsalehub */}
             <SiderRequirementsEntry
               isMobile={isMobile}
-              isActive={pathname.startsWith('/requirements')}
+              isActive={pathname.startsWith('/a2a-ecommerce')}
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleRequirementsClick}
             />
-            {/* 龙虾盒子 — Lobster Box (under A2A跨境电商) */}
+            {/* 端侧智能体盒子 — Edge Agent Box (under A2A跨境电商) */}
             <div
               className={classNames(
                 'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
@@ -204,7 +204,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               <span className='size-22px flex items-center justify-center shrink-0'>
                 <Box theme='outline' size='16' fill='currentColor' className='block leading-none' style={{ lineHeight: 0 }} />
               </span>
-              <span className='collapsed-hidden text-14px font-[500] leading-24px'>龙虾盒子</span>
+              <span className='collapsed-hidden text-14px font-[500] leading-24px'>端侧智能体盒子</span>
             </div>
             {/* 数据空间 — data & storage (moved under 龙虾盒子 / Work++ 工作平台) */}
             <SiderSectionHeader label={t('common.siderSection.data')} collapsed={collapsed} />

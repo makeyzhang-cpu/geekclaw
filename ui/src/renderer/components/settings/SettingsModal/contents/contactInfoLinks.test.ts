@@ -20,7 +20,7 @@ describe('public contact links', () => {
       'https://www.geekclaw.com/contact',
       'https://github.com/geekclaw/geekclaw-tauri/issues',
       'https://github.com/geekclaw/geekclaw-tauri/releases',
-      '535526063@qq.com',
+      'zhangjunbo@88.com',
     ]) {
       expect(combined.includes(target)).toBe(true);
     }

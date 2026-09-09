@@ -27,10 +27,11 @@ const SiderRequirementsEntry: React.FC<SiderRequirementsEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
+  const label = t('a2aEcommerce.siderLabel', { defaultValue: 'A2A跨境电商' });
 
   if (collapsed) {
     return (
-      <Tooltip {...siderTooltipProps} content={t('requirements.title')} position='right'>
+      <Tooltip {...siderTooltipProps} content={label} position='right'>
         <div
           className={classNames(
             'w-full h-32px flex items-center justify-center cursor-pointer transition-colors rd-8px text-t-primary',
@@ -51,7 +52,7 @@ const SiderRequirementsEntry: React.FC<SiderRequirementsEntryProps> = ({
   }
 
   return (
-    <Tooltip {...siderTooltipProps} content={t('requirements.title')} position='right'>
+    <Tooltip {...siderTooltipProps} content={label} position='right'>
       <div
         className={classNames(
           'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
@@ -69,9 +70,7 @@ const SiderRequirementsEntry: React.FC<SiderRequirementsEntryProps> = ({
             style={{ lineHeight: 0 }}
           />
         </span>
-        <span className='collapsed-hidden text-14px font-[500] leading-24px'>
-          {t('requirements.title')}
-        </span>
+        <span className='collapsed-hidden text-14px font-[500] leading-24px'>{label}</span>
       </div>
     </Tooltip>
   );

@@ -23,6 +23,7 @@ const ComponentsShowcase = React.lazy(() => import('@renderer/pages/TestShowcase
 const ScheduledTasksPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage'));
 const WorkCommunityPage = React.lazy(() => import('@renderer/pages/work-community'));
 const ForeignTradePage = React.lazy(() => import('@renderer/pages/foreign-trade'));
+const A2AEcommercePage = React.lazy(() => import('@renderer/pages/a2a-ecommerce'));
 const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage/TaskDetailPage'));
 const ComingSoon = React.lazy(() => import('@renderer/components/ComingSoon'));
 const WorkshopHomePage = React.lazy(() => import('@renderer/pages/workshop/WorkshopHomePage'));
@@ -254,6 +255,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/test/components' element={withRouteFallback(ComponentsShowcase)} />
           <Route path='/work-community' element={withRouteFallback(WorkCommunityPage)} />
           <Route path='/foreign-trade' element={withRouteFallback(ForeignTradePage)} />
+          {/* A2A 跨境电商 — 与「AI 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 nexsalehub */}
+          <Route path='/a2a-ecommerce' element={withRouteFallback(A2AEcommercePage)} />
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/scheduled/:cron_job_id' element={withRouteFallback(TaskDetailPage)} />
           {/* A2A 跨境电商 — 暂时以占位页呈现，后续接入正式能力 */}
@@ -297,7 +300,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/workshop/:id/*' element={withRouteFallback(WorkshopListPage)} />
           {/* 分享邀约有奖分销 (Referral / affiliate) */}
           <Route path='/referral' element={withRouteFallback(ReferralPage)} />
-          {/* 龙虾盒子 (Lobster Box) */}
+          {/* 端侧智能体盒子 (Edge Agent Box) */}
           <Route path='/lobster' element={withRouteFallback(LobsterPage)} />
         </Route>
         <Route path='*' element={<Navigate to={status === 'authenticated' ? '/guid' : '/login'} replace />} />

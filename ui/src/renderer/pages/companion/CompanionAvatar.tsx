@@ -7,7 +7,7 @@
 import React from 'react';
 import { getBaseUrl } from '@/common/adapter/httpBridge';
 import CustomFigure from './characters/CustomFigure';
-import { CUSTOM_CHARACTER_ID, getCharacter } from './characters';
+import { CUSTOM_CHARACTER_ID, GEEKCLAW_CHARACTER_ID, getCharacter } from './characters';
 import { customFigureUrlOf } from './characters/customMeta';
 import type { CustomFigureMeta, CompanionActivity, CompanionMood } from './characters';
 import type { CompanionId } from '@/common/types/ids';
@@ -43,7 +43,11 @@ const CompanionAvatar: React.FC<CompanionAvatarProps> = ({ character, mood, acti
       />
     );
   }
-  const { Component } = getCharacter(character);
+  // 品牌化:非自定义桌面伙伴统一使用 GeekClaw logo,取代 nomifun 默认角色(mochi/ink/bolt 粉红碗等),
+  // 确保桌面端视觉与 GeekClaw 品牌一致。
+  const effectiveCharacter =
+    character === CUSTOM_CHARACTER_ID ? CUSTOM_CHARACTER_ID : GEEKCLAW_CHARACTER_ID;
+  const { Component } = getCharacter(effectiveCharacter);
   return <Component mood={mood} activity={activity} size={size} />;
 };
 

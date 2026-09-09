@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import Mochi from './Mochi';
 import Ink from './Ink';
 import Bolt from './Bolt';
+import GeekClawCharacter from './GeekClawCharacter';
 import { customDeskSpec } from './customDesk';
 import type { CharacterDeskSpec, CharacterMeta, CustomFigureMeta } from './types';
 
@@ -22,14 +22,20 @@ export type {
 /**
  * The character roster. Order = display order in the picker.
  * `palette` feeds the little swatch chip on each picker card.
+ *
+ * 品牌化:已彻底移除原 nomifun 默认的 `mochi` (粉红碗/麻薯) 角色,
+ * 桌面伙伴统一使用 GeekClaw logo,角色库只保留 GeekClaw + 内置 ink/bolt 备选 + custom 用户自建。
  */
+export const GEEKCLAW_CHARACTER_ID = 'geekclaw';
+
 export const CHARACTERS: CharacterMeta[] = [
-  { id: 'mochi', nameKey: 'mochi', palette: ['#fff6f0', '#ffb7c9'], Component: Mochi },
+  { id: 'geekclaw', nameKey: 'geekclaw', palette: ['#0B1020', '#FF6A00'], Component: GeekClawCharacter },
   { id: 'ink', nameKey: 'ink', palette: ['#2b2b33', '#e8b04b'], Component: Ink },
   { id: 'bolt', nameKey: 'bolt', palette: ['#bfeee0', '#37e0ff'], Component: Bolt },
 ];
 
-export const DEFAULT_CHARACTER_ID = 'mochi';
+// 品牌化:默认桌面伙伴统一使用 GeekClaw 爪形 logo,取代 nomifun 默认的 mochi 粉红碗角色。
+export const DEFAULT_CHARACTER_ID = GEEKCLAW_CHARACTER_ID;
 
 export const getCharacter = (id?: string | null): CharacterMeta =>
   CHARACTERS.find((c) => c.id === id) ?? CHARACTERS[0];

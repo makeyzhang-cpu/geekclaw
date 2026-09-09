@@ -4821,7 +4821,7 @@ export interface ICompanionProfile {
   /** Positive dataset-local display ordinal. */
   seq: number;
   name: string;
-  /** Character id (mochi/ink/roux/pixel/bolt/boo); unknown → default. */
+  /** Character id (geekclaw/ink/bolt/custom); unknown → default. */
   character: string;
   persona: ICompanionPersona;
   model: ICompanionModelRef | null;

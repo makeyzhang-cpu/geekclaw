@@ -137,6 +137,17 @@
     "back": "返回",
     "openExternal": "在浏览器中打开"
   },
+  "a2aEcommerce": {
+    "siderLabel": "A2A跨境电商",
+    "title": "A2A跨境电商平台（Agent-to-Agent）",
+    "subtitle": "AIgoo 是新一代 A2A（Agent-to-Agent）跨境电商平台，致力于让每一个好产品都能触达世界每一个角落。",
+    "badge": "跨境电商",
+    "cardTitle": "A2A 跨境电商平台",
+    "cardDesc": "Agent-to-Agent 智能体协同驱动的下一代跨境电商出海平台",
+    "enter": "进入平台",
+    "back": "返回",
+    "openExternal": "在浏览器中打开"
+  },
   "unit": {
     "hour_short": "时",
     "minute_short": "分",

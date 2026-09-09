@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Left, Right, Refresh, Loading } from '@icon-park/react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Left, Right, Refresh, Loading, Clear } from '@icon-park/react';
+import { Message } from '@arco-design/web-react';
 
 export interface WebviewHostProps {
   /** URL to display */
@@ -28,6 +29,12 @@ export interface WebviewHostProps {
   onDidFinishLoad?: () => void;
   /** Called when the page fails to load */
   onDidFailLoad?: (errorCode: number, errorDescription: string) => void;
+  /**
+   * Load the URL with a fresh cache-buster on every mount instead of relying
+   * on the HTTP cache. Useful for embedded SaaS surfaces that ship frequent
+   * front-end updates (creative workshop, A2A storefront, …).
+   */
+  cacheBustOnLoad?: boolean;
 }
 
 const MIN_ZOOM_FACTOR = 0.75;
@@ -58,6 +65,7 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   style,
   onDidFinishLoad,
   onDidFailLoad,
+  cacheBustOnLoad = false,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -68,6 +76,16 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const [zoomFactor, setZoomFactor] = useState(1);
+  /**
+   * Cache-buster token. `0` means "load the URL as-is"; any other value is a
+   * timestamp appended as `_gc=<ts>` so the browser treats the request as a
+   * brand-new resource instead of serving the HTTP cache. This is the only
+   * safe way to defeat the cache of a **cross-origin** iframe — we cannot
+   * reach into its storage, and clearing the whole webview would wipe the
+   * host app's own theme/session state.
+   */
+  const [cacheBust, setCacheBust] = useState(() => (cacheBustOnLoad ? Date.now() : 0));
+  const [isClearing, setIsClearing] = useState(false);
 
   // Self-managed history stacks
   const historyBackRef = useRef<string[]>([]);
@@ -99,7 +117,29 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     setInputUrl(url);
     setIsLoading(true);
     setZoomFactor(1);
-  }, [url]);
+    setCacheBust(cacheBustOnLoad ? Date.now() : 0);
+  }, [url, cacheBustOnLoad]);
+
+  /** Append/replace a `_gc=<token>` query param, preserving any `#hash`. */
+  const withCacheBust = useCallback((targetUrl: string, token: number): string => {
+    try {
+      const parsed = new URL(targetUrl);
+      parsed.searchParams.set('_gc', String(token));
+      return parsed.toString();
+    } catch {
+      // Relative / malformed URL — fall back to naive string concatenation.
+      const [base, ...rest] = targetUrl.split('#');
+      const hash = rest.length ? `#${rest.join('#')}` : '';
+      const sep = base.includes('?') ? '&' : '?';
+      return `${base}${sep}_gc=${token}${hash}`;
+    }
+  }, []);
+
+  /** The URL actually handed to the iframe (cache-busted when requested). */
+  const iframeSrc = useMemo(
+    () => (cacheBust ? withCacheBust(currentUrl, cacheBust) : currentUrl),
+    [currentUrl, cacheBust, withCacheBust]
+  );
 
   // Apply best-effort CSS zoom to the iframe element. For cross-origin
   // documents the browser won't actually scale the inner document via this,
@@ -135,11 +175,13 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
   // Iframe load / error handlers
   const handleIframeLoad = useCallback(() => {
     setIsLoading(false);
+    setIsClearing(false);
     onDidFinishLoad?.();
   }, [onDidFinishLoad]);
 
   const handleIframeError = useCallback(() => {
     setIsLoading(false);
+    setIsClearing(false);
     // The iframe `onError` event carries no error code/description, so we
     // surface a generic failure to keep the previous callback signature.
     onDidFailLoad?.(-1, 'iframe failed to load');
@@ -214,15 +256,30 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
     setIsLoading(true);
   }, [currentUrl]);
 
-  // Refresh
+  // Refresh — always bypass the HTTP cache so stale bundles can't linger.
   const handleRefresh = useCallback(() => {
-    const iframeEl = iframeRef.current;
-    if (!iframeEl) return;
     setIsLoading(true);
-    // Reassigning src forces a reload across origins (contentWindow.location
-    // would throw on cross-origin frames).
-    iframeEl.src = currentUrl;
-  }, [currentUrl]);
+    setCacheBust(Date.now());
+  }, []);
+
+  /**
+   * Clear cache — drop the cached copy of the embedded site and reload it
+   * fresh (cache-busted URL + a brand-new iframe element via `key`).
+   *
+   * Intentionally does **not** call `Webview.clearAllBrowsingData()`: that
+   * wipes the whole host webview (app theme, layout prefs and any session of
+   * the embedded site), which is far more destructive than the stale-content
+   * problem this button exists to solve.
+   */
+  const handleClearCache = useCallback(() => {
+    if (isClearing) return;
+    setIsClearing(true);
+    setIsLoading(true);
+    // Force a brand new iframe element: guarantees a full document reload
+    // even when only the query string changed.
+    setCacheBust(Date.now());
+    Message.success('已清理缓存，正在重新加载…');
+  }, [isClearing]);
 
   // URL bar submit
   const handleUrlSubmit = useCallback(
@@ -357,6 +414,19 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
               <Refresh theme='outline' size={16} />
             )}
           </button>
+          <button
+            onClick={handleClearCache}
+            disabled={isClearing}
+            className='toolbar-btn'
+            title='清理缓存（跳过缓存并重新加载）'
+          >
+            {isClearing ? (
+              <Loading theme='outline' size={16} className='animate-spin' />
+            ) : (
+              <Clear theme='outline' size={16} />
+            )}
+            <span className='ml-4px'>清理缓存</span>
+          </button>
           {isStarOffice && (
             <div className='flex items-center gap-6px ml-2px'>
               <button onClick={handleZoomReset} className='toolbar-btn' title='Reset zoom'>
@@ -397,8 +467,10 @@ const WebviewHost: React.FC<WebviewHostProps> = ({
         onWheel={handleOuterWheelZoom}
       >
         <iframe
+          // Remount on every cache-bust so a full document reload is guaranteed.
+          key={cacheBust}
           ref={iframeRef}
-          src={currentUrl}
+          src={iframeSrc}
           // Permissive sandbox: allow scripts + same-origin so localhost
           // star-office and extension pages work, plus forms/popups for
           // typical external https sites loaded by URLViewer.

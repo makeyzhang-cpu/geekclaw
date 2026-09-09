@@ -19,8 +19,8 @@ export const GEEKCLAW_PUBLIC_LINKS = {
   issues: 'https://github.com/geekclaw/geekclaw-tauri/issues',
   releases: 'https://github.com/geekclaw/geekclaw-tauri/releases',
   baiduPan: 'https://pan.baidu.com/s/5GPonoJNrwJ7GciBSDgXLaA',
-  email: '535526063@qq.com',
-  emailHref: 'mailto:535526063@qq.com',
+  email: 'zhangjunbo@88.com',
+  emailHref: 'mailto:zhangjunbo@88.com',
 } as const;
 
 const COPYRIGHT = '© 2025-2026 GeekClaw · www.geekclaw.ai';
@@ -32,13 +32,6 @@ const CONTACT_ITEMS = [
     value: GEEKCLAW_PUBLIC_LINKS.contact,
     url: GEEKCLAW_PUBLIC_LINKS.contact,
     copyValue: GEEKCLAW_PUBLIC_LINKS.contact,
-  },
-  {
-    labelKey: 'settings.githubIssues',
-    fallbackLabel: 'GitHub Issues',
-    value: GEEKCLAW_PUBLIC_LINKS.issues,
-    url: GEEKCLAW_PUBLIC_LINKS.issues,
-    copyValue: GEEKCLAW_PUBLIC_LINKS.issues,
   },
   {
     labelKey: 'settings.officialWebsite',
@@ -53,8 +46,6 @@ const CONTACT_ITEMS = [
     value: GEEKCLAW_PUBLIC_LINKS.email,
     url: GEEKCLAW_PUBLIC_LINKS.emailHref,
     copyValue: GEEKCLAW_PUBLIC_LINKS.email,
-    trailingKey: 'settings.contactEmailPending',
-    trailingFallback: '、（待补充中）……',
   },
 ] as const;
 
