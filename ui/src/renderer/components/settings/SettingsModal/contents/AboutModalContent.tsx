@@ -65,24 +65,6 @@ const AboutModalContent: React.FC = () => {
       icon: <Right theme='outline' size='16' />,
     },
     {
-      title: t('settings.updateLog'),
-      detail: GEEKCLAW_PUBLIC_LINKS.releases,
-      url: GEEKCLAW_PUBLIC_LINKS.releases,
-      icon: <Right theme='outline' size='16' />,
-    },
-    {
-      title: t('settings.bugReport'),
-      detail: GEEKCLAW_PUBLIC_LINKS.issues,
-      url: GEEKCLAW_PUBLIC_LINKS.issues,
-      icon: <Right theme='outline' size='16' />,
-    },
-    {
-      title: t('settings.contactMe'),
-      detail: GEEKCLAW_PUBLIC_LINKS.contact,
-      url: GEEKCLAW_PUBLIC_LINKS.contact,
-      icon: <Right theme='outline' size='16' />,
-    },
-    {
       title: t('settings.officialWebsite'),
       detail: GEEKCLAW_PUBLIC_LINKS.officialWebsite,
       url: GEEKCLAW_PUBLIC_LINKS.officialWebsite,
@@ -90,7 +72,7 @@ const AboutModalContent: React.FC = () => {
     },
     {
       title: t('settings.contactEmail'),
-      detail: `${GEEKCLAW_PUBLIC_LINKS.email}${t('settings.contactEmailPending')}`,
+      detail: GEEKCLAW_PUBLIC_LINKS.email,
       url: GEEKCLAW_PUBLIC_LINKS.emailHref,
       icon: <Right theme='outline' size='16' />,
     },
