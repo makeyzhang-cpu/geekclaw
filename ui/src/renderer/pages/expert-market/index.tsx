@@ -35,6 +35,7 @@ import {
   myExperts,
   syncExperts,
 } from './api';
+import { resolveExpertAvatar } from './builtinAvatars';
 
 const CATEGORIES = [
   '董事长',
@@ -68,16 +69,18 @@ function colorFor(seed: string): string {
   return PRESET_COLORS[h % PRESET_COLORS.length];
 }
 
-/** 头像：优先 avatar URL；否则回退为带首字的中文彩色圆。 */
-const ExpertAvatar: React.FC<{ name: string; avatar?: string | null; size?: number }> = ({
-  name,
-  avatar,
-  size = 44,
-}) => {
-  if (avatar) {
+/** 头像：后端 avatar URL 优先；否则按 slug 命中本地内置头像；都无则首字彩色圆。 */
+const ExpertAvatar: React.FC<{
+  name: string;
+  avatar?: string | null;
+  slug?: string | null;
+  size?: number;
+}> = ({ name, avatar, slug, size = 44 }) => {
+  const finalAvatar = resolveExpertAvatar(avatar, slug);
+  if (finalAvatar) {
     return (
       <img
-        src={avatar}
+        src={finalAvatar}
         alt={name}
         style={{ width: size, height: size }}
         className='rounded-full object-cover shrink-0'
@@ -133,7 +136,7 @@ const ExpertCard: React.FC<ExpertCardProps> = ({ expert, onOpen, onHire }) => (
     className='group relative flex flex-col gap-10px p-16px rd-12px border border-solid border-[var(--color-border-2)] bg-fill-1 hover:border-primary-6 hover:shadow-sm transition-all cursor-pointer outline-none'
   >
     <div className='flex items-start gap-10px'>
-      <ExpertAvatar name={expert.name} avatar={expert.avatar} size={44} />
+      <ExpertAvatar name={expert.name} avatar={expert.avatar} slug={expert.slug} size={44} />
       <div className='min-w-0 flex-1'>
         <div className='flex items-center gap-6px'>
           <span className='text-15px font-600 text-t-primary leading-20px truncate'>{expert.name}</span>
@@ -185,7 +188,7 @@ const MyExpertCard: React.FC<{ item: MyExpert; onOpen: (companionRef: string) =>
   onOpen,
 }) => (
   <div className='flex items-center gap-10px p-14px rd-12px border border-solid border-[var(--color-border-2)] bg-fill-1'>
-    <ExpertAvatar name={item.name} avatar={item.avatar} size={40} />
+    <ExpertAvatar name={item.name} avatar={item.avatar} slug={item.slug} size={40} />
     <div className='min-w-0 flex-1'>
       <div className='text-14px font-600 text-t-primary truncate'>{item.name}</div>
       <div className='text-12px leading-16px text-t-tertiary truncate'>{item.title}</div>
@@ -530,7 +533,7 @@ const ExpertMarketPage: React.FC = () => {
         ) : detail ? (
           <div className='flex flex-col gap-16px'>
             <div className='flex items-center gap-12px'>
-              <ExpertAvatar name={detail.name} avatar={detail.avatar} size={56} />
+              <ExpertAvatar name={detail.name} avatar={detail.avatar} slug={detail.slug} size={56} />
               <div>
                 <div className='text-17px font-700 text-t-primary'>{detail.name}</div>
                 <div className='text-13px text-t-tertiary mt-2px'>{detail.title}</div>
@@ -628,7 +631,7 @@ const ExpertMarketPage: React.FC = () => {
         {hireTarget && (
           <div className='flex flex-col gap-12px'>
             <div className='flex items-center gap-10px'>
-              <ExpertAvatar name={hireTarget.name} avatar={hireTarget.avatar} size={40} />
+              <ExpertAvatar name={hireTarget.name} avatar={hireTarget.avatar} slug={hireTarget.slug} size={40} />
               <div>
                 <div className='text-14px font-600 text-t-primary'>{hireTarget.name}</div>
                 <div className='text-12px text-t-tertiary'>{hireTarget.title}</div>
