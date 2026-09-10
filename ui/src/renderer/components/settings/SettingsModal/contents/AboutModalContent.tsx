@@ -5,7 +5,7 @@
  */
 
 import { Divider, Typography, Button } from '@arco-design/web-react';
-import { Github, Refresh, Right } from '@icon-park/react';
+import { Refresh, Right } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isDesktopShell, openExternalUrl } from '@/renderer/utils/platform';
@@ -97,14 +97,6 @@ const AboutModalContent: React.FC = () => {
               <span className='px-10px py-4px rd-6px text-13px bg-fill-2 text-t-primary font-500'>
                 v{appVersion || '—'}
               </span>
-              <div
-                className='text-t-primary cursor-pointer hover:text-t-secondary transition-colors p-4px'
-                onClick={() =>
-                  openLink(GEEKCLAW_PUBLIC_LINKS.repository).catch((error) => console.error('Failed to open link:', error))
-                }
-              >
-                <Github theme='outline' size='20' />
-              </div>
             </div>
 
             {/* Check Update Section */}
