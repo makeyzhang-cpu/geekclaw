@@ -13,21 +13,21 @@
 //   2. 后端 SQL 不再写入每张图的路径，仓库体积干净；
 //   3. 自定义专家仍可使用后端 `avatar` 字段（URL 或文件协议）。
 
-import expertAvatar01 from './expert-01.png';
-import expertAvatar02 from './expert-02.png';
-import expertAvatar03 from './expert-03.png';
-import expertAvatar04 from './expert-04.png';
-import expertAvatar05 from './expert-05.png';
-import expertAvatar06 from './expert-06.png';
-import expertAvatar07 from './expert-07.png';
-import expertAvatar08 from './expert-08.png';
-import expertAvatar09 from './expert-09.png';
-import expertAvatar10 from './expert-10.png';
-import expertAvatar11 from './expert-11.png';
-import expertAvatar12 from './expert-12.png';
-import expertAvatar13 from './expert-13.png';
-import expertAvatar14 from './expert-14.png';
-import expertAvatar15 from './expert-15.png';
+import expertAvatar01 from '@renderer/assets/experts/expert-01.png';
+import expertAvatar02 from '@renderer/assets/experts/expert-02.png';
+import expertAvatar03 from '@renderer/assets/experts/expert-03.png';
+import expertAvatar04 from '@renderer/assets/experts/expert-04.png';
+import expertAvatar05 from '@renderer/assets/experts/expert-05.png';
+import expertAvatar06 from '@renderer/assets/experts/expert-06.png';
+import expertAvatar07 from '@renderer/assets/experts/expert-07.png';
+import expertAvatar08 from '@renderer/assets/experts/expert-08.png';
+import expertAvatar09 from '@renderer/assets/experts/expert-09.png';
+import expertAvatar10 from '@renderer/assets/experts/expert-10.png';
+import expertAvatar11 from '@renderer/assets/experts/expert-11.png';
+import expertAvatar12 from '@renderer/assets/experts/expert-12.png';
+import expertAvatar13 from '@renderer/assets/experts/expert-13.png';
+import expertAvatar14 from '@renderer/assets/experts/expert-14.png';
+import expertAvatar15 from '@renderer/assets/experts/expert-15.png';
 
 /** slug → 本地头像资源（与后端 seed 的 expert_catalog.slug 对齐）。 */
 const BUILTIN_AVATAR_BY_SLUG: Record<string, string> = {
