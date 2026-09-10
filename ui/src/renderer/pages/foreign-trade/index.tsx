@@ -11,14 +11,13 @@ import WebviewHost from '@renderer/components/media/WebviewHost';
 import { Globe, Left, LinkOut } from '@icon-park/react';
 import { openExternalUrl } from '@/renderer/utils/platform';
 
-/** AI 外贸工作台入口（GeekFlow） */
-const FOREIGN_TRADE_URL = 'https://geekflow.geekclaw.ai/login';
+/** AI 外贸工作台入口 */
+const FOREIGN_TRADE_URL = 'https://niushitv.com/v2/';
 
 /**
  * ForeignTradePage — AI 外贸工作台 hub.
  *
- * 右侧内容区直接链接到 GeekFlow 外贸工作台登录页
- * （https://geekflow.geekclaw.ai/login），并提供「在浏览器中打开」跳转；
+ * 右侧内容区直接链接到 https://niushitv.com/v2/ ，并提供「在浏览器中打开」跳转；
  * 点击「进入平台」可在应用内 WebviewHost 内嵌打开，无需离开软件。
  */
 const ForeignTradePage: React.FC = () => {
