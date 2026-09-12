@@ -1,11 +1,8 @@
 {
   "siderSection": {
     "common": "FTC通用智能体",
-    "services": "服务",
-    "data": "数据空间",
     "automation": "极客出海智能体",
-    "tools": "增强工具",
-    "settings": "设置"
+    "assistantVault": "助理能力仓"
   },
   "siderRail": {
     "expertAgent": "外贸专家Agent",

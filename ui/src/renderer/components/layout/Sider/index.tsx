@@ -15,17 +15,14 @@ import { blurActiveElement } from '@renderer/utils/ui/focus';
 import { useKnowledgeInboxPending } from '@renderer/pages/knowledge/useKnowledge';
 import {
   SiderAssetLibraryEntry,
-  SiderPresetEntry,
   SiderSkillsEntry,
   SiderConversationEntry,
   SiderCustomerServiceEntry,
   SiderKnowledgeEntry,
   SiderMcpEntry,
-  SiderModelHubEntry,
   SiderNomiEntry,
   SiderOpcEntry,
   SiderRequirementsEntry,
-  SiderScheduledEntry,
   SiderSectionHeader,
   SiderSettingsEntry,
   SiderWorkshopEntry,
@@ -87,7 +84,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleConversationClick = () => navTo('/guid');
   const handleWorkCommunityClick = () => navTo('/work-community');
   const handleForeignTradeClick = () => navTo('/foreign-trade');
-  const handleScheduledClick = () => navTo('/scheduled');
   const handleRequirementsClick = () => navTo('/a2a-ecommerce');
   const handleOpcClick = () => navTo('/opc-dist');
   const handleKnowledgeClick = () => navTo('/knowledge');
@@ -95,9 +91,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleNomiClick = () => navTo('/geekclaw');
   const handleWorkshopClick = () => navTo('/workshop');
   const handleCustomerServiceClick = () => navTo('/customer-service');
-  const handleModelHubClick = () => navTo('/models');
   const handleSettingsClick = () => navTo('/settings/system');
-  const handlePresetClick = () => navTo('/presets');
   const handleSkillsClick = () => navTo('/skills');
   const handleMcpClick = () => navTo('/mcp');
   const handleLobsterClick = () => navTo('/lobster');
@@ -168,14 +162,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
                 onClick={handleUserManagementClick}
               />
             )}
-            {/* Creative Workshop (创意工坊) — infinite-canvas AI creation surface */}
-            <SiderWorkshopEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/workshop')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleWorkshopClick}
-            />
             {/* 极客出海智能体 — cross-border export agents & platforms */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
             {/* 外贸专家 Agent (跨境外贸专家分身智能体) */}
@@ -232,9 +218,17 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               </span>
               <span className='collapsed-hidden text-14px font-[500] leading-24px'>端侧智能体盒子</span>
             </div>
-            {/* 数据空间 — data & storage */}
-            <SiderSectionHeader label={t('common.siderSection.data')} collapsed={collapsed} />
-            {/* Knowledge base */}
+            {/* 助理能力仓 — AI 创作 / 知识 / 资产 / 客服 / 设置的统一收口 */}
+            <SiderSectionHeader label={t('common.siderSection.assistantVault')} collapsed={collapsed} />
+            {/* AI 创艺工作台 — infinite-canvas AI creation surface */}
+            <SiderWorkshopEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/workshop')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleWorkshopClick}
+            />
+            {/* 知识库 — Knowledge base */}
             <SiderKnowledgeEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/knowledge')}
@@ -243,7 +237,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               onClick={handleKnowledgeClick}
               dot={pendingInboxCount > 0}
             />
-            {/* Asset library — unified management of creative-workshop assets */}
+            {/* 数字资产库 — unified management of creative-workshop assets */}
             <SiderAssetLibraryEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/assets')}
@@ -251,27 +245,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleAssetLibraryClick}
             />
-            {/* 增强工具 — extension capabilities */}
-            <SiderSectionHeader label={t('common.siderSection.tools')} collapsed={collapsed} />
-            {/* Presets and skills are separate concepts and destinations. */}
-            <SiderPresetEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/presets')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handlePresetClick}
-            />
-            {/* 定时任务 — Scheduled tasks */}
-            <SiderScheduledEntry
-              isMobile={isMobile}
-              isActive={pathname === '/scheduled'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleScheduledClick}
-            />
-            {/* 服务 — public-facing services (客服 / 模型管理 / 系统设置),
-                a domain fully separate from the desktop-companion group above. */}
-            <SiderSectionHeader label={t('common.siderSection.services')} collapsed={collapsed} />
+            {/* AI 客服 — public-facing customer service */}
             <SiderCustomerServiceEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/customer-service')}
@@ -279,15 +253,8 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleCustomerServiceClick}
             />
-            {/* 模型管理 — API Key / provider configuration (模型管理) */}
-            <SiderModelHubEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/models')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleModelHubClick}
-            />
-            {/* 系统设置 — app-level settings (系统设置) */}
+            {/* 系统设置 — 浏览器 / 远程&开放能力 / 设定 / 定时任务 / 模型管理
+                已统一收进设置内的「远程主机」子项，不再占用主栏。 */}
             <SiderSettingsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/settings')}

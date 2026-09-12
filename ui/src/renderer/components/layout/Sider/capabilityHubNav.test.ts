@@ -24,22 +24,25 @@ describe('capability hub navigation', () => {
     expect(enSettings.openCapabilities.railTitle).toBe('Remote & Open');
   });
 
-  test('keeps presets, skills, and MCP as independent enhanced-tool destinations', () => {
+  test('keeps skills and MCP on the rail; remote entries moved into settings', () => {
     const siderSource = readSource(new URL('./index.tsx', import.meta.url));
 
-    expect(siderSource.includes('SiderPresetEntry')).toBe(true);
-    expect(siderSource.includes("navTo('/presets')")).toBe(true);
-    expect(siderSource.includes("pathname.startsWith('/presets')")).toBe(true);
     expect(siderSource.includes('SiderSkillsEntry')).toBe(true);
     expect(siderSource.includes("navTo('/skills')")).toBe(true);
     expect(siderSource.includes("pathname.startsWith('/skills')")).toBe(true);
     expect(siderSource.includes('SiderMcpEntry')).toBe(true);
     expect(siderSource.includes("navTo('/mcp')")).toBe(true);
     expect(siderSource.includes("pathname.startsWith('/mcp')")).toBe(true);
-    expect(siderSource.includes('SiderOpenCapabilitiesEntry')).toBe(true);
-    expect(siderSource.includes("navTo('/open-capabilities')")).toBe(true);
-    expect(siderSource.includes("pathname.startsWith('/open-capabilities')")).toBe(true);
-    expect(siderSource.includes("pathname.startsWith('/open-capabilities') || pathname.startsWith('/mcp')")).toBe(false);
+
+    // 浏览器 / 远程&开放能力 / 设定 / 定时任务 / 模型管理 已统一收进
+    // 【系统设置】→「应用」分组内的「远程主机」(ssh-hosts) 之下，不再占用主栏。
+    expect(siderSource.includes('SiderPresetEntry')).toBe(false);
+    expect(siderSource.includes('SiderScheduledEntry')).toBe(false);
+    expect(siderSource.includes('SiderModelHubEntry')).toBe(false);
+    expect(siderSource.includes("navTo('/presets')")).toBe(false);
+    expect(siderSource.includes("navTo('/scheduled')")).toBe(false);
+    expect(siderSource.includes("navTo('/models')")).toBe(false);
+    expect(siderSource.includes("navTo('/open-capabilities')")).toBe(false);
 
     expect(siderSource.includes('SiderExtensionsEntry')).toBe(false);
   });

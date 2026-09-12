@@ -250,6 +250,13 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/agent-runtime' element={<Navigate to='/settings/execution-engines?tab=runtime' replace />} />
           <Route path='/settings/browser-use' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/computer-use' element={withRouteFallback(SystemSettings)} />
+          {/* 「应用」分组内直挂的远程能力入口：复用各自顶层路由的页面组件，
+              挂在 /settings/* 下以便设置侧栏保持高亮、可连续切换。 */}
+          <Route path='/settings/models' element={withRouteFallback(ModelHubPage)} />
+          <Route path='/settings/browser' element={withRouteFallback(BrowserPage)} />
+          <Route path='/settings/open-capabilities' element={withRouteFallback(OpenCapabilitiesPage)} />
+          <Route path='/settings/presets' element={withRouteFallback(PresetSettings)} />
+          <Route path='/settings/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/ext/:tabId' element={withRouteFallback(ExtensionSettingsPage)} />
           <Route path='/settings/webhook' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />

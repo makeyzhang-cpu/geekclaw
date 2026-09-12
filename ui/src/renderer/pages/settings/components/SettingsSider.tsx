@@ -4,13 +4,18 @@ import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
+  AlarmClock,
+  Brain,
   Computer,
+  Connect,
   Cpu,
   Earth,
   Info,
   Puzzle,
   Server,
+  SettingTwo,
   System,
+  WebPage,
 } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useMemo } from 'react';
@@ -25,6 +30,12 @@ export const BUILTIN_TAB_IDS = [
   'system',
   'execution-engines',
   'ssh-hosts',
+  // 「远程主机」(ssh-hosts) 之下、同属「应用」分组的远程能力入口。
+  'models',
+  'browser',
+  'open-capabilities',
+  'presets',
+  'scheduled',
   'browser-use',
   'computer-use',
   'about',
@@ -87,6 +98,37 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         icon: <Computer />,
         path: 'computer-use',
       },
+      // 远程主机 (ssh-hosts) 之下的远程能力入口 —— 由主栏收进「应用」分组。
+      models: {
+        id: 'models',
+        label: t('settings.modelHub.railTitle'),
+        icon: <Brain />,
+        path: 'models',
+      },
+      browser: {
+        id: 'browser',
+        label: t('browser.sider.label'),
+        icon: <WebPage />,
+        path: 'browser',
+      },
+      'open-capabilities': {
+        id: 'open-capabilities',
+        label: t('settings.openCapabilities.railTitle', { defaultValue: '远程&开放能力' }),
+        icon: <Connect />,
+        path: 'open-capabilities',
+      },
+      presets: {
+        id: 'presets',
+        label: t('settings.presetsHub.railTitle'),
+        icon: <SettingTwo />,
+        path: 'presets',
+      },
+      scheduled: {
+        id: 'scheduled',
+        label: t('cron.scheduledTasks'),
+        icon: <AlarmClock />,
+        path: 'scheduled',
+      },
       about: { id: 'about', label: t('settings.about'), icon: <Info />, path: 'about' },
     };
 
@@ -132,7 +174,9 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
       })}
     >
       {menus.map((item, index) => {
-        const isSelected = pathname.includes(item.path);
+        // 精确匹配当前设置子页：避免 'browser' 误命中 'browser-use' 这类前缀相同的兄弟项。
+        const itemPath = `/settings/${item.path}`;
+        const isSelected = pathname === itemPath || pathname.startsWith(`${itemPath}/`);
         const groupHeaderKey = groupHeaderAt.get(index);
         const groupHeader =
           groupHeaderKey && !collapsed ? (

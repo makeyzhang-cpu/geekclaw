@@ -10,21 +10,17 @@ import {
   CloseOne,
   Crown,
   People,
-  Share,
   UpdateRotation,
   Wallet,
-  WebPage,
 } from '@icon-park/react';
 import classNames from 'classnames';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useUpdateAvailability } from '@renderer/hooks/system/useUpdateAvailability';
-import { isBrowserCapabilityUnavailable, useBrowserOverview } from '@renderer/pages/browser/useBrowserInventory';
 import { blurActiveElement } from '@renderer/utils/ui/focus';
 import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { isDesktopShell } from '@renderer/utils/platform';
-import { parseSessionRoute } from '@renderer/utils/routes/sessionRoute';
 import { useCloudAuth } from '@renderer/hooks/context/CloudAuthContext';
 
 interface UserMenuProps {
@@ -39,16 +35,8 @@ const GUEST_SUBTITLE = '点击登录';
 const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { pathname, search } = useLocation();
   const { user, logout, status } = useAuth();
   const updateAvailability = useUpdateAvailability();
-  const {
-    overview: browserOverview,
-    unavailable: browserUnavailable,
-    transient: browserOverviewTransient,
-    retry: retryBrowserOverview,
-  } = useBrowserOverview();
-  const browserCapabilityUnavailable = isBrowserCapabilityUnavailable(browserOverview, browserUnavailable);
 
   const USERNAME_STORAGE_KEY = 'geekclaw.displayUsername';
 
@@ -105,18 +93,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
     [navigate]
   );
 
-  const handleBrowserClick = useCallback(() => {
-    if (browserOverviewTransient) {
-      void retryBrowserOverview();
-    }
-    const currentSession = parseSessionRoute(pathname);
-    if (currentSession?.kind === 'conversation') {
-      navTo(`/browser?conversation_id=${encodeURIComponent(currentSession.id)}`);
-      return;
-    }
-    navTo(pathname === '/browser' && search ? `/browser${search}` : '/browser');
-  }, [browserOverviewTransient, retryBrowserOverview, pathname, search, navTo]);
-
   const handleLogout = useCallback(async () => {
     cleanupSiderTooltips();
     blurActiveElement();
@@ -136,12 +112,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
   const menuItemClass =
     'group flex items-center gap-8px px-10px h-34px rounded-8px text-13px text-t-primary cursor-pointer transition-colors hover:bg-fill-2 active:bg-fill-3 border-none bg-transparent p-0 m-0 text-left';
   const menuIconClass = 'size-18px flex items-center justify-center shrink-0 text-t-secondary group-hover:text-t-primary';
-
-  const browserVisible =
-    !browserCapabilityUnavailable && browserOverview?.supported !== false && browserOverview?.enabled !== false;
-  const browserCounts = browserOverview
-    ? `${browserOverview.running_lanes ?? 0}/${browserOverview.queued_lanes ?? 0}`
-    : '0/0';
 
   return (
     <div ref={containerRef} className='relative shrink-0 z-30'>
@@ -225,27 +195,8 @@ const UserMenu: React.FC<UserMenuProps> = ({ collapsed = false }) => {
             </button>
           </div>
 
-          {/* Settings moved from sidebar */}
+          {/* 浏览器 / 远程&开放能力 已移入【系统设置】→「远程主机」子项，不再占用用户菜单 */}
           <div className='mx-6px my-2px h-1px bg-[var(--color-border-2)]' />
-          <div className='px-4px flex flex-col gap-1px'>
-            {browserVisible && (
-              <button type='button' className={menuItemClass} onClick={handleBrowserClick}>
-                <span className={menuIconClass}>
-                  <WebPage theme='outline' size='16' fill='currentColor' />
-                </span>
-                <span className='flex-1 truncate text-left'>{t('browser.sider.label')}</span>
-                <span className='text-12px text-t-tertiary'>{browserCounts}</span>
-              </button>
-            )}
-            <button type='button' className={menuItemClass} onClick={() => navTo('/open-capabilities')}>
-              <span className={menuIconClass}>
-                <Share theme='outline' size='16' fill='currentColor' />
-              </span>
-              <span className='flex-1 truncate text-left'>
-                {t('settings.openCapabilities.railTitle', { defaultValue: '远程&开放能力' })}
-              </span>
-            </button>
-          </div>
 
           {/* Cloud account / logout */}
           {isCloudAuthenticated ? (

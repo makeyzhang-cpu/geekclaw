@@ -1,11 +1,8 @@
 {
   "siderSection": {
     "common": "Common",
-    "services": "Services",
-    "data": "Data",
     "automation": "Automation",
-    "tools": "Tools",
-    "settings": "Settings"
+    "assistantVault": "Assistant Capability Hub"
   },
   "send": "Send",
   "cancel": "Cancel",
