@@ -7,11 +7,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@arco-design/web-react';
-import { Globe } from '@icon-park/react';
+import { ShareOne } from '@icon-park/react';
 import classNames from 'classnames';
 import type { SiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 
-interface SiderForeignTradeEntryProps {
+interface SiderOpcEntryProps {
   isMobile: boolean;
   isActive: boolean;
   collapsed: boolean;
@@ -19,10 +19,7 @@ interface SiderForeignTradeEntryProps {
   onClick: () => void;
 }
 
-/**
- * SiderForeignTradeEntry — AI 外贸工作台入口（Work++工作平台分组下，AI品牌营销之下）。
- */
-const SiderForeignTradeEntry: React.FC<SiderForeignTradeEntryProps> = ({
+const SiderOpcEntry: React.FC<SiderOpcEntryProps> = ({
   isMobile,
   isActive,
   collapsed,
@@ -30,7 +27,16 @@ const SiderForeignTradeEntry: React.FC<SiderForeignTradeEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('common.siderRail.b2bTrade', { defaultValue: 'B2B外贸工作台' });
+  const label = t('common.siderRail.opcDist', { defaultValue: 'OPC分销工作台' });
+  const icon = (size: number) => (
+    <ShareOne
+      theme='outline'
+      size={size}
+      fill='currentColor'
+      className='block leading-none shrink-0'
+      style={{ lineHeight: 0 }}
+    />
+  );
 
   if (collapsed) {
     return (
@@ -42,13 +48,7 @@ const SiderForeignTradeEntry: React.FC<SiderForeignTradeEntryProps> = ({
           )}
           onClick={onClick}
         >
-          <Globe
-            theme='outline'
-            size='20'
-            fill='currentColor'
-            className='block leading-none shrink-0'
-            style={{ lineHeight: 0 }}
-          />
+          {icon(20)}
         </div>
       </Tooltip>
     );
@@ -64,19 +64,11 @@ const SiderForeignTradeEntry: React.FC<SiderForeignTradeEntryProps> = ({
         )}
         onClick={onClick}
       >
-        <span className='size-22px flex items-center justify-center shrink-0'>
-          <Globe
-            theme='outline'
-            size='16'
-            fill='currentColor'
-            className='block leading-none'
-            style={{ lineHeight: 0 }}
-          />
-        </span>
+        <span className='size-22px flex items-center justify-center shrink-0'>{icon(16)}</span>
         <span className='collapsed-hidden text-14px font-[500] leading-24px'>{label}</span>
       </div>
     </Tooltip>
   );
 };
 
-export default SiderForeignTradeEntry;
+export default SiderOpcEntry;

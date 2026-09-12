@@ -21,3 +21,4 @@ export { default as SiderExpertAgentsEntry } from './SiderExpertAgentsEntry';
 export { default as SiderUserManagementEntry } from './SiderUserManagementEntry';
 export { default as SiderWorkCommunityEntry } from './SiderWorkCommunityEntry';
 export { default as SiderForeignTradeEntry } from './SiderForeignTradeEntry';
+export { default as SiderOpcEntry } from './SiderOpcEntry';

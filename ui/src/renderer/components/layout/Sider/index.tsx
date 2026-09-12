@@ -23,6 +23,7 @@ import {
   SiderMcpEntry,
   SiderModelHubEntry,
   SiderNomiEntry,
+  SiderOpcEntry,
   SiderRequirementsEntry,
   SiderScheduledEntry,
   SiderSectionHeader,
@@ -88,6 +89,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleForeignTradeClick = () => navTo('/foreign-trade');
   const handleScheduledClick = () => navTo('/scheduled');
   const handleRequirementsClick = () => navTo('/a2a-ecommerce');
+  const handleOpcClick = () => navTo('/opc-dist');
   const handleKnowledgeClick = () => navTo('/knowledge');
   const handleAssetLibraryClick = () => navTo('/assets');
   const handleNomiClick = () => navTo('/geekclaw');
@@ -122,7 +124,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
           </Suspense>
         ) : (
           <div className='size-full flex flex-col gap-1px'>
-            {/* 常用 — high-frequency primary destinations */}
+            {/* FTC 通用智能体 — high-frequency primary destinations */}
             <SiderSectionHeader label={t('common.siderSection.common')} collapsed={collapsed} />
             {/* Conversations — opens the session secondary sidebar (ContentSider) */}
             <SiderConversationEntry
@@ -132,7 +134,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleConversationClick}
             />
-            {/* Work partner (桌面伙伴) */}
+            {/* 数字员工 (原桌面伙伴 / geekclaw) */}
             <SiderNomiEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/geekclaw')}
@@ -140,13 +142,21 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleNomiClick}
             />
-            {/* 极客出海 Agent (跨境外贸专家分身智能体) */}
-            <SiderExpertAgentsEntry
+            {/* 技能 — Skills */}
+            <SiderSkillsEntry
               isMobile={isMobile}
-              isActive={pathname.startsWith('/expert-agents')}
+              isActive={pathname.startsWith('/skills')}
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
-              onClick={handleExpertAgentsClick}
+              onClick={handleSkillsClick}
+            />
+            {/* MCP — MCP tool server configuration */}
+            <SiderMcpEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/mcp')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleMcpClick}
             />
             {/* 用户管理 (User Management) — admin-only control plane */}
             {isAdmin && (
@@ -166,9 +176,17 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkshopClick}
             />
-            {/* Work++工作平台 — automation platforms */}
+            {/* 极客出海智能体 — cross-border export agents & platforms */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
-            {/* Work++社区 */}
+            {/* 外贸专家 Agent (跨境外贸专家分身智能体) */}
+            <SiderExpertAgentsEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/expert-agents')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleExpertAgentsClick}
+            />
+            {/* AI 品牌营销 — Work++社区 */}
             <SiderWorkCommunityEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/work-community')}
@@ -176,7 +194,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkCommunityClick}
             />
-            {/* AI 外贸工作台 — GeekFlow 外贸工作台入口 */}
+            {/* B2B 外贸工作台 — GeekFlow 外贸工作台入口 */}
             <SiderForeignTradeEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/foreign-trade')}
@@ -184,7 +202,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleForeignTradeClick}
             />
-            {/* A2A 跨境电商 — 与「AI 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 nexsalehub */}
+            {/* A2A 跨境电商平台 — 与「B2B 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 niushitv */}
             <SiderRequirementsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/a2a-ecommerce')}
@@ -192,7 +210,15 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleRequirementsClick}
             />
-            {/* 端侧智能体盒子 — Edge Agent Box (under A2A跨境电商) */}
+            {/* OPC 分销工作台 — One Person Company 全球分销协作 */}
+            <SiderOpcEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/opc-dist')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleOpcClick}
+            />
+            {/* 端侧智能体盒子 — Edge Agent Box (kept under automation group) */}
             <div
               className={classNames(
                 'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
@@ -206,7 +232,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               </span>
               <span className='collapsed-hidden text-14px font-[500] leading-24px'>端侧智能体盒子</span>
             </div>
-            {/* 数据空间 — data & storage (moved under 龙虾盒子 / Work++ 工作平台) */}
+            {/* 数据空间 — data & storage */}
             <SiderSectionHeader label={t('common.siderSection.data')} collapsed={collapsed} />
             {/* Knowledge base */}
             <SiderKnowledgeEntry
@@ -235,22 +261,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handlePresetClick}
             />
-            <SiderSkillsEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/skills')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleSkillsClick}
-            />
-            {/* MCP — MCP tool server configuration */}
-            <SiderMcpEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/mcp')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleMcpClick}
-            />
-            {/* 定时任务 — Scheduled tasks (under MCP) */}
+            {/* 定时任务 — Scheduled tasks */}
             <SiderScheduledEntry
               isMobile={isMobile}
               isActive={pathname === '/scheduled'}

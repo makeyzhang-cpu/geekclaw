@@ -28,7 +28,7 @@ const SiderExpertAgentsEntry: React.FC<SiderExpertAgentsEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('settings.expertAgentsHub.railTitle', { defaultValue: '极客出海Agent' });
+  const label = t('common.siderRail.expertAgent', { defaultValue: '外贸专家Agent' });
   const icon = (size: number) => (
     <People theme='outline' size={size} fill='currentColor' className='block leading-none shrink-0' style={{ lineHeight: 0 }} />
   );
