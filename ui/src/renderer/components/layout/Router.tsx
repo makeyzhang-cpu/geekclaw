@@ -255,8 +255,6 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/models' element={withRouteFallback(ModelHubPage)} />
           <Route path='/settings/browser' element={withRouteFallback(BrowserPage)} />
           <Route path='/settings/open-capabilities' element={withRouteFallback(OpenCapabilitiesPage)} />
-          <Route path='/settings/presets' element={withRouteFallback(PresetSettings)} />
-          <Route path='/settings/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/ext/:tabId' element={withRouteFallback(ExtensionSettingsPage)} />
           <Route path='/settings/webhook' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />

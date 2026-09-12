@@ -4,7 +4,7 @@ import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
-import { AlarmClock, Brain, Computer, Connect, Cpu, Earth, Info, Puzzle, Server, SettingTwo, System, WebPage } from '@icon-park/react';
+import { Brain, Computer, Connect, Cpu, Earth, Info, Puzzle, Server, System, WebPage } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
@@ -66,18 +66,6 @@ export function getBuiltinSettingsNavItems(t: TranslateFn): NavItem[] {
       label: t('settings.openCapabilities.railTitle', { defaultValue: '远程&开放能力' }),
       icon: <Connect theme='outline' size='16' />,
       path: 'open-capabilities',
-    },
-    presets: {
-      id: 'presets',
-      label: t('settings.presetsHub.railTitle'),
-      icon: <SettingTwo theme='outline' size='16' />,
-      path: 'presets',
-    },
-    scheduled: {
-      id: 'scheduled',
-      label: t('cron.scheduledTasks'),
-      icon: <AlarmClock theme='outline' size='16' />,
-      path: 'scheduled',
     },
     about: { id: 'about', label: t('settings.about'), icon: <Info theme='outline' size='16' />, path: 'about' },
   };

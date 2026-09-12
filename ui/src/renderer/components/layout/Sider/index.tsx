@@ -22,7 +22,9 @@ import {
   SiderMcpEntry,
   SiderNomiEntry,
   SiderOpcEntry,
+  SiderPresetEntry,
   SiderRequirementsEntry,
+  SiderScheduledEntry,
   SiderSectionHeader,
   SiderSettingsEntry,
   SiderWorkshopEntry,
@@ -48,12 +50,16 @@ interface SiderProps {
  * list, the create switches, and full-text search were lifted out into the
  * content-area secondary sidebar (`ConversationShell` / `ContentSider`),
  * reached via the "会话" entry. The rail holds top-level destinations grouped
- * by small-text section headers (`SiderSectionHeader`): 常用 (会话 / 桌面伙伴),
- * 创意工坊, Work++工作平台 (Work++社区 / AI 外贸工作台 / A2A跨境电商 / 龙虾盒子 / 数据空间(知识库 / 数字资产)),
- * 增强工具 (设定 / Skill / MCP / 定时任务), 服务 (AI 客服).
- * * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
+ * by small-text section headers (`SiderSectionHeader`):
+ *   FTC通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
+ *   极客出海智能体 (外贸专家Agent / AI品牌营销 / B2B外贸工作台 / A2A跨境电商 /
+ *     OPC分销工作台 / 端侧智能体盒子),
+ *   助理能力仓 (AI创艺工作台 / 知识库 / 数字资产库 / AI客服 / 系统设置).
+ * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
  * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
- * of `Layout`, leaving this rail focused on primary destinations.
+ * of `Layout`. 浏览器 / 远程&开放能力 / 模型管理 now live inside
+ * 【系统设置】→「应用」分组（「远程主机」之下）, leaving this rail focused on
+ * primary destinations.
  */
 const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const { t } = useTranslation();
@@ -93,7 +99,9 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleCustomerServiceClick = () => navTo('/customer-service');
   const handleSettingsClick = () => navTo('/settings/system');
   const handleSkillsClick = () => navTo('/skills');
+  const handlePresetClick = () => navTo('/presets');
   const handleMcpClick = () => navTo('/mcp');
+  const handleScheduledClick = () => navTo('/scheduled');
   const handleLobsterClick = () => navTo('/lobster');
   const handleExpertAgentsClick = () => navTo('/expert-agents');
   const handleUserManagementClick = () => navTo('/user-management');
@@ -144,6 +152,14 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleSkillsClick}
             />
+            {/* 设定 — Presets (skills / agent presets) */}
+            <SiderPresetEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/presets')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handlePresetClick}
+            />
             {/* MCP — MCP tool server configuration */}
             <SiderMcpEntry
               isMobile={isMobile}
@@ -151,6 +167,14 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleMcpClick}
+            />
+            {/* 定时任务 — Scheduled tasks */}
+            <SiderScheduledEntry
+              isMobile={isMobile}
+              isActive={pathname === '/scheduled'}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleScheduledClick}
             />
             {/* 用户管理 (User Management) — admin-only control plane */}
             {isAdmin && (
@@ -253,8 +277,9 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleCustomerServiceClick}
             />
-            {/* 系统设置 — 浏览器 / 远程&开放能力 / 设定 / 定时任务 / 模型管理
-                已统一收进设置内的「远程主机」子项，不再占用主栏。 */}
+            {/* 系统设置 — 浏览器 / 远程&开放能力 / 模型管理
+                已统一收进【系统设置】→「应用」分组（「远程主机」之下），不再占用主栏；
+                「设定」「定时任务」仍留在上方 FTC 通用智能体分组。 */}
             <SiderSettingsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/settings')}

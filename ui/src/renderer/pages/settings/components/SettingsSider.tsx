@@ -4,7 +4,6 @@ import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
-  AlarmClock,
   Brain,
   Computer,
   Connect,
@@ -13,7 +12,6 @@ import {
   Info,
   Puzzle,
   Server,
-  SettingTwo,
   System,
   WebPage,
 } from '@icon-park/react';
@@ -34,8 +32,6 @@ export const BUILTIN_TAB_IDS = [
   'models',
   'browser',
   'open-capabilities',
-  'presets',
-  'scheduled',
   'browser-use',
   'computer-use',
   'about',
@@ -48,6 +44,7 @@ export const BUILTIN_TAB_IDS = [
  */
 const GROUP_HEADER_BEFORE: Record<string, string> = {
   system: 'settings.groupApp',
+  about: 'settings.groupAbout',
 };
 
 type SiderItem = {
@@ -116,18 +113,6 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         label: t('settings.openCapabilities.railTitle', { defaultValue: '远程&开放能力' }),
         icon: <Connect />,
         path: 'open-capabilities',
-      },
-      presets: {
-        id: 'presets',
-        label: t('settings.presetsHub.railTitle'),
-        icon: <SettingTwo />,
-        path: 'presets',
-      },
-      scheduled: {
-        id: 'scheduled',
-        label: t('cron.scheduledTasks'),
-        icon: <AlarmClock />,
-        path: 'scheduled',
       },
       about: { id: 'about', label: t('settings.about'), icon: <Info />, path: 'about' },
     };
