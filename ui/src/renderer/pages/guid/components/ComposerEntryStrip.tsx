@@ -25,7 +25,7 @@ export interface ComposerEntryStripProps {
   activeSkillCount?: number;
   activeSkills?: GuidActiveSkill[];
   collaborationPolicyNode?: React.ReactNode;
-  /** 召唤伙伴 draft entry — the Guid page wires it only for geekclaw launches. */
+  /** 召唤员工 draft entry — the Guid page wires it only for geekclaw launches. */
   onSummonCompanion?: () => void;
   /** Name of the drafted companion; the entry shows it as its label. */
   summonedCompanionName?: string | null;

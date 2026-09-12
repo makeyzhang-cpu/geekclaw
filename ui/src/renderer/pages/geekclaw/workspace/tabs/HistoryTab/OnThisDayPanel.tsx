@@ -91,7 +91,7 @@ const OnThisDayPanel: React.FC<OnThisDayPanelProps> = ({ companionId }) => {
             {failed
               ? t('geekclaw.history.onThisDayFailedHint', { defaultValue: '切走再回来会重新读取一次。' })
               : t('geekclaw.history.onThisDayArchiveNote', {
-                  defaultValue: '日记来自「会话归档」（全局设置，对所有伙伴生效，默认关闭）；没开启时这里始终为空。',
+                  defaultValue: '日记来自「会话归档」（全局设置，对所有员工生效，默认关闭）；没开启时这里始终为空。',
                 })}
           </span>
         </div>

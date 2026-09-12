@@ -4,6 +4,7 @@ import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
+  Box,
   Brain,
   Computer,
   Connect,
@@ -35,6 +36,8 @@ export const BUILTIN_TAB_IDS = [
   'browser-use',
   'computer-use',
   'about',
+  // 「其他」分组（groupAbout）：关于 / 端侧智能体盒子（由主栏「AI出海智能体」组移入）。
+  'edge-agent-box',
 ] as const;
 
 /**
@@ -115,6 +118,13 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         path: 'open-capabilities',
       },
       about: { id: 'about', label: t('settings.about'), icon: <Info />, path: 'about' },
+      // 端侧智能体盒子 — 由主栏「AI出海智能体」组收入「其他」分组（关于之下）。
+      'edge-agent-box': {
+        id: 'edge-agent-box',
+        label: t('settings.edgeAgentBox', { defaultValue: '端侧智能体盒子' }),
+        icon: <Box />,
+        path: 'edge-agent-box',
+      },
     };
 
     // Start with ordered builtin IDs

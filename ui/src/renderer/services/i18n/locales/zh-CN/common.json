@@ -1,11 +1,11 @@
 {
   "siderSection": {
-    "common": "FTC通用智能体",
-    "automation": "极客出海智能体",
+    "common": "AI通用智能体",
+    "automation": "AI出海智能体",
     "assistantVault": "助理能力仓"
   },
   "siderRail": {
-    "expertAgent": "外贸专家Agent",
+    "expertAgent": "外贸数字团队",
     "b2bTrade": "B2B外贸工作台",
     "a2aEcommerce": "A2A跨境电商",
     "opcDist": "OPC分销工作台"

@@ -382,7 +382,7 @@ const ExpertMarketPage: React.FC = () => {
     <HubPageShell
       title={t('expertMarket.title', { defaultValue: '专家数字分身市场' })}
       subtitle={t('expertMarket.subtitle', {
-        defaultValue: '把行业专家雇佣成你的数字分身伙伴，即开即用、随取随聊。',
+        defaultValue: '把行业专家雇佣成你的数字员工，即开即用、随取随聊。',
       })}
       toolbar={
         <div className='flex items-center justify-between w-full'>
@@ -405,7 +405,7 @@ const ExpertMarketPage: React.FC = () => {
               icon={<Plus size={16} />}
               onClick={() => navigate('/geekclaw')}
             >
-              {t('expertMarket.newCompanion', { defaultValue: '新建伙伴' })}
+              {t('expertMarket.newCompanion', { defaultValue: '新建数字员工' })}
             </Button>
             {tab !== 'mine' && (
               <Button
@@ -455,7 +455,7 @@ const ExpertMarketPage: React.FC = () => {
                   {t('expertMarket.title', { defaultValue: '专家数字分身市场' })}
                 </Button>
                 <Button icon={<Plus size={16} />} onClick={() => navigate('/geekclaw')}>
-                  {t('expertMarket.newCompanion', { defaultValue: '新建伙伴' })}
+                  {t('expertMarket.newCompanion', { defaultValue: '新建数字员工' })}
                 </Button>
               </div>
             </div>
@@ -476,7 +476,7 @@ const ExpertMarketPage: React.FC = () => {
                 {t('expertMarket.title', { defaultValue: '专家数字分身市场' })}
               </Button>
               <Button icon={<Plus size={16} />} onClick={() => navigate('/geekclaw')}>
-                {t('expertMarket.newCompanion', { defaultValue: '新建伙伴' })}
+                {t('expertMarket.newCompanion', { defaultValue: '新建数字员工' })}
               </Button>
             </div>
           ) : (
@@ -640,7 +640,7 @@ const ExpertMarketPage: React.FC = () => {
             <div className='text-13px leading-18px text-t-secondary'>
               {t('expertMarket.hireConfirmDesc', {
                 defaultValue:
-                  '雇佣后将自动为你生成专属数字分身伙伴，并注入该专家的人设、技能与模型配置，可在「桌面伙伴」中随时对话。',
+                  '雇佣后将自动为你生成专属数字员工，并注入该专家的人设、技能与模型配置，可在「数字员工」中随时对话。',
               })}
             </div>
             <div className='flex items-center justify-between rounded-lg bg-fill-2 px-12px py-10px'>

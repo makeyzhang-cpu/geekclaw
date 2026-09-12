@@ -83,7 +83,7 @@ const SkillGenerationSection: React.FC<Props> = ({ config }) => {
     <NomiSettingSection
       title={t('geekclaw.evolution.skillTitle', { defaultValue: '技能生成配置' })}
       description={t('geekclaw.evolution.skillDesc', {
-        defaultValue: '把你反复重复的多步操作沉淀成这个伙伴自己的技能，使用上面的学习模型。',
+        defaultValue: '把你反复重复的多步操作沉淀成这个员工自己的技能，使用上面的学习模型。',
       })}
     >
       <NomiSettingList>

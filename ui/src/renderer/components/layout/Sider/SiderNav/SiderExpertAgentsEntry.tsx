@@ -19,7 +19,7 @@ interface SiderExpertAgentsEntryProps {
   onClick: () => void;
 }
 
-/** 极客出海 Agent — 跨境外贸专家分身智能体：浏览专家身份与专家技能。 */
+/** 外贸数字团队 — 跨境外贸专家分身智能体：浏览专家身份与专家技能。 */
 const SiderExpertAgentsEntry: React.FC<SiderExpertAgentsEntryProps> = ({
   isMobile,
   isActive,
@@ -28,7 +28,7 @@ const SiderExpertAgentsEntry: React.FC<SiderExpertAgentsEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('common.siderRail.expertAgent', { defaultValue: '外贸专家Agent' });
+  const label = t('common.siderRail.expertAgent', { defaultValue: '外贸数字团队' });
   const icon = (size: number) => (
     <People theme='outline' size={size} fill='currentColor' className='block leading-none shrink-0' style={{ lineHeight: 0 }} />
   );

@@ -13,9 +13,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, ConfigProvider, Spin } from '@arco-design/web-react';
-import enUS from '@arco-design/web-react/es/locale/en-US';
-import zhCN from '@arco-design/web-react/es/locale/zh-CN';
 import { Check, Close, CuttingOne, GridNine, Paint, ZoomIn } from '@icon-park/react';
+import { arcoLocaleFor } from '@renderer/utils/arcoLocale';
 import { useArcoMessage } from '@renderer/utils/ui/useArcoMessage';
 import type { ImageEditorMode, ImageEditorRequest, ImageEditorResult } from './index';
 import { useEditorImage } from './useEditorImage';
@@ -129,7 +128,7 @@ const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ req, onClose }) => 
 
   return (
     <ConfigProvider
-      locale={i18n.language === 'zh-CN' ? zhCN : enUS}
+      locale={arcoLocaleFor(i18n.language)}
       getPopupContainer={() => rootRef.current ?? document.body}
     >
       <div ref={rootRef} className='fixed inset-0 flex flex-col' style={{ ...SHELL_VARS, zIndex: 1200, background: 'var(--color-bg-1)' }}>

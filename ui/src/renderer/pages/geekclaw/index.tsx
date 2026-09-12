@@ -49,14 +49,14 @@ const TAB_COMPONENTS: Record<WorkspaceTabKey, React.ComponentType<import('./work
 };
 
 /**
- * 桌面伙伴 (desktop companion) management workspace.
+ * 数字员工 (desktop companion) management workspace.
  *
  * Three regions, each with one job: the left sidebar answers "which companion",
  * the centre answers "what about them", and the right pane — when a tab opens it
  * — answers "this one thing in detail". State lives in the URL
  * (`?companion=&tab=&view=`) so any surface can deep-link into it.
  *
- * Replaces the previous two-level Radio.Group design, whose outer 伙伴/共享/形象库
+ * Replaces the previous two-level Radio.Group design, whose outer 员工/共享/形象库
  * "domain" switch existed only because half the settings were install-global.
  */
 const NomiWorkspacePage: React.FC = () => {
@@ -301,7 +301,7 @@ const NomiWorkspacePage: React.FC = () => {
             className='flex items-center gap-4px h-28px rd-8px px-8px cursor-pointer text-13px text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
           >
             <Left theme='outline' size='14' fill='currentColor' />
-            {t('geekclaw.figures.back', { defaultValue: '返回伙伴' })}
+            {t('geekclaw.figures.back', { defaultValue: '返回员工' })}
           </div>
           <span className='text-18px leading-24px font-600 text-t-primary'>{t('geekclaw.customFigure.libraryTitle')}</span>
         </div>
@@ -332,7 +332,7 @@ const NomiWorkspacePage: React.FC = () => {
                 </NomiSelect>
               )}
               {/* The sidebar is hidden on mobile, so its two entries need to exist
-                  here or 新建伙伴 / 形象库 become unreachable. */}
+                  here or 新建员工 / 形象库 become unreachable. */}
               <div
                 role='button'
                 tabIndex={0}
@@ -379,11 +379,11 @@ const NomiWorkspacePage: React.FC = () => {
         <AddOne theme='outline' size='30' fill='currentColor' strokeWidth={3} />
       </span>
       <span className='text-16px font-500 text-t-primary'>
-        {t('geekclaw.companions.emptyTitle', { defaultValue: '还没有数字分身伙伴' })}
+        {t('geekclaw.companions.emptyTitle', { defaultValue: '还没有数字员工' })}
       </span>
       <span className='max-w-360px text-13px leading-20px text-t-tertiary'>
         {t('geekclaw.companions.emptyHint', {
-          defaultValue: '创建一个伙伴，给它一个名字和形象，然后配置模型就可以开始对话了。',
+          defaultValue: '创建一个员工，给它一个名字和形象，然后配置模型就可以开始对话了。',
         })}
       </span>
       <div

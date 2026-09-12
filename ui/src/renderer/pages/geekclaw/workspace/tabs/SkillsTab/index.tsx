@@ -203,7 +203,7 @@ const SkillsTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtte
       <NomiSettingSection
         title={t('geekclaw.skills.sectionTitle', { defaultValue: '技能' })}
         description={t('geekclaw.skills.sectionDesc', {
-          defaultValue: '这个伙伴会的能力：你从技能库授予的，和它在真实工作里自己沉淀的。',
+          defaultValue: '这个员工会的能力：你从技能库授予的，和它在真实工作里自己沉淀的。',
         })}
       >
         <div className='flex flex-col gap-12px'>

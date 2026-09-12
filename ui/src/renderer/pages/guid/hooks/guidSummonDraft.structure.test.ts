@@ -6,7 +6,7 @@
 
 /**
  * Structure tests for the Guid landing page's summon-companion draft entry
- * (「使用设定」左侧的「召唤伙伴」入口) — same source-assertion style as
+ * (「使用设定」左侧的「召唤员工」入口) — same source-assertion style as
  * `SummonPanel.structure.test.ts`.
  */
 

@@ -33,7 +33,7 @@ const QuietHoursSection: React.FC<Props> = ({ profile, patchCompanion }) => {
     <NomiSettingSection
       title={t('geekclaw.evolution.quietTitle', { defaultValue: '休眠时段' })}
       description={t('geekclaw.evolution.quietSectionDesc', {
-        defaultValue: '给这个伙伴安排一段安静时间：时段内它不主动找你，后台学习也一起歇着。',
+        defaultValue: '给这个员工安排一段安静时间：时段内它不主动找你，后台学习也一起歇着。',
       })}
     >
       <NomiSettingList>
@@ -41,7 +41,7 @@ const QuietHoursSection: React.FC<Props> = ({ profile, patchCompanion }) => {
           title={t('geekclaw.evolution.quietRange', { defaultValue: '休眠时段' })}
           description={t('geekclaw.evolution.quietRangeDesc', {
             defaultValue:
-              '时段内数字分身伙伴不再弹气泡打扰你，未读提醒仍会累计到它的角标上；定时学习和技能生成也会跳过，等睡醒再继续。收到消息仍会正常回复。留空表示全天都可以打扰。',
+              '时段内数字员工不再弹气泡打扰你，未读提醒仍会累计到它的角标上；定时学习和技能生成也会跳过，等睡醒再继续。收到消息仍会正常回复。留空表示全天都可以打扰。',
           })}
           controls={
             <TimePicker.RangePicker

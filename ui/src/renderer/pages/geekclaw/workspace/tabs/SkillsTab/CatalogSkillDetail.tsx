@@ -63,7 +63,7 @@ const CatalogSkillDetail: React.FC<CatalogSkillDetailProps> = ({ entry, busy, di
       <div className='flex flex-col gap-8px border-t border-t-solid border-t-[var(--color-border-2)] pt-12px'>
         <span className='text-12px leading-18px text-t-tertiary'>
           {t('geekclaw.skills.revokeHint', {
-            defaultValue: '取消授予只影响这个伙伴，技能库里的 Skill 不会被删除。',
+            defaultValue: '取消授予只影响这个员工，技能库里的 Skill 不会被删除。',
           })}
         </span>
         <SkillButton

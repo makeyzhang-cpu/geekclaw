@@ -25,16 +25,16 @@ interface Props {
 }
 
 /**
- * 在「会话」视图里承载桌面伙伴聊天的入口面板。
+ * 在「会话」视图里承载数字员工聊天的入口面板。
  *
- * 取代旧的 /geekclaw 配置中心「聊天」Tab（ChatTab）：迁移后伙伴聊天统一从会话列表的
- * 「桌面伙伴」分组进入标准 `/conversation/:id`。ChatConversation 见到
+ * 取代旧的 /geekclaw 配置中心「聊天」Tab（ChatTab）：迁移后员工聊天统一从会话列表的
+ * 「数字员工」分组进入标准 `/conversation/:id`。ChatConversation 见到
  * `type==='geekclaw' && extra.companion_session` 即渲染本面板（而非全功能 NomiConversationPanel），
- * 从而保留伙伴专属约束（锁定模型 / 隐藏高级控制 / 强制 yolo / 固定工作区，详见
+ * 从而保留员工专属约束（锁定模型 / 隐藏高级控制 / 强制 yolo / 固定工作区，详见
  * CompanionConversation）。
  *
  * 与 ChatTab 的差别：会话对象已由会话页 SWR 载入并传入，故无需再 ensureCompanionSession /
- * 二次载入——本面板只负责：① 由 `extra.companion_id` 解析伙伴 profile（模型唯一事实源
+ * 二次载入——本面板只负责：① 由 `extra.companion_id` 解析员工 profile（模型唯一事实源
  * + 乐观 patch 通道）；② 模型未配置态的引导（含模型配置入口）；③ 交给
  * CompanionConversation 渲染受限会话主体。
  */
@@ -62,7 +62,7 @@ const CompanionChatPanel: React.FC<Props> = ({ conversation, extraTabs }) => {
     </ExecutionConversationLayout>
   );
 
-  // 会话被标记为伙伴会话但缺 companionId（异常数据）：兜底，避免空白面板。
+  // 会话被标记为员工会话但缺 companionId（异常数据）：兜底，避免空白面板。
   if (!companionId) {
     return renderInExecutionShell(
       <div className='flex-1 flex items-center justify-center text-13px text-t-tertiary px-16px text-center'>
@@ -71,7 +71,7 @@ const CompanionChatPanel: React.FC<Props> = ({ conversation, extraTabs }) => {
     );
   }
 
-  // 解析伙伴 profile 中（切伙伴时 useCompanion 同步置空，避免 stale）。
+  // 解析员工 profile 中（切员工时 useCompanion 同步置空，避免 stale）。
   if (!profile) {
     return renderInExecutionShell(
       <div className='flex-1 flex justify-center items-center py-40px'>
@@ -80,7 +80,7 @@ const CompanionChatPanel: React.FC<Props> = ({ conversation, extraTabs }) => {
     );
   }
 
-  // 模型未配置：把模型配置入口（唯一事实源）放在引导态，配置后伙伴会话即可对话。
+  // 模型未配置：把模型配置入口（唯一事实源）放在引导态，配置后员工会话即可对话。
   const modelConfigured = status
     ? status.model_configured
     : profile.model !== null;

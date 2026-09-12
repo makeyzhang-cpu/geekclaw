@@ -256,6 +256,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/browser' element={withRouteFallback(BrowserPage)} />
           <Route path='/settings/open-capabilities' element={withRouteFallback(OpenCapabilitiesPage)} />
           <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
+          {/* 端侧智能体盒子 — 由主栏「AI出海智能体」组收进「其他」分组（关于之下）。 */}
+          <Route path='/settings/edge-agent-box' element={withRouteFallback(LobsterPage)} />
           <Route path='/settings/ext/:tabId' element={withRouteFallback(ExtensionSettingsPage)} />
           <Route path='/settings/webhook' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />
           <Route path='/settings' element={<Navigate to='/settings/system' replace />} />

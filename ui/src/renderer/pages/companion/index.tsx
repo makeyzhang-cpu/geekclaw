@@ -150,7 +150,7 @@ const CompanionPage: React.FC = () => {
   const [bubbleLoading, setBubbleLoading] = useState(false);
   const [input, setInput] = useState('');
   const deliveryPendingRef = useRef(false);
-  /** 光标是否停在伙伴交互区（由 useCompanionClickThrough 上报）：驱动「悬停才出现」的
+  /** 光标是否停在员工交互区（由 useCompanionClickThrough 上报）：驱动「悬停才出现」的
    *  迷你输入条显隐 + 进出点击穿透命中集。替代纯 CSS :hover（穿透态下 webview 收不到
    *  hover 事件，:hover 不可靠）。 */
   const [barRevealed, setBarRevealed] = useState(false);
@@ -164,7 +164,7 @@ const CompanionPage: React.FC = () => {
   const [composerThreadId, setComposerThreadId] = useState<ConversationId | null>(null);
   /** 拖拽图片到桌宠窗时的高亮态（由 Tauri 原生 onDragDropEvent 驱动）。 */
   const [dragOver, setDragOver] = useState(false);
-  /** 正在拖动伙伴 / 刚拖完：冻结点击穿透轮询以根除拖动闪动。 */
+  /** 正在拖动员工 / 刚拖完：冻结点击穿透轮询以根除拖动闪动。 */
   const [dragging, setDragging] = useState(false);
   /** 立绘命中元素 ref：传给 CompanionAvatar→CustomFigure 挂 alpha 掩码。 */
   const figureHitRef = useRef<HTMLDivElement | null>(null);
@@ -866,7 +866,7 @@ const CompanionPage: React.FC = () => {
         handleRemoteStream(message, message.channel_platform);
         return;
       }
-      // 本地伙伴回合（本宠的专属会话）。**按 companion_id marker 识别**，而非旧的
+      // 本地员工回合（本宠的专属会话）。**按 companion_id marker 识别**，而非旧的
       // `message.conversation_id === activeThreadRef.current` 数字相等闸：后端在每条
       // 分片上都打了 companion / companion_id 标记（stream_relay.broadcast_stream_payload），
       // 与上面远程路径按 channel_platform 识别同理。旧的数字比较是这个 bug 反复发作的真凶——
@@ -1023,7 +1023,7 @@ const CompanionPage: React.FC = () => {
 
   // 按区域点击穿透：默认整窗穿透，只有光标落在标了 data-companion-hit 的交互元素
   // （立绘 / 气泡 / 输入条 / 角标 / 建议）包围盒内时才捕获鼠标。删除了「整块透明
-  // 窗口拦截底层点击」的遮罩感，又不动伙伴显示。onHoverChange 同步驱动「悬停才出现」的
+  // 窗口拦截底层点击」的遮罩感，又不动员工显示。onHoverChange 同步驱动「悬停才出现」的
   // 迷你输入条显隐（见 barRevealed）。
   // enabled 用「未显式停用」而非「已启用」：窗口在 Rust 创建后即 show()，配置(profile)
   // 还在拉取时窗口已可见，此刻就该穿透——否则启动数秒内整窗仍挡点击。停用→窗口 hide()→
@@ -1076,9 +1076,9 @@ const CompanionPage: React.FC = () => {
     };
   }, []);
 
-  // 让原生窗口标题跟随伙伴的自定义名字。建窗时只给了占位标题 "GeekClaw"（见 main.rs），
+  // 让原生窗口标题跟随员工的自定义名字。建窗时只给了占位标题 "GeekClaw"（见 main.rs），
   // 窗口虽 skip_taskbar，但 alt-tab / 屏幕阅读器 / macOS 窗口菜单仍会读到它——给每个
-  // 伙伴专属称呼而非千篇一律的 "geekclaw"。初次加载与重命名（config-updated → setProfile）
+  // 员工专属称呼而非千篇一律的 "geekclaw"。初次加载与重命名（config-updated → setProfile）
   // 都会触发本 effect。
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -1183,7 +1183,7 @@ const CompanionPage: React.FC = () => {
     }
   }, []);
 
-  /** 解析（或幂等创建）该伙伴的唯一专属会话 id。单会话契约（FE2）：
+  /** 解析（或幂等创建）该员工的唯一专属会话 id。单会话契约（FE2）：
    *  先读 getCompanionSession，有 id 直接用；否则 ensureCompanionSession 幂等创建。
    *  创建会要求 profile.model 已配置，否则后端返回 400 — 这里向上抛，由 sendChat
    *  捕获后给气泡一个简短提示并放弃本轮。多线程列表/新建/重命名/设活的旧 ipc 方法已废除。 */
@@ -1389,7 +1389,7 @@ const CompanionPage: React.FC = () => {
     [t, armBubbleDismiss, markRemoteRunning]
   );
 
-  /** 本地伙伴回合统一提交（迷你/展开共用）：先落盘，再启动网络投递。 */
+  /** 本地员工回合统一提交（迷你/展开共用）：先落盘，再启动网络投递。 */
   const submitTurn = useCallback(
     (text: string, files: string[]) => {
       if (!companionId) return;
@@ -1607,7 +1607,7 @@ const CompanionPage: React.FC = () => {
   const runMenuAction = useCallback(
     (action: CompanionMenuAction) => {
       if (action === 'open-chat') {
-        // 聊天已迁进「会话」：解析（幂等 ensure）该伙伴的唯一会话并在主窗口打开标准
+        // 聊天已迁进「会话」：解析（幂等 ensure）该员工的唯一会话并在主窗口打开标准
         // /conversation/:id（旧的 /geekclaw?tab=chat 已废除）。未配置对话模型时 ensureThread
         // 返回 400 → 回退到管理中心总览引导配置。
         void (async () => {

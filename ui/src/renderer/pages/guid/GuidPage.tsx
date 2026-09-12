@@ -241,7 +241,7 @@ const GuidPage: React.FC = () => {
   // created.
   const advancedConfig = useGuidAdvancedConfig();
 
-  // 召唤伙伴 draft entry (geekclaw launches only): pick in the shared drawer here,
+  // 召唤员工 draft entry (geekclaw launches only): pick in the shared drawer here,
   // apply onto the conversation right after create.
   const [summonDrawerOpen, setSummonDrawerOpen] = useState(false);
   const companionRoster = useCompanionRoster();
@@ -856,7 +856,7 @@ const GuidPage: React.FC = () => {
               }
             />
 
-        {/* 召唤伙伴 draft drawer — applied after the conversation is created. */}
+        {/* 召唤员工 draft drawer — applied after the conversation is created. */}
         <SummonDrawer
           visible={summonDrawerOpen}
           onCancel={() => setSummonDrawerOpen(false)}

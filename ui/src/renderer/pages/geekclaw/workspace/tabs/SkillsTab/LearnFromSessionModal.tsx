@@ -68,7 +68,7 @@ const LearnFromSessionModal: React.FC<LearnFromSessionModalProps> = ({ visible, 
       <div className='flex flex-col gap-8px'>
         <span className='text-12px leading-18px text-t-secondary'>
           {t('geekclaw.skills.learnFromSessionHint', {
-            defaultValue: '把一段已完成多步操作的会话 ID 填进来，伙伴会从里面提炼出一个草稿技能，等你审阅。',
+            defaultValue: '把一段已完成多步操作的会话 ID 填进来，员工会从里面提炼出一个草稿技能，等你审阅。',
           })}
         </span>
         <Input

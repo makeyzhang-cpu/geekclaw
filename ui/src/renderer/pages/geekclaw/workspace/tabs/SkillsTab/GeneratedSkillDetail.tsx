@@ -111,7 +111,7 @@ const GeneratedSkillDetail: React.FC<GeneratedSkillDetailProps> = ({
         <div className='flex flex-col gap-8px rd-12px border border-solid border-[var(--color-border-2)] p-12px'>
           <span className='text-12px leading-18px text-t-secondary'>
             {t('geekclaw.skills.draftReviewHint', {
-              defaultValue: '这是伙伴刚起草的技能，采纳后才会在对话里生效。',
+              defaultValue: '这是员工刚起草的技能，采纳后才会在对话里生效。',
             })}
           </span>
           <div className='flex items-center gap-8px'>

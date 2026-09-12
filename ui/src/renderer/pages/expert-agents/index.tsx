@@ -1045,7 +1045,7 @@ const ExpertAgentsPage: React.FC = () => {
 
   return (
     <HubPageShell
-      title={t('settings.expertAgentsHub.title', { defaultValue: '极客出海Agent' })}
+      title={t('settings.expertAgentsHub.title', { defaultValue: '外贸数字团队' })}
       subtitle={t('settings.expertAgentsHub.subtitle', {
         defaultValue:
           '跨境外贸专家分身智能体，按跨境外贸实战专家身份与技能设置专家智能体，不同跨境外贸的专家身份，每个都具备独一无二的专长技能。',

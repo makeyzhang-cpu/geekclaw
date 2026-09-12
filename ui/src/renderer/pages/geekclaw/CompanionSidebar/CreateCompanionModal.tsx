@@ -20,7 +20,7 @@ interface Props {
 }
 
 /**
- * 新建伙伴 — name plus appearance, the only two things needed before a companion
+ * 新建员工 — name plus appearance, the only two things needed before a companion
  * exists. Everything else is configured afterwards in 总览.
  *
  * Extracted from the former CompanionSessionRail so the sidebar stays a pure

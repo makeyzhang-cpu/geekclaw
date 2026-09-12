@@ -1,7 +1,7 @@
 import loginLogo from '@renderer/assets/logos/brand/app.png';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { changeLanguage } from '@/renderer/services/i18n';
+import { changeLanguage, LANGUAGE_LABELS, supportedLanguages } from '@/renderer/services/i18n';
 import { useNavigate } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
 import { useAuth } from '../../hooks/context/AuthContext';
@@ -110,14 +110,6 @@ const LoginPage: React.FC = () => {
     [clearMessageLater]
   );
 
-  const supportedLanguages = useMemo<{ code: string; label: string }[]>(
-    () => [
-      { code: 'zh-CN', label: '简体中文' },
-      { code: 'en-US', label: 'English' },
-    ],
-    []
-  );
-
   const handleLanguageChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
     const nextLanguage = event.target.value;
     changeLanguage(nextLanguage).catch((error: Error) => {
@@ -206,9 +198,9 @@ const LoginPage: React.FC = () => {
             value={i18n.language}
             onChange={handleLanguageChange}
           >
-            {supportedLanguages.map((lang) => (
-              <option key={lang.code} value={lang.code}>
-                {lang.label}
+            {supportedLanguages.map((code) => (
+              <option key={code} value={code}>
+                {LANGUAGE_LABELS[code]?.native ?? code}
               </option>
             ))}
           </select>

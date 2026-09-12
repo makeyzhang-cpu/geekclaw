@@ -1456,7 +1456,7 @@ const KnowledgeDetailPage: React.FC = () => {
                       </b>
                       <p className='mb-0 mt-3px text-11px leading-17px text-[var(--color-text-3)]'>
                         {t('knowledge.detail.use.step1Desc', {
-                          defaultValue: '把知识库挂到会话 / 终端 / 数字伙伴上，它就成为该处模型的扩展知识。一个库可被多处复用。',
+                          defaultValue: '把知识库挂到会话 / 终端 / 数字员工上，它就成为该处模型的扩展知识。一个库可被多处复用。',
                         })}
                       </p>
                     </div>
@@ -1516,7 +1516,7 @@ const KnowledgeDetailPage: React.FC = () => {
                               {t('knowledge.detail.use.writebackDirect', { defaultValue: '直接写入' })}
                             </span>
                             {' — '}
-                            {t('knowledge.detail.use.writebackDirectDesc', { defaultValue: '模型直接改库，适合个人/数字伙伴' })}
+                            {t('knowledge.detail.use.writebackDirectDesc', { defaultValue: '模型直接改库，适合个人/数字员工' })}
                           </li>
                         </ul>
                       </div>

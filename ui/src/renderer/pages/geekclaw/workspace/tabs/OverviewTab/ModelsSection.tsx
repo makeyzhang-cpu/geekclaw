@@ -42,7 +42,7 @@ const ModelsSection: React.FC<ModelsSectionProps> = ({ companion, status, compan
           description={
             status.model_configured
               ? t('geekclaw.chat.modelConfigHint', {
-                  defaultValue: '该伙伴的对话模型，全局生效（本地对话与远程连接），切换后所有会话跟随',
+                  defaultValue: '该员工的对话模型，全局生效（本地对话与远程连接），切换后所有会话跟随',
                 })
               : t('geekclaw.overview.modelMissing', {
                   defaultValue: '还没有为 {{companionName}} 配置聊天模型，它暂时无法学习和聊天。',
@@ -56,7 +56,7 @@ const ModelsSection: React.FC<ModelsSectionProps> = ({ companion, status, compan
         <NomiSettingRow
           title={t('geekclaw.overview.voicePerception', { defaultValue: '语音与感知' })}
           description={t('geekclaw.overview.voicePerceptionHint', {
-            defaultValue: '语音识别、语音合成与视觉模型是应用级设置，所有伙伴共用，在「模型管理」里统一配置',
+            defaultValue: '语音识别、语音合成与视觉模型是应用级设置，所有员工共用，在「模型管理」里统一配置',
           })}
           controls={
             <RowAction onClick={() => navigate('/models')}>

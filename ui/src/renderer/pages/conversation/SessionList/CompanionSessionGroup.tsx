@@ -40,16 +40,16 @@ interface Props {
 const modelReadyOf = (c: ICompanionWithStatus) => Boolean(c.model?.provider_id && c.model?.model);
 
 /**
- * 会话侧边栏顶部的「桌面伙伴」专属工作空间分组（roster-driven）。
+ * 会话侧边栏顶部的「数字员工」专属工作空间分组（roster-driven）。
  *
- * 把伙伴聊天迁进「会话」：数据源是伙伴花名册（useCompanions），每个伙伴 = 一行 =
- * 其唯一专属会话（单会话契约）。点击行解析（幂等 ensure）该伙伴的会话并跳转标准
+ * 把员工聊天迁进「会话」：数据源是员工花名册（useCompanions），每个员工 = 一行 =
+ * 其唯一专属会话（单会话契约）。点击行解析（幂等 ensure）该员工的会话并跳转标准
  * `/conversation/:id`（由 ChatConversation 识别 extra.companionSession 渲染受限聊天）。
  *
  * 与项目/工作路径分组的区别：仅交互式会话（无终端子组）、不在此新建（创建仍在管理中心
- * /geekclaw）。未配置模型的伙伴点击跳转管理中心引导配置，而非创建会话（后端会 400）。
+ * /geekclaw）。未配置模型的员工点击跳转管理中心引导配置，而非创建会话（后端会 400）。
  *
- * 不触碰工作会话过滤器：伙伴会话仍被 useConversationListSync 过滤出项目分组，故不会重复列出。
+ * 不触碰工作会话过滤器：员工会话仍被 useConversationListSync 过滤出项目分组，故不会重复列出。
  */
 const CompanionSessionGroup: React.FC<Props> = ({
   activeConversationId,
@@ -127,7 +127,7 @@ const CompanionSessionGroup: React.FC<Props> = ({
     [navigate, onSessionClick, sessionMap]
   );
 
-  // 无伙伴时不渲染分组（避免对不使用伙伴的用户造成噪音；创建后经 WS 刷新即出现）。
+  // 无员工时不渲染分组（避免对不使用员工的用户造成噪音；创建后经 WS 刷新即出现）。
   if (companions.length === 0) return null;
 
   if (collapsed) {

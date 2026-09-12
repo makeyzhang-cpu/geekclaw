@@ -71,7 +71,7 @@ export interface ChatLayoutProps {
    */
   disableRename?: boolean;
   /**
-   * 嵌套面板（如伙伴聊天 Tab）自带工作区开关：不依赖按路由门控的 app 标题栏。
+   * 嵌套面板（如员工聊天 Tab）自带工作区开关：不依赖按路由门控的 app 标题栏。
    * 为 true 时，面板内折叠键与折叠态悬浮展开键无视桌面运行时一律渲染。默认 false，
    * 既有会话/终端表面行为不变（仍由标题栏驱动）。
    */
@@ -329,7 +329,7 @@ const ChatLayoutInner: React.FC<ChatLayoutProps> = (props) => {
       <div className='flex items-center gap-12px shrink-0'>
         {!props.hideAdvancedControls && conversation_id != null && (
           <>
-            {/* 召唤伙伴徽标（设计 B5）：仅已召唤会话渲染，被动展示伙伴名。 */}
+            {/* 召唤员工徽标（设计 B5）：仅已召唤会话渲染，被动展示员工名。 */}
             <SummonHeaderBadge conversationId={conversation_id} />
             <AutoWorkControl target={{ kind: 'conversation', id: conversation_id }} />
             <IdmmControl target={{ kind: 'conversation', id: conversation_id }} />

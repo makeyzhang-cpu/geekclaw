@@ -76,14 +76,14 @@ const DangerZoneSection: React.FC<Props> = ({ companionId, companionName }) => {
               className='line-height-0 shrink-0 text-danger-6'
             />
           }
-          title={t('geekclaw.settings.deleteCompanion', { defaultValue: '删除伙伴' })}
+          title={t('geekclaw.settings.deleteCompanion', { defaultValue: '删除员工' })}
           description={t('geekclaw.other.deleteHint', {
             companionName,
             defaultValue: '永久删除「{{companionName}}」，连同它的记忆、技能、成长进度与聊天记录。',
           })}
           controls={
             <Button status='danger' onClick={confirmDelete}>
-              {t('geekclaw.settings.deleteCompanion', { defaultValue: '删除伙伴' })}
+              {t('geekclaw.settings.deleteCompanion', { defaultValue: '删除员工' })}
             </Button>
           }
         />

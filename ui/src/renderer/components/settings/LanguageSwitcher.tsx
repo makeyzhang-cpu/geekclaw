@@ -2,7 +2,7 @@ import NomiSelect from '@/renderer/components/base/NomiSelect';
 import type { SelectHandle } from '@arco-design/web-react/es/Select/interface';
 import React, { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { changeLanguage } from '@/renderer/services/i18n';
+import { changeLanguage, LANGUAGE_LABELS, supportedLanguages } from '@/renderer/services/i18n';
 
 const LanguageSwitcher: React.FC = () => {
   const { i18n } = useTranslation();
@@ -30,8 +30,11 @@ const LanguageSwitcher: React.FC = () => {
   return (
     <div className='flex items-center gap-8px'>
       <NomiSelect ref={selectRef} className='w-160px' value={i18n.language} onChange={handleLanguageChange}>
-        <NomiSelect.Option value='zh-CN'>简体中文</NomiSelect.Option>
-        <NomiSelect.Option value='en-US'>English</NomiSelect.Option>
+        {supportedLanguages.map((code) => (
+          <NomiSelect.Option key={code} value={code}>
+            <span dir='auto'>{LANGUAGE_LABELS[code]?.native ?? code}</span>
+          </NomiSelect.Option>
+        ))}
       </NomiSelect>
     </div>
   );

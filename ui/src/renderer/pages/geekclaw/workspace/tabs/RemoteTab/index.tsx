@@ -13,7 +13,7 @@ import AccessTokenSection from './AccessTokenSection';
 import { usePairingAttention } from './usePairingAttention';
 
 /**
- * 远程控制 tab：从桌面应用之外触达这只伙伴的两条路径 —— IM 渠道（谁来接待）
+ * 远程控制 tab：从桌面应用之外触达该员工的两条路径 —— IM 渠道（谁来接待）
  * 与远程访问令牌（外部客户端以它的身份接入）。
  *
  * Remote control tab. Two sections, one idea each: the IM channel bots this
@@ -44,7 +44,7 @@ const RemoteTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtte
 
   return (
     <div className='flex flex-col gap-16px py-8px'>
-      {/* IM 渠道：按伙伴接待（platform → companionId 反向视图）/ Per-companion IM channels */}
+      {/* IM 渠道：按员工接待（platform → companionId 反向视图）/ Per-companion IM channels */}
       <RemoteConnectSection companionId={profile.companion_id} companionName={profile.name} />
       <AccessTokenSection
         companionId={profile.companion_id}

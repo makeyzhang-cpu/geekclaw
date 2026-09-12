@@ -32,7 +32,7 @@ interface AppearanceSectionProps {
 }
 
 /**
- * 伙伴形象 — who this companion is on the desktop: its name, the figure it wears,
+ * 员工形象 — who this companion is on the desktop: its name, the figure it wears,
  * whether it is shown at all, and how far it has grown.
  *
  * The growth row deliberately shows level / XP / mood ONLY. The old overview also
@@ -73,13 +73,13 @@ const AppearanceSection: React.FC<AppearanceSectionProps> = ({
 
   return (
     <NomiSettingSection
-      title={t('geekclaw.overview.appearanceSection', { defaultValue: '伙伴形象' })}
+      title={t('geekclaw.overview.appearanceSection', { defaultValue: '员工形象' })}
       description={t('geekclaw.overview.appearanceSectionHint', { defaultValue: '名字、桌面上的样子，以及它陪你走到了哪一步' })}
     >
       <NomiSettingList>
         <NomiSettingRow
           title={t('geekclaw.settings.name', { defaultValue: '名字' })}
-          description={t('geekclaw.settings.nameHint', { defaultValue: '伙伴的称呼，会出现在聊天与数字分身伙伴里' })}
+          description={t('geekclaw.settings.nameHint', { defaultValue: '员工的称呼，会出现在聊天与数字员工里' })}
           controls={
             <NomiInput
               contentFit
@@ -123,7 +123,7 @@ const AppearanceSection: React.FC<AppearanceSectionProps> = ({
         <NomiSettingRow
           title={t('geekclaw.overview.deskVisible', { defaultValue: '桌面显示' })}
           description={t('geekclaw.settings.companionEnabledHint', {
-            defaultValue: '在桌面显示你的数字分身伙伴（透明置顶小窗，仅桌面端）',
+            defaultValue: '在桌面显示你的数字员工（透明置顶小窗，仅桌面端）',
           })}
           controls={
             <>

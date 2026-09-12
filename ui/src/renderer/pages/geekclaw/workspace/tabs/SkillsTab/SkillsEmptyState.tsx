@@ -34,7 +34,7 @@ const SkillsEmptyState: React.FC<{ addDisabled?: boolean; onAddCapability: () =>
         </span>
         <span className='max-w-360px text-13px leading-20px text-[var(--color-text-3)]'>
           {t('geekclaw.skills.emptyDesc', {
-            defaultValue: '先从技能库授予一个能力；之后伙伴在真实工作里还会自己沉淀新技能。',
+            defaultValue: '先从技能库授予一个能力；之后员工在真实工作里还会自己沉淀新技能。',
           })}
         </span>
       </div>

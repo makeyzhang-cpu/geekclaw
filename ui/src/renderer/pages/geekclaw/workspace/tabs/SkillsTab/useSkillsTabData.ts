@@ -95,7 +95,7 @@ export const useSkillsTabData = (companionId: CompanionId | null) => {
       ipcBridge.companion.onSkillLearned.on((event) => {
         if (mine(event)) {
           void refresh();
-          Message.success(t('geekclaw.skills.learnedToast', { defaultValue: '伙伴学会了一个新技能' }));
+          Message.success(t('geekclaw.skills.learnedToast', { defaultValue: '员工学会了一个新技能' }));
         }
       }),
       ipcBridge.companion.onSkillArchived.on((event) => {

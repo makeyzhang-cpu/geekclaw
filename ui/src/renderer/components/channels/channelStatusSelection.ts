@@ -78,7 +78,7 @@ export function statusIsUnbound(status: IChannelPluginStatus): boolean {
 
 /**
  * 所有权分域判定。过渡期后端可能尚未透出 `owner_domain` —— 缺省按 companion
- * 处理（与 DB `DEFAULT 'companion'` 一致），既有伙伴侧行为不变。
+ * 处理（与 DB `DEFAULT 'companion'` 一致），既有员工侧行为不变。
  */
 export function statusInOwnerDomain(
   status: IChannelPluginStatus,

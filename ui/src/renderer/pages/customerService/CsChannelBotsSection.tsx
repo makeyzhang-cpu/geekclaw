@@ -24,7 +24,7 @@ import { csBotBindingState, findNewlyCreatedCsBot, selectCsChannelBots } from '.
 /**
  * 客服渠道机器人自闭环管理区（渠道所有权分域）：
  * - 列表只显示 `owner_domain === 'customer_service'` 的 bot（绑本客服 / 绑其他
- *   客服 / 未绑定），伙伴域 bot 永不入池；
+ *   客服 / 未绑定），员工域 bot 永不入池；
  * - 页内「新建渠道机器人」复用共享的 PlatformConfigBody 配置面，创建请求打
  *   `owner_domain='customer_service'` 且绝不携带 companion 绑定；
  * - 创建成功（快照差分探测到新行）即自动 replaceBindings 纳入本客服。
@@ -178,7 +178,7 @@ const CsChannelBotsSection: React.FC<{ csAgentId: CsAgentId }> = ({ csAgentId })
       <div className='flex items-center justify-between gap-12px'>
         <span className='text-12px text-t-tertiary'>
           {t('customerService.bindings.domainHint', {
-            defaultValue: '客服使用自己的渠道机器人，与数字分身伙伴的渠道相互独立。',
+            defaultValue: '客服使用自己的渠道机器人，与数字员工的渠道相互独立。',
           })}
         </span>
         <Button size='small' type='primary' onClick={() => setPickerOpen(true)}>
@@ -320,7 +320,7 @@ const CsChannelBotsSection: React.FC<{ csAgentId: CsAgentId }> = ({ csAgentId })
             }}
             onStatusChange={(status) => {
               // 只采纳客服域行：表单的 create-mode 解析是启发式的，别让
-              // 伙伴域 bot 把弹窗重定向到错误实体（自动绑定走快照差分）。
+              // 员工域 bot 把弹窗重定向到错误实体（自动绑定走快照差分）。
               if (status && statusInOwnerDomain(status, 'customer_service')) {
                 setStatuses((prev) => [
                   ...prev.filter((s) => s.plugin_id !== status.plugin_id),

@@ -31,7 +31,7 @@ export interface SessionCapabilityStates {
 
 /**
  * Session-level capability markers for the trailing CapabilityIconCluster, in
- * fixed order: 召唤伙伴 → 定时任务 → 自动工作 → 智能决策. Shared by
+ * fixed order: 召唤员工 → 定时任务 → 自动工作 → 智能决策. Shared by
  * ConversationRow and TerminalRow so both rows keep identical icons, palette,
  * and tooltip wording. Cron 'unread' carries the red badge dot.
  */

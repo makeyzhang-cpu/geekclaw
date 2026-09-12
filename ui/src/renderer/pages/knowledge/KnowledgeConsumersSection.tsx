@@ -150,7 +150,7 @@ const KnowledgeConsumersSection: React.FC<KnowledgeConsumersSectionProps> = ({ b
         <LinkOne theme='outline' size='12' className='mt-2px shrink-0 text-[var(--color-text-4)]' />
         <span>
           {t('knowledge.detail.use.mountHint', {
-            defaultValue: '挂载操作在会话侧的「挂载知识库」控件中进行——打开任意会话 / 终端 / 数字伙伴，点击知识库按钮即可将本库挂载上去。',
+            defaultValue: '挂载操作在会话侧的「挂载知识库」控件中进行——打开任意会话 / 终端 / 数字员工，点击知识库按钮即可将本库挂载上去。',
           })}
         </span>
       </div>

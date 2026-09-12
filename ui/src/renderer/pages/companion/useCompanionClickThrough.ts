@@ -18,7 +18,7 @@ let nextOwnerId = 0;
 let activeOwnerId = 0;
 
 export interface CompanionClickThroughOptions {
-  /** 仅桌面壳 + 伙伴已启用（窗口可见）时运行。 */
+  /** 仅桌面壳 + 员工已启用（窗口可见）时运行。 */
   enabled: boolean;
   /** 命中元素选择器。默认 `[data-companion-hit]`。 */
   hitSelector?: string;
@@ -26,7 +26,7 @@ export interface CompanionClickThroughOptions {
   tolerancePx?: number;
   /** 正常采样间隔（ms）。默认 40（约 25fps）。 */
   intervalMs?: number;
-  /** 光标进入或离开伙伴交互区时回调，仅在状态改变时触发。 */
+  /** 光标进入或离开员工交互区时回调，仅在状态改变时触发。 */
   onHoverChange?: (over: boolean) => void;
   /** 临时强制整窗捕获，用于展开输入框、建议弹层等交互面。 */
   captureAll?: boolean;
@@ -35,7 +35,7 @@ export interface CompanionClickThroughOptions {
 }
 
 /**
- * 桌面伙伴按区域点击穿透。
+ * 数字员工按区域点击穿透。
  *
  * AppKit、Win32 与 X11 由 Rust 直接采集窗口客户区内的位置，再归一化映射到当前
  * DOM 视口；这条链路不依赖显示器原点或缩放因子。原生 Wayland 无法可靠读取窗口外

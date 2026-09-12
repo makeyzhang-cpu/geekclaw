@@ -192,7 +192,7 @@ const refreshConversations = () => {
         // from normal history. New health checks must not create conversations.
         // Companion conversations — the desktop bubble, the chat tab, AND every
         // IM-channel turn — all share ONE per-companion session that lives in
-        // 桌面伙伴→伙伴→聊天, never in this work conversation list. Hide every
+        // 数字员工→员工→聊天, never in this work conversation list. Hide every
         // companion row, identified by any companion marker in `extra`
         // (companionSession / companionId / channelPlatform). The previous
         // carve-out that KEPT channel-sourced companion sessions visible here

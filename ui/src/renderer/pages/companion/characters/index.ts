@@ -24,7 +24,7 @@ export type {
  * `palette` feeds the little swatch chip on each picker card.
  *
  * 品牌化:已彻底移除原 nomifun 默认的 `mochi` (粉红碗/麻薯) 角色,
- * 桌面伙伴统一使用 GeekClaw logo,角色库只保留 GeekClaw + 内置 ink/bolt 备选 + custom 用户自建。
+ * 数字员工统一使用 GeekClaw logo,角色库只保留 GeekClaw + 内置 ink/bolt 备选 + custom 用户自建。
  */
 export const GEEKCLAW_CHARACTER_ID = 'geekclaw';
 
@@ -34,7 +34,7 @@ export const CHARACTERS: CharacterMeta[] = [
   { id: 'bolt', nameKey: 'bolt', palette: ['#bfeee0', '#37e0ff'], Component: Bolt },
 ];
 
-// 品牌化:默认桌面伙伴统一使用 GeekClaw 爪形 logo,取代 nomifun 默认的 mochi 粉红碗角色。
+// 品牌化:默认数字员工统一使用 GeekClaw 爪形 logo,取代 nomifun 默认的 mochi 粉红碗角色。
 export const DEFAULT_CHARACTER_ID = GEEKCLAW_CHARACTER_ID;
 
 export const getCharacter = (id?: string | null): CharacterMeta =>

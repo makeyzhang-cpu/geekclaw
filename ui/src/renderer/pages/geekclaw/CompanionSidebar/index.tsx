@@ -143,7 +143,7 @@ export interface CompanionSidebarProps {
   onSelect: (id: CompanionId) => void;
   onOpenFigures: () => void;
   onCreate: () => void;
-  /** 打开「专家数字分身市场」页（雇佣行业专家为可对话的数字分身伙伴）。 */
+  /** 打开「专家数字分身市场」页（雇佣行业专家为可对话的数字员工）。 */
   onOpenExpertMarket: () => void;
   onRequestDelete: (companion: ICompanionWithStatus) => void;
   /** New full order, first to last. */
@@ -226,8 +226,8 @@ const CompanionSidebar: React.FC<CompanionSidebarProps> = ({
       resizeHandle={resizeHandle}
       header={
         <div className='px-8px pt-12px pb-8px flex flex-col gap-8px'>
-          {/* 专家数字分身市场 — 雇佣行业专家为可对话的数字分身伙伴。
-              与「新建伙伴」保持一致的椭圆形长条外框。 */}
+          {/* 专家数字分身市场 — 雇佣行业专家为可对话的数字员工。
+              与「新建员工」保持一致的椭圆形长条外框。 */}
           <div
             role='button'
             tabIndex={0}

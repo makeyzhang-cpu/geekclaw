@@ -29,7 +29,7 @@ export interface ChannelTarget {
   companionId?: CompanionId;
   /**
    * 目标所有权域。`'customer_service'` 时创建请求带 `owner_domain` 且绝不携带
-   * `companion_id`（两域互斥）；缺省 = companion 域（伙伴侧既有行为不变）。
+   * `companion_id`（两域互斥）；缺省 = companion 域（员工侧既有行为不变）。
    */
   ownerDomain?: ChannelOwnerDomain;
 }

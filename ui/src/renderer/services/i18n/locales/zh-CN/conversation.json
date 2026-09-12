@@ -88,10 +88,10 @@
     "feedbackAction": "联系我们"
   },
   "companionPoster": {
-    "eyebrow": "桌面伙伴",
-    "title": "伙伴就在桌面边上",
-    "description": "看看你的伙伴们待命时的样子，开始工作后它们会在桌面陪你处理会话、文件和任务。",
-    "emptyDescription": "先看看 GeekClaw 伙伴的样子。创建自己的伙伴后，这里会展示你的专属形象。"
+    "eyebrow": "数字员工",
+    "title": "员工就在桌面边上",
+    "description": "看看你的员工们待命时的样子，开始工作后它们会在桌面陪你处理会话、文件和任务。",
+    "emptyDescription": "先看看 GeekClaw 员工的样子。创建自己的员工后，这里会展示你的专属形象。"
   },
   "dropdown": {
     "cliAgents": "CLI Agents",
@@ -575,15 +575,15 @@
     "failed": "停止当前任务失败，请重试。"
   },
   "summon": {
-    "button": "召唤伙伴",
-    "buttonTooltip": "召唤伙伴：把它的技能与勾选记忆（只读）装进本会话",
-    "badgeTooltip": "已召唤伙伴 {{name}}（技能 + 所选记忆，只读）",
-    "title": "召唤伙伴",
-    "stepCompanion": "1. 选择伙伴",
+    "button": "召唤员工",
+    "buttonTooltip": "召唤员工：把它的技能与勾选记忆（只读）装进本会话",
+    "badgeTooltip": "已召唤员工 {{name}}（技能 + 所选记忆，只读）",
+    "title": "召唤员工",
+    "stepCompanion": "1. 选择员工",
     "stepSkills": "2. 技能（默认全选 active，去勾即排除）",
     "stepMemories": "3. 挑选记忆（每回合实时注入，只读）",
-    "noCompanions": "还没有伙伴——先去 GeekClaw 页创建一个",
-    "noSkills": "该伙伴暂无可装载技能",
+    "noCompanions": "还没有员工——先去 GeekClaw 页创建一个",
+    "noSkills": "该员工暂无可装载技能",
     "noMemories": "没有匹配的记忆",
     "searchMemories": "搜索记忆（全文检索）…",
     "budget": "快照预算：{{used}} / {{budget}} 字符",
@@ -592,12 +592,12 @@
     "apply": "召唤",
     "update": "更新召唤",
     "release": "解除召唤",
-    "applied": "已召唤伙伴，下一条消息生效。",
+    "applied": "已召唤员工，下一条消息生效。",
     "released": "已解除召唤，技能将在下次运行时卸载。",
     "busy": "会话正在运行——等它空闲后再调整召唤。",
-    "unknownCompanion": "（伙伴已删除）",
+    "unknownCompanion": "（员工已删除）",
     "archived": "已归档",
-    "sidebarBadge": "已召唤伙伴（技能 + 所选记忆，只读）"
+    "sidebarBadge": "已召唤员工（技能 + 所选记忆，只读）"
   },
   "editMessage": {
     "action": "编辑",

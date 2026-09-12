@@ -187,7 +187,7 @@ const MemoryTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtte
       return (
         <ContentAside
           title={t('geekclaw.memories.add', { defaultValue: '添加记忆' })}
-          subtitle={t('geekclaw.memory.composeSubtitle', { defaultValue: '只属于这个伙伴，别的伙伴看不到' })}
+          subtitle={t('geekclaw.memory.composeSubtitle', { defaultValue: '只属于这个员工，别的员工看不到' })}
           onClose={closePane}
           storageKey='geekclaw:geekclaw-aside-memory'
         >
@@ -218,7 +218,7 @@ const MemoryTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtte
         <NomiSettingSection
           title={t('geekclaw.memory.memorySection', { defaultValue: '记忆' })}
           description={t('geekclaw.memory.memorySectionHint', {
-            defaultValue: '这个伙伴在对话时能检索到的记忆。点开一条可以直接改内容、置顶或归档。',
+            defaultValue: '这个员工在对话时能检索到的记忆。点开一条可以直接改内容、置顶或归档。',
           })}
         >
           <div className='flex flex-col gap-10px'>

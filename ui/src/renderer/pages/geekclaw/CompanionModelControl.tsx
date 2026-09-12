@@ -15,14 +15,14 @@ import type { useCompanion } from './useNomi';
 import { useModelSelectorProviderLabel } from '@/renderer/hooks/agent/useModelSelectorProviderLabel';
 
 interface Props {
-  /** 伙伴 profile + 乐观 patch 通道。 */
+  /** 员工 profile + 乐观 patch 通道。 */
   companion: ReturnType<typeof useCompanion>;
   /** 总览的“基础配置”行已经渲染标题时，隐藏内联重复标签。 */
   showLabel?: boolean;
 }
 
 /**
- * 桌面伙伴对话模型的【唯一】配置入口（紧凑内联，置于「对话」会话头部与总览）。
+ * 数字员工对话模型的【唯一】配置入口（紧凑内联，置于「对话」会话头部与总览）。
  *
  * 写入 profile.model —— 全局唯一事实源：本地专属会话与远程连接(IM 机器人)都跟随此模型，
  * 切换后所有会话即时跟随（后端 service.patch_companion 会同步会话行并清空渠道会话）。

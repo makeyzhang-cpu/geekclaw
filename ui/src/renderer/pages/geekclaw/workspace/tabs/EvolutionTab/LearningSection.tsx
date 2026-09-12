@@ -37,7 +37,7 @@ const LearningSection: React.FC<Props> = ({ config, needsModel }) => {
     <NomiSettingSection
       title={t('geekclaw.learn.sectionTitle', { defaultValue: '学习配置' })}
       description={t('geekclaw.evolution.learningDesc', {
-        defaultValue: '这个伙伴会按下面的节奏回顾你的工作记录，把提炼出的记忆记在自己名下。',
+        defaultValue: '这个员工会按下面的节奏回顾你的工作记录，把提炼出的记忆记在自己名下。',
       })}
     >
       <NomiSettingList>

@@ -1,5 +1,8 @@
 {
   "title": "Settings",
+  "expertAgentsHub": {
+    "title": "Trade Digital Team"
+  },
   "coAgent": {
     "title": "Collaborative Co-answer",
     "desc": "Have a parallel \"collaborator\" join every turn, reusing the system-configured model and key to offer an independent perspective. The collaborator's output is shown as a signed \"collaborator\" block and never replaces the primary reply.",
@@ -490,6 +493,7 @@
   "model": "Model",
   "system": "System",
   "about": "About",
+  "edgeAgentBox": "Edge Agent Box",
   "advancedSettings": "Advanced Settings",
   "addModel": "Add Model",
   "modelModality": "Modality",

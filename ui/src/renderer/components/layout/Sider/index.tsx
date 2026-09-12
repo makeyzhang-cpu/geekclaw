@@ -6,8 +6,6 @@
 
 import React, { Suspense, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import classNames from 'classnames';
-import { Box } from '@icon-park/react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
@@ -51,9 +49,9 @@ interface SiderProps {
  * content-area secondary sidebar (`ConversationShell` / `ContentSider`),
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`):
- *   FTC通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
- *   极客出海智能体 (外贸专家Agent / AI品牌营销 / B2B外贸工作台 / A2A跨境电商 /
- *     OPC分销工作台 / 端侧智能体盒子),
+ *   AI通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
+ *   AI出海智能体 (外贸数字团队 / AI品牌营销 / B2B外贸工作台 / A2A跨境电商 /
+ *     OPC分销工作台),
  *   助理能力仓 (AI创艺工作台 / 知识库 / 数字资产库 / AI客服 / 系统设置).
  * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
  * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
@@ -102,7 +100,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handlePresetClick = () => navTo('/presets');
   const handleMcpClick = () => navTo('/mcp');
   const handleScheduledClick = () => navTo('/scheduled');
-  const handleLobsterClick = () => navTo('/lobster');
   const handleExpertAgentsClick = () => navTo('/expert-agents');
   const handleUserManagementClick = () => navTo('/user-management');
 
@@ -126,7 +123,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
           </Suspense>
         ) : (
           <div className='size-full flex flex-col gap-1px'>
-            {/* FTC 通用智能体 — high-frequency primary destinations */}
+            {/* AI 通用智能体 — high-frequency primary destinations */}
             <SiderSectionHeader label={t('common.siderSection.common')} collapsed={collapsed} />
             {/* Conversations — opens the session secondary sidebar (ContentSider) */}
             <SiderConversationEntry
@@ -136,7 +133,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleConversationClick}
             />
-            {/* 数字员工 (原桌面伙伴 / geekclaw) */}
+            {/* 数字员工 (原数字员工 / geekclaw) */}
             <SiderNomiEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/geekclaw')}
@@ -186,9 +183,9 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
                 onClick={handleUserManagementClick}
               />
             )}
-            {/* 极客出海智能体 — cross-border export agents & platforms */}
+            {/* AI出海智能体 — cross-border export agents & platforms */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
-            {/* 外贸专家 Agent (跨境外贸专家分身智能体) */}
+            {/* 外贸数字团队 (跨境外贸专家分身智能体) */}
             <SiderExpertAgentsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/expert-agents')}
@@ -228,20 +225,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleOpcClick}
             />
-            {/* 端侧智能体盒子 — Edge Agent Box (kept under automation group) */}
-            <div
-              className={classNames(
-                'box-border group h-32px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
-                isMobile && 'sider-action-btn-mobile',
-                pathname.startsWith('/lobster') ? '!bg-primary-1 !text-primary-6' : 'hover:bg-fill-2 active:bg-fill-3'
-              )}
-              onClick={handleLobsterClick}
-            >
-              <span className='size-22px flex items-center justify-center shrink-0'>
-                <Box theme='outline' size='16' fill='currentColor' className='block leading-none' style={{ lineHeight: 0 }} />
-              </span>
-              <span className='collapsed-hidden text-14px font-[500] leading-24px'>端侧智能体盒子</span>
-            </div>
             {/* 助理能力仓 — AI 创作 / 知识 / 资产 / 客服 / 设置的统一收口 */}
             <SiderSectionHeader label={t('common.siderSection.assistantVault')} collapsed={collapsed} />
             {/* AI 创艺工作台 — infinite-canvas AI creation surface */}
@@ -279,7 +262,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
             />
             {/* 系统设置 — 浏览器 / 远程&开放能力 / 模型管理
                 已统一收进【系统设置】→「应用」分组（「远程主机」之下），不再占用主栏；
-                「设定」「定时任务」仍留在上方 FTC 通用智能体分组。 */}
+                「设定」「定时任务」仍留在上方 AI 通用智能体分组。 */}
             <SiderSettingsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/settings')}

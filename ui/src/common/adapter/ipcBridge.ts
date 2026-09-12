@@ -701,11 +701,11 @@ export const conversation = {
     (p) => `/api/conversations/${p.conversation_id}/clear-context`
   ),
   /** 清空一条会话的全部消息（保留会话行，不触碰 companion_memories 记忆库）。
-   *  伙伴专属会话「清空上下文」按钮调用。 */
+   *  员工专属会话「清空上下文」按钮调用。 */
   clearMessages: httpPost<boolean, { conversation_id: ConversationId }>(
     (p) => `/api/conversations/${p.conversation_id}/clear-messages`
   ),
-  /** 召唤伙伴（设计 B）：把一位伙伴的技能与勾选记忆（只读）装进这条工作会话。
+  /** 召唤员工（设计 B）：把一位员工的技能与勾选记忆（只读）装进这条工作会话。
    *  服务端盖 summoned_at 并回收运行时，下一条消息生效；会话非空闲返回 409。 */
   setSummon: httpPut<ISummonConfig, ISetSummonParams>(
     (p) => `/api/conversations/${p.conversation_id}/summon`,
@@ -3456,7 +3456,7 @@ export const channel = {
    * 启用/更新机器人渠道。寻址契约（对应后端 EnableChannelSpec）：
    * - 裸 UUIDv7 `plugin_id` 指向已有渠道实体 → 更新该实体；
    * - 省略 `plugin_id` 并给 `plugin_type` → 新建一行（每宠多机器人路径）；
-   * - `companion_id` 把机器人绑到桌面伙伴；同一机器人(bot_key)已绑其他对象时后端 409。
+   * - `companion_id` 把机器人绑到数字员工；同一机器人(bot_key)已绑其他对象时后端 409。
    *   （客服绑定归客服域所有：PUT /api/customer-service/agents/{id}/bindings。）
    * - `owner_domain` 仅创建时可选（缺省 companion）；'customer_service' 域的行
    *   与 companion_id 互斥（后端 400/ABORT）。
@@ -4560,7 +4560,7 @@ export const agentExecutionTemplate = {
     fromApiAgentExecution
   ),
 };
-// ─────────────────────────── Companion (geekclaw 桌面伙伴) ───────────────────────────
+// ─────────────────────────── Companion (geekclaw 数字员工) ───────────────────────────
 
 export interface ICompanionCollectConfig {
   chat_user_messages: boolean;
@@ -4714,7 +4714,7 @@ export interface ICompanionEventStorageStatus {
   max_storage_mb: number;
 }
 
-/** One archived session-window day-digest (伙伴会话归档回看). */
+/** One archived session-window day-digest (员工会话归档回看). */
 export interface ICompanionDayDigest {
   session_window_id: CompanionSessionWindowId;
   companion_id: CompanionId;
@@ -4747,7 +4747,7 @@ export interface ICompanionHistoryDay {
   has_digest: boolean;
 }
 
-/** 伙伴的唯一专属会话 — 一条真实的 `type='geekclaw'` 会话。每个伙伴生命周期内恒一条。 */
+/** 员工的唯一专属会话 — 一条真实的 `type='geekclaw'` 会话。每个员工生命周期内恒一条。 */
 export interface ICompanionThread {
   conversation_id: ConversationId;
   companion_id: CompanionId;
@@ -4871,7 +4871,7 @@ export interface ICompanionEvolveConfig {
   skill_archive_threshold: number;
 }
 
-/** Shared session-window archiving settings (伙伴会话窗口归档). Default OFF (opt-in). */
+/** Shared session-window archiving settings (员工会话窗口归档). Default OFF (opt-in). */
 export interface ICompanionArchiveConfig {
   enabled: boolean;
   idle_minutes: number;
@@ -4890,9 +4890,9 @@ export interface ICompanionArchiveConfig {
  */
 export interface ICompanionSharedConfig {
   collect: ICompanionCollectConfig;
-  /** Session-window archiving (伙伴会话归档). */
+  /** Session-window archiving (员工会话归档). */
   archive: ICompanionArchiveConfig;
-  /** 智能协作：开启后本地伙伴可把复杂任务拆给多个协作者并行推进。 */
+  /** 智能协作：开启后本地员工可把复杂任务拆给多个协作者并行推进。 */
   smart_collaboration: boolean;
   /** Null when no companion exists yet (zero-companion state is allowed). */
   default_companion_id: CompanionId | null;
@@ -5289,7 +5289,7 @@ export const companion = {
   weeklyDigest: httpGet<ICompanionWeeklyDigest, { companion_id: CompanionId; days?: number }>(
     (p) => `/api/companion/companions/${p.companion_id}/weekly-digest${p.days ? `?days=${p.days}` : ''}`
   ),
-  /** Archived session-window day-digests (伙伴会话归档回看时间线 / 去年今日). */
+  /** Archived session-window day-digests (员工会话归档回看时间线 / 去年今日). */
   listDayDigests: withResponseMap(
     httpGet<
       unknown[],
@@ -5412,8 +5412,8 @@ export const companion = {
     fromApiFigure
   ),
   deleteFigure: httpDelete<void, { figure_id: FigureId }>((p) => `/api/companion/figures/${p.figure_id}`),
-  // ── 伙伴单会话（companion single session）──
-  // 每个伙伴生命周期内恒一条专属会话；多线程列表/新建/重命名/单删/设活已废除。
+  // ── 员工单会话（companion single session）──
+  // 每个员工生命周期内恒一条专属会话；多线程列表/新建/重命名/单删/设活已废除。
   /** Return this companion's canonical Conversation id, or null. */
   getCompanionSession: withResponseMap(
     httpGet<{ conversation_id: string | null }, { companion_id: CompanionId }>(

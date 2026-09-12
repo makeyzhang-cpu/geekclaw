@@ -18,7 +18,7 @@ import PersonaSection from './PersonaSection';
 
 /**
  * 总览 — the companion's identity and brains, in three titled sections:
- * 伙伴形象 (name / look / desktop visibility / growth), 伙伴设定 (persona + preset
+ * 员工形象 (name / look / desktop visibility / growth), 员工设定 (persona + preset
  * reuse) and 模型配置 (chat model + a pointer to the app-level voice settings).
  *
  * Everything that used to be piled on here — the self-evolution disclosure

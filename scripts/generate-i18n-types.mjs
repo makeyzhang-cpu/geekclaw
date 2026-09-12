@@ -2,7 +2,7 @@
 /**
  * generate-i18n-types.mjs — regenerate ui/src/renderer/services/i18n/i18n-keys.d.ts
  * from the en-US locale JSON files (source of truth), and enforce that every
- * shipped locale carries the same keys.
+ * complete locale carries the same keys.
  *
  * Usage:
  *   bun scripts/generate-i18n-types.mjs             # write the d.ts
@@ -172,20 +172,50 @@ function collectKeys(namespaces, localeDir) {
 // The rule itself is `diffLocaleKeys` (imported above); what follows only feeds it
 // the repo's locales and renders its verdict.
 
-/** Read every shipped locale's flattened key set. Returns `{ keysByLocale, namespacesByLocale }`. */
+/**
+ * Read the config, split shipped languages into complete vs. still-untranslated,
+ * and flatten the key set of the complete ones.
+ *
+ * Only complete languages are read for keys. An untranslated locale ships an empty
+ * bundle on purpose — it falls back to the reference locale at runtime — so its key
+ * set is empty by design and would otherwise be reported as every key missing.
+ */
 function readAllLocales() {
-  const { supportedLanguages, referenceLanguage } = JSON.parse(fs.readFileSync(i18nConfigFile, 'utf8'));
+  const { supportedLanguages, referenceLanguage, completeLanguages } = JSON.parse(
+    fs.readFileSync(i18nConfigFile, 'utf8'),
+  );
   if (!Array.isArray(supportedLanguages) || !supportedLanguages.includes(referenceLanguage)) {
     throw new Error(`${i18nConfigFile} must list referenceLanguage in supportedLanguages`);
   }
+  if (
+    !Array.isArray(completeLanguages) ||
+    !completeLanguages.every((l) => supportedLanguages.includes(l))
+  ) {
+    throw new Error(`${i18nConfigFile} must list completeLanguages as a subset of supportedLanguages`);
+  }
+  if (!completeLanguages.includes(referenceLanguage)) {
+    throw new Error(`${i18nConfigFile} must list referenceLanguage in completeLanguages`);
+  }
+
+  // Every shipped language needs a loadable bundle: `services/i18n/index.ts`
+  // statically imports `locales/<code>/index.ts` for each one, so a missing
+  // directory breaks the build rather than falling back. An untranslated bundle is
+  // just `export default {}` — hence only the entry file is required here, while
+  // the key parity below applies to the complete set alone.
+  for (const locale of supportedLanguages) {
+    const entry = path.join(localesDir, locale, 'index.ts');
+    if (!fs.existsSync(entry)) {
+      throw new Error(`supported language '${locale}' has no locales/${locale}/index.ts`);
+    }
+  }
+
   // referenceLanguage first: its warnings read as the baseline, and the d.ts comes
   // from it. The rest keep the config's order for stable output.
-  const locales = [referenceLanguage, ...supportedLanguages.filter((l) => l !== referenceLanguage)];
+  const locales = [referenceLanguage, ...completeLanguages.filter((l) => l !== referenceLanguage)];
   const keysByLocale = {};
   const namespacesByLocale = {};
   for (const locale of locales) {
     const dir = path.join(localesDir, locale);
-    if (!fs.existsSync(dir)) throw new Error(`supported language '${locale}' has no locales/${locale} directory`);
     const namespaces = readNamespaces(dir);
     namespacesByLocale[locale] = namespaces;
     keysByLocale[locale] = collectKeys(namespaces, dir);
@@ -194,7 +224,11 @@ function readAllLocales() {
 }
 
 /**
- * Report parity to stderr. Returns true when the locales agree.
+ * Report parity to stderr. Returns true when the complete locales agree.
+ *
+ * Untranslated languages never reach here — `readAllLocales` hands over the
+ * complete set only — so an empty bundle cannot be mistaken for a locale that
+ * dropped every key.
  *
  * A namespace missing from one locale's index.ts would otherwise print as every
  * one of its keys, so it is reported on its own first.

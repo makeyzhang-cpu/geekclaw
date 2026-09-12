@@ -5,7 +5,7 @@
  */
 
 /**
- * Structure contract for the rebuilt 桌面伙伴 workspace.
+ * Structure contract for the rebuilt 数字员工 workspace.
  *
  * This replaces the former `index.structure.test.ts`, which asserted exact
  * `className` strings and per-tab `NomiSettingRow` counts and therefore had to be
@@ -139,7 +139,7 @@ describe('deleted features stay deleted', () => {
 
   test('no shared-memory scope selector', () => {
     // What was deleted is the *control*: the 共享/私有 radio, the owner picker and the
-    // 此伙伴可见/全部伙伴 view switch.
+    // 此员工可见/全部员工 view switch.
     expect(
       offenders(({ code }) =>
         /scopeShared|scopePrivateOf|scopePickCompanion|scopeFilterSelf|scopeFilterAll|scopeMode|scopeSelector/.test(code)

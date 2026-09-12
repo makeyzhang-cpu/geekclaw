@@ -8,7 +8,7 @@
  * 客服渠道自闭环的纯函数面：客服域机器人挑选池、绑定态推导、
  * 创建弹窗的"新出现 bot"快照差分（创建即自动绑定的探测点）。
  *
- * 渠道所有权分域：客服的 bot 与桌面伙伴的 bot 彻底互斥、不共享挑选池
+ * 渠道所有权分域：客服的 bot 与数字员工的 bot 彻底互斥、不共享挑选池
  * （`channel_plugins.owner_domain`，后端触发器兜底）。
  */
 
@@ -16,7 +16,7 @@ import type { IChannelPluginStatus } from '@/common/types/channel/channel';
 import type { ChannelPluginId, CsAgentId } from '@/common/types/ids';
 import { statusInOwnerDomain } from '@/renderer/components/channels/channelStatusSelection';
 
-/** 客服域机器人（客服自闭环挑选池；绝不含伙伴域 bot）。 */
+/** 客服域机器人（客服自闭环挑选池；绝不含员工域 bot）。 */
 export function selectCsChannelBots(
   statuses: readonly IChannelPluginStatus[]
 ): IChannelPluginStatus[] {

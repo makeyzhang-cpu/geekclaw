@@ -4,7 +4,7 @@ import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
-import { Brain, Computer, Connect, Cpu, Earth, Info, Puzzle, Server, System, WebPage } from '@icon-park/react';
+import { Box, Brain, Computer, Connect, Cpu, Earth, Info, Puzzle, Server, System, WebPage } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
@@ -68,6 +68,13 @@ export function getBuiltinSettingsNavItems(t: TranslateFn): NavItem[] {
       path: 'open-capabilities',
     },
     about: { id: 'about', label: t('settings.about'), icon: <Info theme='outline' size='16' />, path: 'about' },
+    // 端侧智能体盒子 — 由主栏「AI出海智能体」组收入「其他」分组（关于之下）。
+    'edge-agent-box': {
+      id: 'edge-agent-box',
+      label: t('settings.edgeAgentBox', { defaultValue: '端侧智能体盒子' }),
+      icon: <Box theme='outline' size='16' />,
+      path: 'edge-agent-box',
+    },
   };
 
   return BUILTIN_TAB_IDS.map((id) => builtinMap[id]);

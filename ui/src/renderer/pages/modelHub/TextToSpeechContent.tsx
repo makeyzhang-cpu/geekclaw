@@ -33,7 +33,7 @@ type TtsSourceOption = {
   model: string;
 };
 
-const TTS_TEST_TEXT = '你好，我是你的数字分身伙伴，有什么可以帮你的吗？';
+const TTS_TEST_TEXT = '你好，我是你的数字员工，有什么可以帮你的吗？';
 
 const TextToSpeechContent: React.FC = () => {
   const { t } = useTranslation();

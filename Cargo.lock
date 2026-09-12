@@ -3611,7 +3611,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-a11y"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "atspi",
  "core-foundation 0.10.1",
@@ -3633,7 +3633,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-agent"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3673,7 +3673,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-browser"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3694,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-browser-engine"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3730,7 +3730,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-cli"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "anyhow",
  "clap",
@@ -3748,7 +3748,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-compact"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "regex",
  "serde",
@@ -3757,7 +3757,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-computer"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3780,7 +3780,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-config"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -3804,7 +3804,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-desktop"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "anyhow",
  "clap",
@@ -3836,7 +3836,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-mcp"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3858,7 +3858,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-memory"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "chrono",
  "geekclaw-config",
@@ -3874,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-process-runtime"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "libc",
@@ -3894,7 +3894,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-protocol"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "rstest",
  "serde",
@@ -3905,7 +3905,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-providers"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -3933,14 +3933,14 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-redact"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "regex",
 ]
 
 [[package]]
 name = "geekclaw-skills"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "dirs 6.0.0",
@@ -3963,7 +3963,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-ssh"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "regex",
@@ -3978,7 +3978,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-tools"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4005,7 +4005,7 @@ dependencies = [
 
 [[package]]
 name = "geekclaw-types"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6051,7 +6051,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-agent-execution"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6077,7 +6077,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-ai-agent"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -6145,7 +6145,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-api-types"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "nomifun-common",
  "serde",
@@ -6156,7 +6156,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-app"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6239,7 +6239,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-assets"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "axum",
  "http 1.4.1",
@@ -6254,7 +6254,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-auth"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6286,7 +6286,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-browser-platform"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6301,7 +6301,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-channel"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "aes 0.8.4",
  "async-imap",
@@ -6347,7 +6347,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-common"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "aes-gcm 0.10.3",
  "async-trait",
@@ -6372,7 +6372,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-companion"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6405,7 +6405,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-conversation"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6435,7 +6435,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-creation"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6458,7 +6458,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-cron"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6486,7 +6486,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-customer-service"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6508,7 +6508,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-db"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "fs2",
@@ -6530,7 +6530,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-extension"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6563,7 +6563,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-file"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6592,7 +6592,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-gateway"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6637,7 +6637,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-idmm"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6661,7 +6661,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-knowledge"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6704,7 +6704,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-mcp"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6729,7 +6729,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-model-invoke"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6747,7 +6747,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-net"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "reqwest 0.12.28",
  "tracing",
@@ -6756,7 +6756,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-office"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6781,7 +6781,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-preset"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6802,7 +6802,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-public"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "axum",
  "futures",
@@ -6825,7 +6825,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-realtime"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "axum",
  "dashmap",
@@ -6840,7 +6840,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-requirement"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6866,7 +6866,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-runtime"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "dirs 6.0.0",
  "fs2",
@@ -6887,7 +6887,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-shell"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6916,7 +6916,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-ssh"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -6942,7 +6942,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-system"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -6970,7 +6970,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-team"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "axum",
  "nomifun-ai-agent",
@@ -6989,7 +6989,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-terminal"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -7017,7 +7017,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-web"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "anyhow",
  "axum",
@@ -7035,7 +7035,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-webhook"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "async-trait",
  "axum",
@@ -7058,7 +7058,7 @@ dependencies = [
 
 [[package]]
 name = "nomifun-workshop"
-version = "5.0.45"
+version = "5.0.54"
 dependencies = [
  "axum",
  "image",

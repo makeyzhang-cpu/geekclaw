@@ -130,8 +130,8 @@
     "source_manual": "Manual"
   },
   "companions": {
-    "create": "New companion",
-    "createTitle": "New companion",
+    "create": "New Employee",
+    "createTitle": "Digital Employee",
     "nameLabel": "Name",
     "namePlaceholder": "Give it a name…",
     "characterLabel": "Character",
@@ -165,7 +165,7 @@
     "hireConfirmTitle": "Confirm Hire",
     "confirmHire": "Confirm Hire",
     "hireConfirmDesc": "Hiring creates a dedicated digital companion and injects this expert's persona, skills and model config. Chat anytime in Companions.",
-    "newCompanion": "New Companion"
+    "newCompanion": "New Digital Employee"
   },
   "levels": {
     "l1": "Getting to know you",

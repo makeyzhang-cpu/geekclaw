@@ -23,7 +23,7 @@ interface AccessTokenSectionProps {
 }
 
 /**
- * 「远程访问」节：本伙伴的访问令牌（生成 / 重新生成 / 吊销）。
+ * 「远程访问」节：本员工的访问令牌（生成 / 重新生成 / 吊销）。
  *
  * The plaintext token is returned by the backend exactly ONCE, at mint time —
  * it lives only in this component's state, is never re-fetched, and is dropped
@@ -108,7 +108,7 @@ const AccessTokenSection: React.FC<AccessTokenSectionProps> = ({ companionId, co
             })
           : t('geekclaw.remote.accessRegenerateUnknownConfirm', {
               defaultValue:
-                '暂时无法确认这只伙伴是否已有访问令牌。如果已有，生成新令牌会立即使旧令牌失效，正在使用它的外部客户端会断开连接。确定继续吗？',
+                '暂时无法确认该员工是否已有访问令牌。如果已有，生成新令牌会立即使旧令牌失效，正在使用它的外部客户端会断开连接。确定继续吗？',
             }),
       onOk: () => mint(),
     });
@@ -196,7 +196,7 @@ const AccessTokenSection: React.FC<AccessTokenSectionProps> = ({ companionId, co
           }
           description={t('geekclaw.remote.accessTokenGrant', {
             defaultValue:
-              '持有令牌者会以 {{companionName}} 的身份接入远程接口：读写它的记忆、调用它的技能、代它发起对话，以及远程接口开放的其他能力 —— 等同于交出这只伙伴的完整操作权限。请当作密码保管，泄露后立即吊销。',
+              '持有令牌者会以 {{companionName}} 的身份接入远程接口：读写它的记忆、调用它的技能、代它发起对话，以及远程接口开放的其他能力 —— 等同于交出该员工的完整操作权限。请当作密码保管，泄露后立即吊销。',
             companionName,
           })}
           controls={

@@ -551,7 +551,7 @@ const CsChannelsPage: React.FC = () => {
               ownerDomain: 'customer_service',
             }}
             onStatusChange={(status) => {
-              // 只采纳客服域行；伙伴域 bot 不把弹窗重定向到错误实体。
+              // 只采纳客服域行；员工域 bot 不把弹窗重定向到错误实体。
               if (status && statusInOwnerDomain(status, 'customer_service')) {
                 setStatuses((prev) => [
                   ...prev.filter((s) => s.plugin_id !== status.plugin_id),

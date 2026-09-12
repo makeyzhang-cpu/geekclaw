@@ -16,7 +16,7 @@ import type { SessionKind } from '../utils/workpathTree';
  * - `geekclaw:workpath-pinned`              string[]; array order is the manual pin order
  * - `geekclaw:workpath-expansion`           Record<workpathKey, boolean>; drawers default to COLLAPSED
  * - `geekclaw:workpath-subgroup-expansion`  Record<`${workpathKey}:${kind}`, boolean>; subgroups default to EXPANDED
- * - `geekclaw:companion-group-expanded`     boolean; the 桌面伙伴 group defaults to EXPANDED
+ * - `geekclaw:companion-group-expanded`     boolean; the 数字员工 group defaults to EXPANDED
  * - `geekclaw:ssh-group-expanded`           boolean; the SSH 会话 group defaults to EXPANDED
  */
 export const WORKPATH_PINNED_STORAGE_KEY = 'geekclaw:workpath-pinned';
@@ -63,7 +63,7 @@ const readExpansion = (): Record<string, boolean> => readJson<Record<string, boo
 
 const readSubgroup = (): Record<string, boolean> => readJson<Record<string, boolean>>(WORKPATH_SUBGROUP_STORAGE_KEY, {});
 
-/** The 桌面伙伴 and SSH 会话 groups store a bare boolean (not an object), so they
+/** The 数字员工 and SSH 会话 groups store a bare boolean (not an object), so they
  *  can't ride readJson (which rejects non-objects). Default EXPANDED: only an
  *  explicit stored `false` collapses the group. */
 const readBareExpanded = (storageKey: string): boolean => {
@@ -97,7 +97,7 @@ export type WorkpathUiState = {
   toggleSubgroup: (workpathKey: string, kind: SessionKind) => void;
   /** Idempotently expand a kind subgroup (used by reveal-on-create). */
   expandSubgroup: (workpathKey: string, kind: SessionKind) => void;
-  /** The 桌面伙伴 group's fold state. Default: expanded. */
+  /** The 数字员工 group's fold state. Default: expanded. */
   companionGroupExpanded: boolean;
   toggleCompanionGroup: () => void;
   /** The SSH 会话 group's fold state. Default: expanded. */

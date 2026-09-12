@@ -24,7 +24,7 @@ export type GuidAdvancedConfig = {
   setAutoWork: (next: AutoWorkDraftValue) => void;
   idmm: IIdmmConfig;
   setIdmm: (next: IIdmmConfig) => void;
-  /** 召唤伙伴 draft — collected before the conversation exists, applied via
+  /** 召唤员工 draft — collected before the conversation exists, applied via
    * `conversation.setSummon` right after create (summon binds to a
    * conversation id, so the landing page can only stage it). */
   summon: SummonDraft | null;

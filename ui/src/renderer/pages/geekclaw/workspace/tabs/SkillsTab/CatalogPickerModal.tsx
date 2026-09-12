@@ -80,7 +80,7 @@ const CatalogPickerModal: React.FC<CatalogPickerModalProps> = ({
       <div className='flex flex-col gap-12px'>
         <div className='text-12px leading-18px text-t-tertiary'>
           {t('geekclaw.skills.catalogHint', {
-            defaultValue: '从技能库里挑选要授予这个伙伴的能力，改动会在下一条消息生效。',
+            defaultValue: '从技能库里挑选要授予这个员工的能力，改动会在下一条消息生效。',
           })}
         </div>
         <Input.Search

@@ -53,7 +53,7 @@ const HistoryTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtt
     setSelectedDay((prev) => (prev && history.days.some((entry) => entry.day === prev) ? prev : history.days[0].day));
   }, [history.days]);
 
-  const companionName = companion.profile?.name ?? t('geekclaw.history.roleCompanion', { defaultValue: '伙伴' });
+  const companionName = companion.profile?.name ?? t('geekclaw.history.roleCompanion', { defaultValue: '员工' });
 
   const modeItems = useMemo(
     () => [
@@ -79,7 +79,7 @@ const HistoryTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtt
         <HistoryEmptyState
           title={t('geekclaw.history.loadFailedTitle', { defaultValue: '历史加载失败' })}
           description={t('geekclaw.history.loadFailedHint', {
-            defaultValue: '没能读到这个伙伴的会话记录，可能是后端暂时不可用。稍后再试一次。',
+            defaultValue: '没能读到这个员工的会话记录，可能是后端暂时不可用。稍后再试一次。',
           })}
           onRetry={history.retry}
         />
@@ -93,7 +93,7 @@ const HistoryTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtt
         <HistoryEmptyState
           title={t('geekclaw.history.emptyTitle', { defaultValue: '还没有聊天记录' })}
           description={t('geekclaw.history.emptyHint', {
-            defaultValue: '和这个伙伴聊过第一句之后，对话会按天出现在这里。',
+            defaultValue: '和这个员工聊过第一句之后，对话会按天出现在这里。',
           })}
         />
       );
@@ -131,7 +131,7 @@ const HistoryTab: React.FC<WorkspaceTabProps> = ({ companionId, companion, onAtt
         title={t('geekclaw.history.sectionTitle', { defaultValue: '聊天历史' })}
         description={t('geekclaw.history.sectionDesc', {
           defaultValue:
-            '这个伙伴的对话按本地日期分天阅读；开启「会话归档」（全局设置，对所有伙伴生效，默认关闭）后，当天的日记会显示在消息上方。',
+            '这个员工的对话按本地日期分天阅读；开启「会话归档」（全局设置，对所有员工生效，默认关闭）后，当天的日记会显示在消息上方。',
         })}
         action={
           <SegmentedTabs

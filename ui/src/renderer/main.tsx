@@ -26,8 +26,6 @@ import { ConfigProvider } from '@arco-design/web-react';
 // Configure Arco Design to use React 18's createRoot, fixing Message component's CopyReactDOM.render error
 import '@arco-design/web-react/es/_util/react-19-adapter';
 import '@arco-design/web-react/dist/css/arco.css';
-import enUS from '@arco-design/web-react/es/locale/en-US';
-import zhCN from '@arco-design/web-react/es/locale/zh-CN';
 import { useTranslation } from 'react-i18next';
 
 // Styles
@@ -67,11 +65,7 @@ import { isDesktopShell } from '@renderer/utils/platform';
 import { LicenseProvider } from './hooks/context/LicenseContext';
 import { ConversationHistoryProvider } from './hooks/context/ConversationHistoryContext';
 import HOC from './utils/ui/HOC';
-
-const arcoLocales: Record<string, typeof enUS> = {
-  'zh-CN': zhCN,
-  'en-US': enUS,
-};
+import { arcoLocaleFor } from './utils/arcoLocale';
 
 const AppProviders: React.FC<PropsWithChildren> = ({ children }) =>
   React.createElement(
@@ -96,7 +90,7 @@ const Config: React.FC<PropsWithChildren> = ({ children }) => {
   const {
     i18n: { language },
   } = useTranslation();
-  const arcoLocale = arcoLocales[language] ?? enUS;
+  const arcoLocale = arcoLocaleFor(language);
 
   return React.createElement(ConfigProvider, { theme: { primaryColor: '#4E5969' }, locale: arcoLocale }, children);
 };

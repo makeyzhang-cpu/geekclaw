@@ -265,10 +265,10 @@ export type TChatConversation =
         last_token_usage?: TokenUsageData;
         /** Marks this geekclaw conversation as a desktop-companion's single per-companion
          * session (单会话契约). Written by the backend at companion-session creation.
-         * Drives the 桌面伙伴 session-list group, the constrained companion chat panel
+         * Drives the 数字员工 session-list group, the constrained companion chat panel
          * (CompanionChatPanel), and the work-conversation list filter. */
         companion_session?: boolean;
-        /** The companion (桌面伙伴) this session belongs to, when `companion_session` is
+        /** The companion (数字员工) this session belongs to, when `companion_session` is
          * set. Resolves the companion profile for the constrained chat panel + the
          * session-list group's active-row highlight. */
         companion_id?: CompanionId;

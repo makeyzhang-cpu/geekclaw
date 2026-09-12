@@ -292,7 +292,7 @@ const KnowledgeListPage: React.FC = () => {
             {t('knowledge.title', { defaultValue: '知识库' })}
           </h1>
           <Typography.Paragraph className='!m-0 !mt-6px max-w-1000px text-13px leading-20px text-[var(--color-text-3)]'>
-            {t('knowledge.subtitle', { defaultValue: '集中管理你的专属领域知识。任意会话、终端、数字伙伴都能挂载它作为模型的扩展知识来源。' })}
+            {t('knowledge.subtitle', { defaultValue: '集中管理你的专属领域知识。任意会话、终端、数字员工都能挂载它作为模型的扩展知识来源。' })}
           </Typography.Paragraph>
         </div>
 

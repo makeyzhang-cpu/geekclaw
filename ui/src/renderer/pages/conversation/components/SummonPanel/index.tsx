@@ -5,16 +5,16 @@
  */
 
 /**
- * 会话召唤伙伴（spec 2026-07-29 §设计 B5）——工作会话把一位伙伴的技能与勾选
+ * 会话召唤员工（spec 2026-07-29 §设计 B5）——工作会话把一位员工的技能与勾选
  * 记忆（只读）装进来：
  *
- * - `SummonDrawer`：可复用的三步 Drawer（伙伴单选 → 技能复选（默认全选，
+ * - `SummonDrawer`：可复用的三步 Drawer（员工单选 → 技能复选（默认全选，
  *   去勾 = skill_exclusions）→ 记忆多选（FTS 搜索/kind 过滤，复用 A 轨道
  *   listMemories 检索面 + 预算字数条））。不绑定会话——落地页（Guid）用它
  *   暂存「创建后再应用」的召唤草稿。
  * - `SummonControl`：SendBox 工具条按钮 + 上述 Drawer 的会话绑定壳。已召唤时
  *   按钮变徽标态，点开可查看/调整/解除（解除 DELETE，幂等）。
- * - `SummonHeaderBadge`：会话头部的被动徽标（伙伴名），侧边栏条目徽标见
+ * - `SummonHeaderBadge`：会话头部的被动徽标（员工名），侧边栏条目徽标见
  *   `SessionList/utils/sessionCapabilityItems.tsx`。
  *
  * 召唤/调整/解除要求会话空闲：后端非空闲返回 409，这里转成可读提示。变更
@@ -91,7 +91,7 @@ const errorToast = (t: (key: string, options?: Record<string, unknown>) => strin
   Message.error(error instanceof Error ? error.message : String(error));
 };
 
-/** 会话头部被动徽标：已召唤时显示伙伴名（调整入口在 SendBox 工具条）。 */
+/** 会话头部被动徽标：已召唤时显示员工名（调整入口在 SendBox 工具条）。 */
 export const SummonHeaderBadge: React.FC<{ conversationId: ConversationId }> = ({ conversationId }) => {
   const { t } = useTranslation();
   const summon = useConversationSummon(conversationId);
@@ -247,7 +247,7 @@ export const SummonDrawer: React.FC<SummonDrawerProps> = ({ visible, onCancel, i
         </div>
       }
     >
-      {/* Step 1 — 伙伴单选 */}
+      {/* Step 1 — 员工单选 */}
       <div className='text-13px font-500 mb-8px'>{t('conversation.summon.stepCompanion')}</div>
       {roster.length === 0 ? (
         <Empty description={t('conversation.summon.noCompanions')} />

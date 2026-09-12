@@ -10,28 +10,77 @@
 
 import i18nConfig from '@/common/config/i18n-config.json';
 
+/** Every language the picker offers, in display order. */
 export const SUPPORTED_LANGUAGES = i18nConfig.supportedLanguages;
 export const DEFAULT_LANGUAGE = i18nConfig.fallbackLanguage;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 /**
- * Normalize a language code to a supported BCP 47 tag.
- * e.g. 'zh' → 'zh-CN', unsupported locales → fallback language.
+ * Languages whose translations are complete. Only these are held to cross-locale
+ * key parity by the `check:i18n` gate — a language that has not been translated
+ * yet ships an empty bundle and falls back to `DEFAULT_LANGUAGE` at runtime, so
+ * demanding its keys would block every build until the last string lands.
+ */
+export const COMPLETE_LANGUAGES: readonly SupportedLanguage[] = i18nConfig.completeLanguages;
+
+/** Native + English display names (and RTL flag) for each shipped language. */
+export interface LanguageLabel {
+  /** Endonym — the language's own name, shown in the picker. */
+  native: string;
+  /** English name, used as the secondary line / fallback. */
+  english: string;
+  /** Right-to-left script. Informational for now; layout mirroring is separate. */
+  rtl?: boolean;
+}
+
+export const LANGUAGE_LABELS: Record<string, LanguageLabel> = i18nConfig.languageLabels;
+
+/**
+ * Code aliases prefix matching cannot infer — script subtags and retired
+ * ISO-639 codes (`zh-Hant` → zh-TW, `in` → id-ID). Sort longest-first so a
+ * specific alias (`zh-Hant`) outranks a broader one it contains (`zh`).
+ */
+const ALIAS_ENTRIES: ReadonlyArray<[string, string]> = Object.entries(
+  i18nConfig.languageAliases as Record<string, string>
+).sort(([a], [b]) => b.length - a.length);
+
+/** Lower-cased shipped tag → its canonical casing. */
+const CANONICAL_BY_LOWER = new Map<string, SupportedLanguage>(
+  SUPPORTED_LANGUAGES.map((code) => [code.toLowerCase(), code as SupportedLanguage])
+);
+
+/** Primary subtag → the default region we ship for it (`ja` → ja-JP). */
+const BY_PRIMARY = new Map<string, SupportedLanguage>();
+for (const code of SUPPORTED_LANGUAGES) {
+  const primary = code.toLowerCase().split('-')[0];
+  if (!BY_PRIMARY.has(primary)) BY_PRIMARY.set(primary, code as SupportedLanguage);
+}
+
+/**
+ * Normalize a language code to a shipped BCP 47 tag. Resolution order, first hit
+ * wins: exact tag (case-insensitive, `_` folded to `-`) → explicit alias →
+ * primary subtag → fallback language.
+ *
+ * Unknown locales never pass through as-is: they collapse to the fallback, so
+ * every caller can assume the result names a language this build actually ships.
+ * e.g. 'zh_CN' → zh-CN, 'zh-Hant' → zh-TW, 'ja' → ja-JP, 'xx-YY' → en-US.
  */
 export function normalizeLanguageCode(language: string): SupportedLanguage {
-  const normalized = language.replace(/_/g, '-');
+  const tag = (language ?? '').replace(/_/g, '-').trim();
+  if (!tag) return DEFAULT_LANGUAGE;
 
-  if (SUPPORTED_LANGUAGES.includes(normalized as SupportedLanguage)) {
-    return normalized as SupportedLanguage;
+  const exact = CANONICAL_BY_LOWER.get(tag.toLowerCase());
+  if (exact) return exact;
+
+  const lowered = tag.toLowerCase();
+  for (const [alias, target] of ALIAS_ENTRIES) {
+    const key = alias.toLowerCase();
+    if (lowered !== key && !lowered.startsWith(`${key}-`)) continue;
+    const resolved = CANONICAL_BY_LOWER.get(target.toLowerCase());
+    if (resolved) return resolved;
   }
 
-  const langOnly = normalized.toLowerCase().split('-')[0];
-  switch (langOnly) {
-    case 'zh':
-      return 'zh-CN';
-    default:
-      return DEFAULT_LANGUAGE;
-  }
+  return BY_PRIMARY.get(lowered.split('-')[0]) ?? DEFAULT_LANGUAGE;
 }
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {

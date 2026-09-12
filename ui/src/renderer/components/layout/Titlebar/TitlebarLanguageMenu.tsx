@@ -3,13 +3,10 @@ import { Dropdown, Menu } from '@arco-design/web-react';
 import { Check, Translate } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import InstantHoverTooltip from '@renderer/components/base/InstantHoverTooltip';
-import { changeLanguage, normalizeLanguageCode, supportedLanguages } from '@/renderer/services/i18n';
+import { changeLanguage, LANGUAGE_LABELS, normalizeLanguageCode, supportedLanguages } from '@/renderer/services/i18n';
 
-/** Native display names for each supported language (shown in the language's own script). */
-const LANGUAGE_LABELS: Record<string, string> = {
-  'zh-CN': '简体中文',
-  'en-US': 'English',
-};
+/** Endonym shown in the picker — each language names itself; raw tag when unlabelled. */
+const nativeLabel = (code: string): string => LANGUAGE_LABELS[code]?.native ?? code;
 
 interface TitlebarLanguageMenuProps {
   /** Match the sibling titlebar icon buttons. */
@@ -58,7 +55,7 @@ const TitlebarLanguageMenu: React.FC<TitlebarLanguageMenuProps> = ({ iconSize, s
           return (
             <Menu.Item key={lang}>
               <div className='flex items-center justify-between gap-12px min-w-120px'>
-                <span>{LANGUAGE_LABELS[lang] ?? lang}</span>
+                <span dir='auto'>{nativeLabel(lang)}</span>
                 {active && <Check theme='outline' size={14} fill='currentColor' />}
               </div>
             </Menu.Item>

@@ -43,7 +43,7 @@ const CompanionAvatar: React.FC<CompanionAvatarProps> = ({ character, mood, acti
       />
     );
   }
-  // 品牌化:非自定义桌面伙伴统一使用 GeekClaw logo,取代 nomifun 默认角色(mochi/ink/bolt 粉红碗等),
+  // 品牌化:非自定义数字员工统一使用 GeekClaw logo,取代 nomifun 默认角色(mochi/ink/bolt 粉红碗等),
   // 确保桌面端视觉与 GeekClaw 品牌一致。
   const effectiveCharacter =
     character === CUSTOM_CHARACTER_ID ? CUSTOM_CHARACTER_ID : GEEKCLAW_CHARACTER_ID;

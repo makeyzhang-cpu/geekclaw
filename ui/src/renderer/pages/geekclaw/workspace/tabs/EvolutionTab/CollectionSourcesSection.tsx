@@ -38,7 +38,7 @@ const CollectionSourcesSection: React.FC<{ settings: CollectSettingsHandle }> = 
       title={t('geekclaw.collect.sources.title', { defaultValue: '采集来源' })}
       description={t('geekclaw.collect.sources.desc', {
         defaultValue:
-          '关掉一项后不再新增这类记录；已经记下的仍会参与学习，直到被下方的保留策略清理。这些开关属于这台设备：所有伙伴共用同一份记录。',
+          '关掉一项后不再新增这类记录；已经记下的仍会参与学习，直到被下方的保留策略清理。这些开关属于这台设备：所有员工共用同一份记录。',
       })}
     >
       <NomiSettingList>

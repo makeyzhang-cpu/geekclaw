@@ -11,7 +11,7 @@
  * ready-to-use *building blocks*: curated prompt recipes / style presets the
  * user can either copy to the clipboard or drop onto a fresh canvas as a
  * starter text/generator node. It deliberately carries NO expert persona and
- * NO chat surface — those live in the 专家数字分身市场 under 数字分身伙伴.
+ * NO chat surface — those live in the 专家数字分身市场 under 数字员工.
  *
  * `buildInspirationCanvas` reuses the canvas model's own factories + `flowToDoc`
  * so the produced doc is byte-shape-identical to a hand-built one.

@@ -11,7 +11,7 @@ import type { CompanionId } from '@/common/types/ids';
 import { statusInOwnerDomain, statusOwnedBy } from '@/renderer/components/channels/channelStatusSelection';
 
 /**
- * 本伙伴机器人上待审批的配对请求数 —— 远程控制页唯一「有人在等你」的信号。
+ * 本员工机器人上待审批的配对请求数 —— 远程控制页唯一「有人在等你」的信号。
  *
  * Count of pending pairing requests that belong to a channel plugin owned by
  * THIS companion. Pairings carry the plugin's business UUID, so the plugin

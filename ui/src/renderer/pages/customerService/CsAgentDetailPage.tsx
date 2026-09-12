@@ -455,7 +455,7 @@ const CsAgentDetailPage: React.FC = () => {
           )}
         </Section>
 
-        {/* 绑定管理 — 客服域渠道机器人自闭环（与桌面伙伴渠道分域互斥） */}
+        {/* 绑定管理 — 客服域渠道机器人自闭环（与数字员工渠道分域互斥） */}
         {csAgentId && (
           <Section title={t('customerService.sections.bindings', { defaultValue: '渠道机器人绑定' })}>
             <CsChannelBotsSection csAgentId={csAgentId} />

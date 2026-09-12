@@ -84,7 +84,7 @@ const MCP_DOMAIN_OPTIONS: McpDomainOption[] = [
     titleKey: 'settings.openCapabilities.domainMemoryTitle',
     defaultTitle: '记忆',
     descKey: 'settings.openCapabilities.domainMemoryDesc',
-    defaultDesc: '读取和维护伙伴记忆。',
+    defaultDesc: '读取和维护员工记忆。',
   },
   {
     id: 'terminal',
@@ -166,16 +166,16 @@ const MCP_DOMAIN_OPTIONS: McpDomainOption[] = [
   {
     id: 'companion',
     titleKey: 'settings.openCapabilities.domainCompanionTitle',
-    defaultTitle: '伙伴',
+    defaultTitle: '员工',
     descKey: 'settings.openCapabilities.domainCompanionDesc',
-    defaultDesc: '管理伙伴、绑定、远程访问令牌和伙伴资料。',
+    defaultDesc: '管理员工、绑定、远程访问令牌和员工资料。',
   },
   {
     id: 'channel',
     titleKey: 'settings.openCapabilities.domainChannelTitle',
     defaultTitle: '频道',
     descKey: 'settings.openCapabilities.domainChannelDesc',
-    defaultDesc: '管理 IM 频道、配对、授权用户和伙伴绑定。',
+    defaultDesc: '管理 IM 频道、配对、授权用户和员工绑定。',
   },
   {
     id: 'confirmation',

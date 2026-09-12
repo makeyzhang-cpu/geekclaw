@@ -108,7 +108,7 @@ const SshSessionGroup: React.FC<Props> = ({
 
   return (
     <div className='min-w-0 mb-2px'>
-      {/* 与「桌面伙伴」「项目/工作路径」完全同款的纯 section 标题（无边框/箭头，
+      {/* 与「数字员工」「项目/工作路径」完全同款的纯 section 标题（无边框/箭头，
           只有标签 + 数字）。点击整行切换持久化折叠态（默认展开）。 */}
       <div className='px-2px'>
         <div

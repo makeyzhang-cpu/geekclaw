@@ -990,7 +990,7 @@ const NomiSendBox: React.FC<{
             >
               {hasContextUsage && <ContextUsageRing used={tokenUsage?.context_tokens} max={tokenUsage?.context_window} />}
               <NomiModelSelector selection={modelSelection} className='geekclaw-sendbox-model-btn' />
-              {/* 召唤伙伴（设计 B5）：仅普通工作会话可见 —— 伙伴/客服等锁定面
+              {/* 召唤员工（设计 B5）：仅普通工作会话可见 —— 员工/客服等锁定面
                   通过 hideModeSelector 隐藏整个配置组，天然不渲染。 */}
               <SummonControl conversationId={conversation_id} />
               {collaboratorSelectorNode}

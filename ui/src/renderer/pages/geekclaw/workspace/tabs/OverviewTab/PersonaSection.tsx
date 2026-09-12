@@ -23,7 +23,7 @@ interface PersonaSectionProps {
 }
 
 /**
- * 伙伴设定 — how this companion talks: a tone preset plus free-text notes, and the
+ * 员工设定 — how this companion talks: a tone preset plus free-text notes, and the
  * one-click reuse of a saved preset. Both rows write the same idea (“who it is”),
  * so they live in one list.
  */
@@ -38,7 +38,7 @@ const PersonaSection: React.FC<PersonaSectionProps> = ({ profile, patchCompanion
 
   return (
     <NomiSettingSection
-      title={t('geekclaw.overview.personaSection', { defaultValue: '伙伴设定' })}
+      title={t('geekclaw.overview.personaSection', { defaultValue: '员工设定' })}
       description={t('geekclaw.overview.personaSectionHint', { defaultValue: '它是谁、怎么说话，都会写进每次对话的开场' })}
     >
       <NomiSettingList>

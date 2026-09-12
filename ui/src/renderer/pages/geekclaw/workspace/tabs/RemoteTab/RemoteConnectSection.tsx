@@ -34,7 +34,7 @@ const CREATE_BOT_BUTTON_CLASS =
   '!rounded-8px !bg-fill-2 !text-t-secondary hover:!bg-fill-3 hover:!text-t-primary';
 
 /**
- * 伙伴设置页「远程连接」节：每伙伴视角的多机器人管理。
+ * 员工设置页「远程连接」节：每员工视角的多机器人管理。
  * 每个机器人 = 一个 channel plugin 实体（companion_id 绑宠，UNIQUE(type,bot_key)
  * 保证同一机器人不绑多宠）。同一平台可以有多个实体：本宠的机器人直接启停/配置/
  * 解绑/删除；未绑定的机器人可以绑到本宠；他宠的机器人可迁移，也可另建机器人。
@@ -62,8 +62,8 @@ const RemoteConnectSection: React.FC<{ companionId: CompanionId; companionName: 
       if (!plugins) return;
       setStatuses(() => {
         const next: Record<string, IChannelPluginStatus> = {};
-        // 渠道所有权分域：伙伴侧只见 companion 域；客服域 bot 在客服详情页
-        // 自闭环管理，绝不进入伙伴的挑选/迁移池。
+        // 渠道所有权分域：员工侧只见 companion 域；客服域 bot 在客服详情页
+        // 自闭环管理，绝不进入员工的挑选/迁移池。
         for (const plugin of plugins) {
           if (!statusInOwnerDomain(plugin, 'companion')) continue;
           next[plugin.plugin_id] = plugin;

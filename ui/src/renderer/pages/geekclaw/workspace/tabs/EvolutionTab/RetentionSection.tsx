@@ -145,14 +145,14 @@ const RetentionSection: React.FC<{ settings: CollectSettingsHandle }> = ({ setti
       title={t('geekclaw.collect.retention.title', { defaultValue: '保留策略' })}
       description={t('geekclaw.collect.retention.desc', {
         defaultValue:
-          '保留期按本地日期分文件计算，含今天在内。这份记录属于这台设备，所有伙伴共用。过期的日文件不会立刻删除：只有当所有伙伴已开启的学习任务（定时学习、技能生成）都读过那一天的记录后才会删；只有每个伙伴的这两项都关着时，过期才即删。',
+          '保留期按本地日期分文件计算，含今天在内。这份记录属于这台设备，所有员工共用。过期的日文件不会立刻删除：只有当所有员工已开启的学习任务（定时学习、技能生成）都读过那一天的记录后才会删；只有每个员工的这两项都关着时，过期才即删。',
       })}
       action={
         lowers ? (
           <Popconfirm
             title={t('geekclaw.collect.retention.lowerConfirm', {
               defaultValue:
-                '调低保留期或容量上限会立即执行一次清理，可能删掉最旧的原始记录，且无法恢复。这份记录由所有伙伴共用，清理对每个伙伴都生效。已提炼的记忆和技能会保留。继续？',
+                '调低保留期或容量上限会立即执行一次清理，可能删掉最旧的原始记录，且无法恢复。这份记录由所有员工共用，清理对每个员工都生效。已提炼的记忆和技能会保留。继续？',
             })}
             okButtonProps={{ status: 'danger' }}
             onOk={apply}

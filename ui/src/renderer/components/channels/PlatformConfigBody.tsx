@@ -126,7 +126,7 @@ export const PLUGIN_DISABLED_KEY: Record<ChannelPlatform, string> = {
  * Channel config modal body: enable/disable switch + the platform's full
  * config form (credentials, connection test, pairing approvals, authorized users).
  *
- * 这里不渲染模型选择器：机器人复用所绑定对象（桌面伙伴 / 对外伙伴）的
+ * 这里不渲染模型选择器：机器人复用所绑定对象（数字员工 / 对外员工）的
  * 对话模型，后端按绑定对象的 `profile.model` 解析；各平台表单只负责渠道连接。
  *
  * `channelTarget` addresses one channel plugin entity (multi-bot model). When
@@ -244,7 +244,7 @@ export const PlatformConfigBody: React.FC<{
 
       {/* 模型跟随绑定对象的对话模型 / Model follows the bound owner's chat model */}
       <div className='text-12px text-t-tertiary bg-fill-2 rd-10px px-14px py-10px'>
-        {'机器人使用该伙伴的对话模型,在「对话」页配置'}
+        {'机器人使用该员工的对话模型,在「对话」页配置'}
       </div>
 
       {platform === 'telegram' && (

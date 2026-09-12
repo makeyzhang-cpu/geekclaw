@@ -108,7 +108,7 @@ const MigrationSection: React.FC<Props> = ({ companionId, companionName }) => {
       <NomiSettingSection
         title={t('geekclaw.other.migrateSection', { defaultValue: '迁移' })}
         description={t('geekclaw.other.migrateSectionDesc', {
-          defaultValue: '把这个伙伴打包带到另一台设备，或从迁移包里恢复一个伙伴。',
+          defaultValue: '把这个员工打包带到另一台设备，或从迁移包里恢复一个员工。',
         })}
       >
         <NomiSettingList>
@@ -134,12 +134,12 @@ const MigrationSection: React.FC<Props> = ({ companionId, companionName }) => {
     <NomiSettingSection
       title={t('geekclaw.other.migrateSection', { defaultValue: '迁移' })}
       description={t('geekclaw.other.migrateSectionDesc', {
-        defaultValue: '把这个伙伴打包带到另一台设备，或从迁移包里恢复一个伙伴。',
+        defaultValue: '把这个员工打包带到另一台设备，或从迁移包里恢复一个员工。',
       })}
     >
       <NomiSettingList>
         <NomiSettingRow
-          title={t('geekclaw.other.exportTitle', { defaultValue: '导出伙伴' })}
+          title={t('geekclaw.other.exportTitle', { defaultValue: '导出员工' })}
           description={t('geekclaw.other.exportDesc', {
             companionName,
             defaultValue:
@@ -165,9 +165,9 @@ const MigrationSection: React.FC<Props> = ({ companionId, companionName }) => {
           }
         />
         <NomiSettingRow
-          title={t('geekclaw.other.importTitle', { defaultValue: '导入伙伴' })}
+          title={t('geekclaw.other.importTitle', { defaultValue: '导入员工' })}
           description={t('geekclaw.other.importDesc', {
-            defaultValue: '选择伙伴迁移包（.zip），会在本机创建一个新伙伴，并按名称恢复它的知识库绑定。',
+            defaultValue: '选择员工迁移包（.zip），会在本机创建一个新员工，并按名称恢复它的知识库绑定。',
           })}
           controls={
             <Button loading={importing} onClick={() => void runImport()}>

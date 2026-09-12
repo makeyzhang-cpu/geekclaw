@@ -172,7 +172,7 @@ const CompanionAccessTokenPanel: React.FC = () => {
         </div>
       ) : (
         <div className='flex flex-col gap-8px'>
-          {/* 伙伴选择 + 状态徽标 / Companion picker + status badge */}
+          {/* 员工选择 + 状态徽标 / Companion picker + status badge */}
           <div className='flex items-center gap-8px'>
             <Select
               size='small'

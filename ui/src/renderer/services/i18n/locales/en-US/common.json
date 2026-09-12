@@ -1,8 +1,14 @@
 {
   "siderSection": {
-    "common": "Common",
-    "automation": "Automation",
+    "common": "AI General Agent",
+    "automation": "AI Export Agent",
     "assistantVault": "Assistant Capability Hub"
+  },
+  "siderRail": {
+    "expertAgent": "Trade Digital Team",
+    "b2bTrade": "B2B Trade Workspace",
+    "a2aEcommerce": "A2A Cross-border",
+    "opcDist": "OPC Distribution Workspace"
   },
   "send": "Send",
   "cancel": "Cancel",

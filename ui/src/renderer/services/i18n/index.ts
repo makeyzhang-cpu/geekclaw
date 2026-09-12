@@ -13,20 +13,56 @@ import {
 } from '@/common/config/i18n';
 
 // Static imports for all locales to ensure packaged app can always switch language.
+// Languages that are not translated yet export an empty bundle; they are imported
+// all the same so dropping in `locales/<code>/*.json` later needs no change here.
+import arSA from './locales/ar-SA/index';
 import enUS from './locales/en-US/index';
+import esES from './locales/es-ES/index';
+import filPH from './locales/fil-PH/index';
+import idID from './locales/id-ID/index';
+import jaJP from './locales/ja-JP/index';
+import kmKH from './locales/km-KH/index';
+import koKR from './locales/ko-KR/index';
+import loLA from './locales/lo-LA/index';
+import msMY from './locales/ms-MY/index';
+import myMM from './locales/my-MM/index';
+import ptTL from './locales/pt-TL/index';
+import ruRU from './locales/ru-RU/index';
+import taSG from './locales/ta-SG/index';
+import tetTL from './locales/tet-TL/index';
+import thTH from './locales/th-TH/index';
+import viVN from './locales/vi-VN/index';
 import zhCN from './locales/zh-CN/index';
+import zhTW from './locales/zh-TW/index';
 
 export type { I18nKey, I18nModule } from './i18n-keys';
 
 // Re-exports
-export { normalizeLanguageCode } from '@/common/config/i18n';
-export type { SupportedLanguage } from '@/common/config/i18n';
+export { normalizeLanguageCode, COMPLETE_LANGUAGES, LANGUAGE_LABELS } from '@/common/config/i18n';
+export type { SupportedLanguage, LanguageLabel } from '@/common/config/i18n';
 
 export const supportedLanguages = i18nConfig.supportedLanguages;
 
 const localeData: LocaleData = {
-  'en-US': enUS,
   'zh-CN': zhCN,
+  'zh-TW': zhTW,
+  'en-US': enUS,
+  'ja-JP': jaJP,
+  'ko-KR': koKR,
+  'ru-RU': ruRU,
+  'es-ES': esES,
+  'ar-SA': arSA,
+  'id-ID': idID,
+  'ms-MY': msMY,
+  'th-TH': thTH,
+  'vi-VN': viVN,
+  'fil-PH': filPH,
+  'my-MM': myMM,
+  'km-KH': kmKH,
+  'lo-LA': loLA,
+  'ta-SG': taSG,
+  'pt-TL': ptTL,
+  'tet-TL': tetTL,
 };
 
 const fallbackLocale = localeData[DEFAULT_LANGUAGE] ?? {};

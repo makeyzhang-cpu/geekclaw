@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
  * - wire 层按 Interfaces 契约映射 `owner_domain`（缺省 companion）；
  * - 所有平台表单经由唯一构造点 buildEnablePluginRequest 组装 enable 请求，
  *   不得再手搓 companion_id 展开（客服域创建必须打 owner_domain 且互斥于绑宠）；
- * - 伙伴侧「远程连接」只见 companion 域。
+ * - 员工侧「远程连接」只见 companion 域。
  */
 
 const channelsDir = new URL('../settings/SettingsModal/contents/channels/', import.meta.url);
