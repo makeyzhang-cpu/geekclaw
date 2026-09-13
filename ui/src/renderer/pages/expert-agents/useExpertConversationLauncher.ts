@@ -26,7 +26,7 @@ import {
   type ExpertSkill,
 } from './data';
 import type { PresetTarget } from '@/common/types/agent/presetTypes';
-import type { IProvider, TProviderWithModel } from '@/common/config/storage';
+import type { TChatConversation, IProvider, TProviderWithModel } from '@/common/config/storage';
 import type { PresetId } from '@/common/types/ids';
 
 type PersistPresetId = (presetId: string) => void;
@@ -140,18 +140,18 @@ export function useExpertConversationLauncher() {
     []
   );
 
-  /** 用 preset_id 发起真实会话并跳转到会话页。 */
-  const openConversation = useCallback(
-    async (conversationName: string, presetId: string): Promise<boolean> => {
+  /** 用 preset_id 发起真实会话（不跳转），返回会话对象供调用方内嵌渲染。 */
+  const ensureConversation = useCallback(
+    async (conversationName: string, presetId: string): Promise<TChatConversation | null> => {
       if (isModelsLoading) {
         Message.warning(t('common.loading', { defaultValue: '模型列表加载中，请稍候' }));
-        return false;
+        return null;
       }
       if (!usableModel) {
         Message.warning(
           t('conversation.noModelConfigured', { defaultValue: '请先在设置中配置默认模型' })
         );
-        return false;
+        return null;
       }
       if (isUsingFallbackFreeModel) {
         Message.warning(
@@ -176,10 +176,20 @@ export function useExpertConversationLauncher() {
       }
       emitter.emit('chat.history.refresh');
       seedConversationCache(conversation);
+      return conversation;
+    },
+    [usableModel, isModelsLoading, isUsingFallbackFreeModel, t]
+  );
+
+  /** 用 preset_id 发起真实会话并跳转到会话页（专家中心沿用此路径）。 */
+  const openConversation = useCallback(
+    async (conversationName: string, presetId: string): Promise<boolean> => {
+      const conversation = await ensureConversation(conversationName, presetId);
+      if (!conversation) return false;
       await navigate(`/conversation/${conversation.id}`);
       return true;
     },
-    [usableModel, isModelsLoading, isUsingFallbackFreeModel, navigate, t]
+    [ensureConversation, navigate]
   );
 
   /** 发起单个专家（或单技能合成的专家）对话。extraDirective 用于注入协同能力增强段。 */
@@ -252,5 +262,41 @@ export function useExpertConversationLauncher() {
     [ensurePreset, openConversation, t]
   );
 
-  return { launch, launchMulti, current_model: usableModel };
+  /**
+   * 发起专家对话但**不跳转**：返回会话对象，供内嵌式工作台（B2B 外贸工作台）
+   * 就地渲染 NomiChat。
+   *
+   * ⚠️ 每次调用都会 `conversation.create` 一条新会话 —— 调用方必须按专家 id
+   * 缓存返回的会话，否则来回切换专家会把会话列表刷爆并丢失上下文。
+   */
+  const launchToConversation = useCallback(
+    async (
+      identity: ExpertIdentity,
+      skills: ExpertSkill[],
+      opts?: { persistPresetId?: PersistPresetId; extraDirective?: string }
+    ): Promise<TChatConversation | null> => {
+      try {
+        const base = composeExpertSystemPrompt(identity, skills);
+        const instructions = opts?.extraDirective ? `${base}\n\n${opts.extraDirective}` : base;
+        const presetId = await ensurePreset(
+          identity.name,
+          identity.description,
+          instructions,
+          identity.presetId
+        );
+        if (!presetId) throw new Error('preset create failed');
+        if (opts?.persistPresetId) opts.persistPresetId(presetId);
+        return await ensureConversation(identity.name, presetId);
+      } catch (error) {
+        console.error('launch expert conversation (embedded) failed:', error);
+        Message.error(
+          t('expertAgentsHub.launchFailed', { defaultValue: '发起对话失败，请稍后重试' })
+        );
+        return null;
+      }
+    },
+    [ensureConversation, ensurePreset, t]
+  );
+
+  return { launch, launchMulti, launchToConversation, current_model: usableModel };
 }

@@ -11,40 +11,18 @@ import { useTranslation } from 'react-i18next';
 import classNames from 'classnames';
 import {
   Balance,
-  Brain,
-  Bug,
-  Calendar,
-  Camera,
-  ChartLine,
   CloudStorage,
-  Code,
   Currency,
-  Dashboard,
   Delete,
   Download,
   Edit,
-  FileText,
   Globe,
-  Heart,
-  HighLight,
-  Histogram,
-  International,
   Link,
   Mail,
   Message as MessageIcon,
   People,
-  Pie,
   Plus,
-  Report,
-  Scan,
-  Search,
-  Setting,
-  Speaker,
-  Text,
-  Trend,
-  Translate,
   Upload,
-  Video,
 } from '@icon-park/react';
 import HubPageShell from '@renderer/components/layout/HubPageShell';
 import NomiModal from '@renderer/components/base/NomiModal';
@@ -59,51 +37,17 @@ import {
 import { useExpertIdentities } from './useExpertIdentities';
 import { useExpertSkills } from './useExpertSkills';
 import { useExpertConversationLauncher } from './useExpertConversationLauncher';
+import { expertIconOptions, resolveExpertIcon } from './expertIcons';
+import {
+  CollabMultiExpertModal,
+  IdentityEditorModal,
+  SkillCard,
+  SkillEditorModal,
+  emptyIdentityDraft,
+  emptySkillDraft,
+} from './expertEditors';
+import type { IdentityEditorState, SkillEditorState } from './expertEditors';
 
-type IconComp = React.ComponentType<{
-  size?: number | string;
-  theme?: 'outline' | 'filled' | 'two-tone' | 'multi-color';
-  fill?: string;
-  className?: string;
-  style?: React.CSSProperties;
-}>;
-
-const iconMap: Record<string, IconComp> = {
-  Balance,
-  Brain,
-  Bug,
-  Calendar,
-  Camera,
-  ChartLine,
-  CloudStorage,
-  Code,
-  Currency,
-  Dashboard,
-  Edit,
-  FileText,
-  Globe,
-  Heart,
-  HighLight,
-  Histogram,
-  International,
-  Link,
-  Mail,
-  People,
-  Pie,
-  Report,
-  Scan,
-  Search,
-  Setting,
-  Speaker,
-  Text,
-  Trend,
-  Translate,
-  Video,
-};
-
-const resolveIcon = (name: string): IconComp => iconMap[name] ?? People;
-
-const iconOptions = Object.keys(iconMap).map((key) => ({ label: key, value: key }));
 
 /** 协同办公「协作动态」示例（演示用静态流，营造多专家协作群聊观感） */
 const collabFeed: Array<{ icon: string; name: string; text: string }> = [
@@ -123,7 +67,7 @@ interface IdentityCardProps {
 }
 
 const IdentityCard: React.FC<IdentityCardProps> = ({ item, findSkill, onEdit, onDelete, onLaunch }) => {
-  const Icon = resolveIcon(item.icon);
+  const Icon = resolveExpertIcon(item.icon);
   const skills = item.skillIds.map(findSkill).filter((s): s is ExpertSkill => Boolean(s));
   return (
     <div className='group relative flex flex-col gap-10px p-16px rd-12px border border-solid border-[var(--color-border-2)] bg-fill-1 hover:border-primary-6 hover:shadow-sm transition-all'>
@@ -183,73 +127,13 @@ const IdentityCard: React.FC<IdentityCardProps> = ({ item, findSkill, onEdit, on
   );
 };
 
-interface SkillCardProps {
-  item: ExpertSkill;
-  onEdit: (item: ExpertSkill) => void;
-  onDelete: (item: ExpertSkill) => void;
-  onLaunchSkill: (item: ExpertSkill) => void;
-}
-
-const SkillCard: React.FC<SkillCardProps> = ({ item, onEdit, onDelete, onLaunchSkill }) => {
-  const Icon = resolveIcon(item.icon);
-  return (
-    <div className='group relative flex flex-col gap-10px p-16px rd-12px border border-solid border-[var(--color-border-2)] bg-fill-1 hover:border-primary-6 hover:shadow-sm transition-all'>
-      <div className='flex items-center gap-10px pr-60px'>
-        <span className='size-40px rounded-full bg-primary-1 text-primary-6 flex items-center justify-center shrink-0'>
-          <Icon size={22} theme='outline' fill='currentColor' />
-        </span>
-        <span className='text-15px font-600 text-t-primary leading-20px'>{item.name}</span>
-      </div>
-      <p className='text-13px leading-18px text-t-tertiary m-0'>{item.description}</p>
-      {item.definition && (
-        <p className='text-12px leading-16px text-t-quaternary m-0 line-clamp-2'>
-          {item.definition.slice(0, 80)}
-          {item.definition.length > 80 ? '…' : ''}
-        </p>
-      )}
-      <div className='absolute top-10px right-10px hidden group-hover:flex gap-6px'>
-        <Button
-          type='text'
-          size='mini'
-          icon={<MessageIcon size={15} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onLaunchSkill(item);
-          }}
-          aria-label='用此技能发起对话'
-        />
-        <Button
-          type='text'
-          size='mini'
-          icon={<Edit size={15} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(item);
-          }}
-          aria-label='编辑'
-        />
-        <Button
-          type='text'
-          size='mini'
-          status='danger'
-          icon={<Delete size={15} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(item);
-          }}
-          aria-label='删除'
-        />
-      </div>
-    </div>
-  );
-};
 
 /** 协同办公：左侧办公群成员行 */
 const CollabMemberRow: React.FC<{ item: ExpertIdentity; onLaunch: (item: ExpertIdentity) => void }> = ({
   item,
   onLaunch,
 }) => {
-  const Icon = resolveIcon(item.icon);
+  const Icon = resolveExpertIcon(item.icon);
   return (
     <div className='flex items-center gap-10px px-12px py-10px rd-10px hover:bg-fill-2 transition-colors'>
       <span className='size-36px rounded-full bg-primary-1 text-primary-6 flex items-center justify-center shrink-0'>
@@ -282,7 +166,7 @@ const CollabFeedItem: React.FC<{ icon: string; name: string; text: string }> = (
   name,
   text,
 }) => {
-  const Icon = resolveIcon(icon);
+  const Icon = resolveExpertIcon(icon);
   return (
     <div className='flex gap-10px px-12px py-8px'>
       <span className='size-30px rounded-full bg-primary-1 text-primary-6 flex items-center justify-center shrink-0 mt-2px'>
@@ -351,7 +235,7 @@ const CollabDeepLoopPicker: React.FC<{
     >
       <div className='flex flex-col gap-8px py-8px'>
         {features.map((item) => {
-          const Icon = resolveIcon(item.icon);
+          const Icon = resolveExpertIcon(item.icon);
           const sel = isSel(item.id);
           return (
             <div
@@ -432,400 +316,12 @@ const collabDetailMap: Record<string, string[]> = {
   ],
 };
 
-interface IdentityEditorState {
-  open: boolean;
-  mode: 'create' | 'edit';
-  draft: ExpertIdentity;
-}
 
-interface SkillEditorState {
-  open: boolean;
-  mode: 'create' | 'edit';
-  draft: ExpertSkill;
-}
 
-interface BaseEditorModalProps<T> {
-  visible: boolean;
-  mode: 'create' | 'edit';
-  draft: T;
-  categories: string[];
-  onCancel: () => void;
-  onSave: (item: T) => void;
-}
-
-interface IdentityEditorModalProps extends BaseEditorModalProps<ExpertIdentity> {
-  skills: ExpertSkill[];
-}
-
-const IdentityEditorModal: React.FC<IdentityEditorModalProps> = ({
-  visible,
-  mode,
-  draft,
-  categories,
-  skills,
-  onCancel,
-  onSave,
-}) => {
-  const [name, setName] = useState(draft.name);
-  const [category, setCategory] = useState(draft.category);
-  const [description, setDescription] = useState(draft.description);
-  const [icon, setIcon] = useState(draft.icon);
-  const [skillIds, setSkillIds] = useState<string[]>(draft.skillIds);
-
-  useEffect(() => {
-    if (!visible) return;
-    setName(draft.name);
-    setCategory(draft.category);
-    setDescription(draft.description);
-    setIcon(draft.icon);
-    setSkillIds(draft.skillIds);
-  }, [visible, draft]);
-
-  const skillOptions = useMemo(
-    () => skills.map((s) => ({ label: `${s.name}（${s.category}）`, value: s.id })),
-    [skills]
-  );
-
-  const PreviewIcon = resolveIcon(icon);
-
-  const handleSave = () => {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      Message.error('请填写专家身份名称');
-      return;
-    }
-    onSave({
-      id: draft.id,
-      name: trimmedName,
-      category: category.trim() || '未分类',
-      description: description.trim(),
-      icon: icon || 'People',
-      skillIds,
-    });
-  };
-
-  return (
-    <NomiModal
-      visible={visible}
-      size='large'
-      header={mode === 'create' ? '新建专家身份' : '编辑专家身份'}
-      onCancel={onCancel}
-      footer={
-        <div className='flex justify-end gap-10px mt-12px'>
-          <Button onClick={onCancel} className='px-20px min-w-80px' style={{ borderRadius: 8 }}>
-            取消
-          </Button>
-          <Button
-            type='primary'
-            onClick={handleSave}
-            className='px-20px min-w-80px'
-            style={{ borderRadius: 8 }}
-          >
-            保存
-          </Button>
-        </div>
-      }
-    >
-      <div className='flex flex-col gap-16px py-8px'>
-        <div className='flex items-start gap-16px'>
-          <div className='flex flex-col gap-6px w-120px shrink-0'>
-            <span className='text-13px text-t-secondary'>图标</span>
-            <span className='size-48px rounded-10px bg-primary-1 text-primary-6 flex items-center justify-center'>
-              <PreviewIcon size={24} theme='outline' fill='currentColor' />
-            </span>
-          </div>
-          <div className='flex-1'>
-            <Select
-              value={icon}
-              onChange={setIcon}
-              options={iconOptions}
-              showSearch
-              placeholder='选择图标'
-              className='w-full'
-            />
-          </div>
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>身份名称</span>
-          <Input
-            value={name}
-            onChange={setName}
-            placeholder='如：外贸业务员 / 海外社媒引流'
-            maxLength={40}
-            allowClear
-          />
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>分类</span>
-          <Select
-            showSearch
-            allowCreate
-            value={category}
-            onChange={setCategory}
-            options={categories.map((c) => ({ label: c, value: c }))}
-            placeholder='选择或输入分类，如：外贸拓客'
-            className='w-full'
-          />
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>身份描述</span>
-          <Input.TextArea
-            value={description}
-            onChange={setDescription}
-            placeholder='一句话描述该专家身份的职责与价值'
-            autoSize={{ minRows: 2, maxRows: 4 }}
-            maxLength={120}
-            showWordLimit
-          />
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>
-            关联专长技能（每个身份独一无二的技能组合）
-          </span>
-          <Select
-            mode='multiple'
-            value={skillIds}
-            onChange={setSkillIds}
-            options={skillOptions}
-            placeholder='从技能库中为该身份绑定专属技能'
-            className='w-full'
-            maxTagCount={6}
-          />
-          <span className='text-12px text-t-quaternary'>已选 {skillIds.length} 项技能</span>
-        </div>
-      </div>
-    </NomiModal>
-  );
-};
-
-const SkillEditorModal: React.FC<BaseEditorModalProps<ExpertSkill>> = ({
-  visible,
-  mode,
-  draft,
-  categories,
-  onCancel,
-  onSave,
-}) => {
-  const [name, setName] = useState(draft.name);
-  const [category, setCategory] = useState(draft.category);
-  const [description, setDescription] = useState(draft.description);
-  const [icon, setIcon] = useState(draft.icon);
-  const [definition, setDefinition] = useState(draft.definition ?? '');
-
-  useEffect(() => {
-    if (!visible) return;
-    setName(draft.name);
-    setCategory(draft.category);
-    setDescription(draft.description);
-    setIcon(draft.icon);
-    setDefinition(draft.definition ?? '');
-  }, [visible, draft]);
-
-  const PreviewIcon = resolveIcon(icon);
-
-  const handleSave = () => {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      Message.error('请填写技能名称');
-      return;
-    }
-    onSave({
-      id: draft.id,
-      name: trimmedName,
-      category: category.trim() || '未分类',
-      description: description.trim(),
-      icon: icon || 'People',
-      definition: definition.trim(),
-    });
-  };
-
-  return (
-    <NomiModal
-      visible={visible}
-      size='large'
-      header={mode === 'create' ? '新建专家技能' : '编辑专家技能'}
-      onCancel={onCancel}
-      footer={
-        <div className='flex justify-end gap-10px mt-12px'>
-          <Button onClick={onCancel} className='px-20px min-w-80px' style={{ borderRadius: 8 }}>
-            取消
-          </Button>
-          <Button
-            type='primary'
-            onClick={handleSave}
-            className='px-20px min-w-80px'
-            style={{ borderRadius: 8 }}
-          >
-            保存
-          </Button>
-        </div>
-      }
-    >
-      <div className='flex flex-col gap-16px py-8px'>
-        <div className='flex items-start gap-16px'>
-          <div className='flex flex-col gap-6px w-120px shrink-0'>
-            <span className='text-13px text-t-secondary'>图标</span>
-            <span className='size-48px rounded-10px bg-primary-1 text-primary-6 flex items-center justify-center'>
-              <PreviewIcon size={24} theme='outline' fill='currentColor' />
-            </span>
-          </div>
-          <div className='flex-1'>
-            <Select
-              value={icon}
-              onChange={setIcon}
-              options={iconOptions}
-              showSearch
-              placeholder='选择图标'
-              className='w-full'
-            />
-          </div>
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>技能名称</span>
-          <Input
-            value={name}
-            onChange={setName}
-            placeholder='如：开发信撰写 / 海关编码'
-            maxLength={40}
-            allowClear
-          />
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>分类</span>
-          <Select
-            showSearch
-            allowCreate
-            value={category}
-            onChange={setCategory}
-            options={categories.map((c) => ({ label: c, value: c }))}
-            placeholder='选择或输入分类，如：客户开发'
-            className='w-full'
-          />
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>一句话描述</span>
-          <Input.TextArea
-            value={description}
-            onChange={setDescription}
-            placeholder='简短说明该技能能解决什么问题'
-            autoSize={{ minRows: 2, maxRows: 3 }}
-            maxLength={80}
-            showWordLimit
-          />
-        </div>
-
-        <div className='flex flex-col gap-6px'>
-          <span className='text-13px text-t-secondary'>技能定义（提示词 / 执行指令 / 工具说明）</span>
-          <Input.TextArea
-            value={definition}
-            onChange={setDefinition}
-            placeholder='输入该技能的系统提示词、工作流或工具调用说明。可被导入导出，供专家身份调用时执行。'
-            autoSize={{ minRows: 5, maxRows: 10 }}
-            maxLength={2000}
-            showWordLimit
-          />
-        </div>
-      </div>
-    </NomiModal>
-  );
-};
-
-/** 协同办公：多专家协同选择弹窗（勾选成员后真实发起多专家对话） */
-const CollabMultiExpertModal: React.FC<{
-  visible: boolean;
-  identities: ExpertIdentity[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-}> = ({ visible, identities, selected, onChange, onCancel, onConfirm }) => {
-  const toggle = (id: string, checked: boolean) => {
-    if (checked) onChange([...selected, id]);
-    else onChange(selected.filter((x) => x !== id));
-  };
-  return (
-    <NomiModal
-      visible={visible}
-      size='large'
-      header='选择协同专家'
-      onCancel={onCancel}
-      footer={
-        <div className='flex justify-end mt-12px gap-10px'>
-          <Button onClick={onCancel} className='px-20px min-w-80px' style={{ borderRadius: 8 }}>
-            取消
-          </Button>
-          <Button
-            type='primary'
-            onClick={onConfirm}
-            className='px-20px min-w-80px'
-            style={{ borderRadius: 8 }}
-            disabled={selected.length === 0}
-          >
-            发起协同对话
-          </Button>
-        </div>
-      }
-    >
-      <p className='text-13px text-t-tertiary m-0 mb-10px'>
-        勾选要加入本次协同工作流的外贸专家，系统将按各专家专长分工协作完成复杂任务。
-      </p>
-      <div className='flex flex-col gap-8px' style={{ maxHeight: 360, overflowY: 'auto' }}>
-        {identities.map((it) => {
-          const I = resolveIcon(it.icon);
-          const checked = selected.includes(it.id);
-          return (
-            <label
-              key={it.id}
-              className='flex items-center gap-10px px-12px py-10px rd-10px border border-solid border-[var(--color-border-2)] hover:bg-fill-2 cursor-pointer'
-            >
-              <input
-                type='checkbox'
-                checked={checked}
-                onChange={(e) => toggle(it.id, e.target.checked)}
-              />
-              <span className='size-30px rounded-full bg-primary-1 text-primary-6 flex items-center justify-center shrink-0'>
-                <I size={15} theme='outline' fill='currentColor' />
-              </span>
-              <span className='flex-1 text-13px text-t-primary'>{it.name}</span>
-              <span className='text-12px text-t-quaternary'>{it.category}</span>
-            </label>
-          );
-        })}
-        {identities.length === 0 && (
-          <p className='text-12px text-t-quaternary px-12px py-8px'>暂无专家，请先在「专家身份」中新增。</p>
-        )}
-      </div>
-    </NomiModal>
-  );
-};
 
 /** 协同能力详情弹窗 */
 type ExpertTab = 'identity' | 'skill' | 'collab';
 
-const emptyIdentityDraft = (id: string): ExpertIdentity => ({
-  id,
-  name: '',
-  category: '',
-  description: '',
-  icon: 'People',
-  skillIds: [],
-});
-
-const emptySkillDraft = (id: string): ExpertSkill => ({
-  id,
-  name: '',
-  category: '',
-  description: '',
-  icon: 'People',
-  definition: '',
-});
 
 const ExpertAgentsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -1045,7 +541,7 @@ const ExpertAgentsPage: React.FC = () => {
 
   return (
     <HubPageShell
-      title={t('settings.expertAgentsHub.title', { defaultValue: '外贸数字团队' })}
+      title={t('settings.expertAgentsHub.title', { defaultValue: '数字外贸团队' })}
       subtitle={t('settings.expertAgentsHub.subtitle', {
         defaultValue:
           '跨境外贸专家分身智能体，按跨境外贸实战专家身份与技能设置专家智能体，不同跨境外贸的专家身份，每个都具备独一无二的专长技能。',

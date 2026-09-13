@@ -26,7 +26,6 @@ import {
   SiderSectionHeader,
   SiderSettingsEntry,
   SiderWorkshopEntry,
-  SiderExpertAgentsEntry,
   SiderUserManagementEntry,
   SiderWorkCommunityEntry,
   SiderForeignTradeEntry,
@@ -50,8 +49,7 @@ interface SiderProps {
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`):
  *   AI通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
- *   AI出海智能体 (外贸数字团队 / AI品牌营销 / B2B外贸工作台 / A2A跨境电商 /
- *     OPC分销工作台),
+ *   AI出海智能体 (AI品牌营销 / B2B外贸工作台 / A2A跨境电商 / OPC分销工作台),
  *   助理能力仓 (AI创艺工作台 / 知识库 / 数字资产库 / AI客服 / 系统设置).
  * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
  * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
@@ -100,7 +98,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handlePresetClick = () => navTo('/presets');
   const handleMcpClick = () => navTo('/mcp');
   const handleScheduledClick = () => navTo('/scheduled');
-  const handleExpertAgentsClick = () => navTo('/expert-agents');
   const handleUserManagementClick = () => navTo('/user-management');
 
   const tooltipEnabled = collapsed && !isMobile;
@@ -185,14 +182,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
             )}
             {/* AI出海智能体 — cross-border export agents & platforms */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
-            {/* 外贸数字团队 (跨境外贸专家分身智能体) */}
-            <SiderExpertAgentsEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/expert-agents')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleExpertAgentsClick}
-            />
             {/* AI 品牌营销 — Work++社区 */}
             <SiderWorkCommunityEntry
               isMobile={isMobile}
@@ -201,7 +190,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkCommunityClick}
             />
-            {/* B2B 外贸工作台 — GeekFlow 外贸工作台入口 */}
+            {/* B2B 外贸工作台 — 外贸专家名册 + 内嵌对话，GeekLink 平台作为独立入口 */}
             <SiderForeignTradeEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/foreign-trade')}
@@ -235,6 +224,14 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkshopClick}
             />
+            {/* AI 客服 — public-facing customer service */}
+            <SiderCustomerServiceEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/customer-service')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleCustomerServiceClick}
+            />
             {/* 知识库 — Knowledge base */}
             <SiderKnowledgeEntry
               isMobile={isMobile}
@@ -251,14 +248,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleAssetLibraryClick}
-            />
-            {/* AI 客服 — public-facing customer service */}
-            <SiderCustomerServiceEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/customer-service')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleCustomerServiceClick}
             />
             {/* 系统设置 — 浏览器 / 远程&开放能力 / 模型管理
                 已统一收进【系统设置】→「应用」分组（「远程主机」之下），不再占用主栏；

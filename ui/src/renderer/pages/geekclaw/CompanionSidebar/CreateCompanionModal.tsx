@@ -6,7 +6,8 @@
 
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, Message, Modal } from '@arco-design/web-react';
+import { Button, Input, Message, Modal } from '@arco-design/web-react';
+import { Pic } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import { CUSTOM_CHARACTER_ID, DEFAULT_CHARACTER_ID } from '@renderer/pages/companion/characters';
 import CharacterPicker from '../CharacterPicker';
@@ -17,6 +18,8 @@ interface Props {
   visible: boolean;
   onCancel: () => void;
   onCreated: (profile: ICompanionProfile) => void | Promise<void>;
+  /** 形象库 — closes the dialog and opens the full figure library view. */
+  onOpenFigures?: () => void;
 }
 
 /**
@@ -26,7 +29,7 @@ interface Props {
  * Extracted from the former CompanionSessionRail so the sidebar stays a pure
  * roster view and creation is owned by the page shell.
  */
-const CreateCompanionModal: React.FC<Props> = ({ visible, onCancel, onCreated }) => {
+const CreateCompanionModal: React.FC<Props> = ({ visible, onCancel, onCreated, onOpenFigures }) => {
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [character, setCharacter] = useState<string>(DEFAULT_CHARACTER_ID);
@@ -76,11 +79,41 @@ const CreateCompanionModal: React.FC<Props> = ({ visible, onCancel, onCreated })
 
   return (
     <Modal
-      title={t('geekclaw.companions.createTitle')}
+      title={
+        <div className='w-full text-center text-20px font-600'>{t('geekclaw.companions.createTitle')}</div>
+      }
       visible={visible}
-      onOk={() => void submit()}
       onCancel={onCancel}
-      okButtonProps={{ loading: creating, disabled: !name.trim() }}
+      footer={
+        <div className='flex items-center justify-between w-full'>
+          {/* 形象库 — hands over to the full library view (shell closes this dialog). */}
+          {onOpenFigures ? (
+            <Button
+              size='small'
+              icon={<Pic theme='outline' size='14' fill='currentColor' strokeWidth={3} />}
+              onClick={onOpenFigures}
+            >
+              {t('geekclaw.customFigure.libraryTitle')}
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className='flex items-center gap-8px'>
+            <Button size='small' onClick={onCancel}>
+              {t('geekclaw.desk.cancel', { defaultValue: '取消' })}
+            </Button>
+            <Button
+              type='primary'
+              size='small'
+              loading={creating}
+              disabled={!name.trim()}
+              onClick={() => void submit()}
+            >
+              {t('geekclaw.desk.ok', { defaultValue: '确定' })}
+            </Button>
+          </div>
+        </div>
+      }
       style={{ width: 560 }}
     >
       <div className='flex flex-col gap-14px'>

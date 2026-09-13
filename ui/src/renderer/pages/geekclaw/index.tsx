@@ -16,7 +16,9 @@ import { useContainerWidth } from '@/renderer/hooks/ui/useContainerWidth';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import NomiSelect from '@/renderer/components/base/NomiSelect';
 import CompanionSidebar from './CompanionSidebar';
+import CompanionDesk from './CompanionDesk';
 import CreateCompanionModal from './CompanionSidebar/CreateCompanionModal';
+import ExpertMarketPage from '@renderer/pages/expert-market';
 import FigureLibraryPage from './FigureLibraryPage';
 import { AsideHost } from './workspace/AsideHost';
 import WorkspaceHeader from './workspace/WorkspaceHeader';
@@ -88,15 +90,21 @@ const NomiWorkspacePage: React.FC = () => {
 
   const figuresActive = searchParams.get('view') === 'figures';
   const tabParam = searchParams.get('tab');
+  // Desk vs settings: a companion with no `tab` param shows the desk (launchpad);
+  // any `tab` value opens the settings workspace on that tab.
+  const settingsMode = tabParam !== null;
   const activeTab: WorkspaceTabKey = isWorkspaceTabKey(tabParam) ? tabParam : 'overview';
 
   const companionParam = searchParams.get('companion');
+  // No auto-fallback to the first roster entry: with nothing selected the centre
+  // stage is the embedded expert market (the page's landing view), matching the
+  // 「点击数字员工进入」 flow — picking an employee is always an explicit click.
   const selectedCompanionId = useMemo(() => {
     if (companionParam) {
       const matched = companions.find((c) => c.companion_id === companionParam);
       if (matched) return matched.companion_id;
     }
-    return companions[0]?.companion_id ?? null;
+    return null;
   }, [companionParam, companions]);
 
   const companion = useCompanion(selectedCompanionId);
@@ -141,8 +149,29 @@ const NomiWorkspacePage: React.FC = () => {
   }, [setSearchParams]);
 
   const openExpertMarket = useCallback(() => {
-    navigate('/expert-market');
-  }, [navigate]);
+    // The market lives inside this page now: clearing `companion`/`tab` shows the
+    // embedded ExpertMarketPage instead of navigating to the standalone route.
+    setSearchParams(
+      (prev) => {
+        prev.delete('companion');
+        prev.delete('tab');
+        prev.delete('view');
+        return prev;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
+
+  /** Settings workspace → back to the companion's desk view. */
+  const backToDesk = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        prev.delete('tab');
+        return prev;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
   const handleCreated = useCallback(
     async (profile: ICompanionProfile) => {
@@ -313,94 +342,119 @@ const NomiWorkspacePage: React.FC = () => {
       </div>
     </>
   ) : selectedCompanionId ? (
-    <>
-      <div className={classNames('shrink-0 pt-20px pb-12px', panePadX)}>
-        <div className='mx-auto w-full max-w-1100px box-border'>
-          {isMobile && (
-            <div className='mb-12px flex items-center gap-8px'>
-              {companions.length > 1 && (
-                <NomiSelect
-                  className='flex-1 min-w-0'
-                  value={selectedCompanionId}
-                  onChange={(id: CompanionId) => selectCompanion(id)}
-                >
-                  {companions.map((c) => (
-                    <NomiSelect.Option key={c.companion_id} value={c.companion_id}>
-                      {c.name}
-                    </NomiSelect.Option>
-                  ))}
-                </NomiSelect>
-              )}
-              {/* The sidebar is hidden on mobile, so its two entries need to exist
-                  here or 新建员工 / 形象库 become unreachable. */}
-              <div
-                role='button'
-                tabIndex={0}
-                aria-label={t('geekclaw.companions.create')}
-                onClick={() => setCreateOpen(true)}
-                className='shrink-0 flex items-center justify-center w-32px h-32px rd-8px cursor-pointer text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
-              >
-                <AddOne theme='outline' size='16' fill='currentColor' strokeWidth={3} />
-              </div>
-              <div
-                role='button'
-                tabIndex={0}
-                aria-label={t('geekclaw.customFigure.libraryTitle')}
-                onClick={openFigures}
-                className='shrink-0 flex items-center justify-center w-32px h-32px rd-8px cursor-pointer text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
-              >
-                <Pic theme='outline' size='16' fill='currentColor' strokeWidth={3} />
-              </div>
+    settingsMode ? (
+      <>
+        <div className={classNames('shrink-0 pt-20px pb-0px', panePadX)}>
+          <div className='mx-auto w-full max-w-1100px box-border flex items-center gap-8px'>
+            <div
+              role='button'
+              tabIndex={0}
+              onClick={backToDesk}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  backToDesk();
+                }
+              }}
+              className='flex items-center gap-4px h-28px rd-8px px-8px cursor-pointer text-13px text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
+            >
+              <Left theme='outline' size='14' fill='currentColor' />
+              {t('geekclaw.desk.backToDesk', { defaultValue: '返回工作台' })}
             </div>
-          )}
-          <WorkspaceHeader
-            companion={companion}
-            activeTab={activeTab}
-            onTabChange={setTab}
-            attention={attentionFlags}
-            onOpenChat={() => void openChat()}
-          />
+          </div>
         </div>
-      </div>
-      <div className='flex-1 min-h-0 overflow-y-auto'>
-        <div className={classNames('mx-auto w-full max-w-1100px box-border pb-32px', panePadX)}>
-          <ActiveTab
-            key={`${selectedCompanionId}:${activeTab}`}
-            companionId={selectedCompanionId}
-            companion={companion}
-            onAttentionChange={reportAttention[activeTab]}
-          />
+        <div className={classNames('shrink-0 pt-8px pb-12px', panePadX)}>
+          <div className='mx-auto w-full max-w-1100px box-border'>
+            {isMobile && (
+              <div className='mb-12px flex items-center gap-8px'>
+                {companions.length > 1 && (
+                  <NomiSelect
+                    className='flex-1 min-w-0'
+                    value={selectedCompanionId}
+                    onChange={(id: CompanionId) => selectCompanion(id)}
+                  >
+                    {companions.map((c) => (
+                      <NomiSelect.Option key={c.companion_id} value={c.companion_id}>
+                        {c.name}
+                      </NomiSelect.Option>
+                    ))}
+                  </NomiSelect>
+                )}
+                {/* The sidebar is hidden on mobile, so its two entries need to exist
+                    here or 新建员工 / 形象库 become unreachable. */}
+                <div
+                  role='button'
+                  tabIndex={0}
+                  aria-label={t('geekclaw.companions.create')}
+                  onClick={() => setCreateOpen(true)}
+                  className='shrink-0 flex items-center justify-center w-32px h-32px rd-8px cursor-pointer text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
+                >
+                  <AddOne theme='outline' size='16' fill='currentColor' strokeWidth={3} />
+                </div>
+                <div
+                  role='button'
+                  tabIndex={0}
+                  aria-label={t('geekclaw.customFigure.libraryTitle')}
+                  onClick={openFigures}
+                  className='shrink-0 flex items-center justify-center w-32px h-32px rd-8px cursor-pointer text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
+                >
+                  <Pic theme='outline' size='16' fill='currentColor' strokeWidth={3} />
+                </div>
+              </div>
+            )}
+            <WorkspaceHeader
+              companion={companion}
+              activeTab={activeTab}
+              onTabChange={setTab}
+              attention={attentionFlags}
+              onOpenChat={() => void openChat()}
+            />
+          </div>
         </div>
+        <div className='flex-1 min-h-0 overflow-y-auto'>
+          <div className={classNames('mx-auto w-full max-w-1100px box-border pb-32px', panePadX)}>
+            <ActiveTab
+              key={`${selectedCompanionId}:${activeTab}`}
+              companionId={selectedCompanionId}
+              companion={companion}
+              onAttentionChange={reportAttention[activeTab]}
+            />
+          </div>
+        </div>
+      </>
+    ) : (
+      <CompanionDesk companion={companion} onOpenSettings={setTab} onOpenChat={() => void openChat()} />
+    )
+  ) : (
+    <>
+      {isMobile && (
+        <div className='shrink-0 pt-16px px-16px flex items-center gap-8px'>
+          <div
+            role='button'
+            tabIndex={0}
+            aria-label={t('geekclaw.companions.create')}
+            onClick={() => setCreateOpen(true)}
+            className='shrink-0 flex items-center justify-center w-32px h-32px rd-8px cursor-pointer text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
+          >
+            <AddOne theme='outline' size='16' fill='currentColor' strokeWidth={3} />
+          </div>
+          <div
+            role='button'
+            tabIndex={0}
+            aria-label={t('geekclaw.customFigure.libraryTitle')}
+            onClick={openFigures}
+            className='shrink-0 flex items-center justify-center w-32px h-32px rd-8px cursor-pointer text-t-secondary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
+          >
+            <Pic theme='outline' size='16' fill='currentColor' strokeWidth={3} />
+          </div>
+        </div>
+      )}
+      {/* Landing view: the expert market embedded in the centre stage (设计图
+          「点击数字员工进入」) — hire industry experts without leaving the page. */}
+      <div className='flex-1 min-h-0 flex flex-col'>
+        <ExpertMarketPage />
       </div>
     </>
-  ) : (
-    <div className='flex-1 flex flex-col items-center justify-center gap-14px py-64px px-24px text-center'>
-      <span className='flex items-center justify-center w-72px h-72px rd-full bg-fill-2 text-primary-6'>
-        <AddOne theme='outline' size='30' fill='currentColor' strokeWidth={3} />
-      </span>
-      <span className='text-16px font-500 text-t-primary'>
-        {t('geekclaw.companions.emptyTitle', { defaultValue: '还没有数字员工' })}
-      </span>
-      <span className='max-w-360px text-13px leading-20px text-t-tertiary'>
-        {t('geekclaw.companions.emptyHint', {
-          defaultValue: '创建一个员工，给它一个名字和形象，然后配置模型就可以开始对话了。',
-        })}
-      </span>
-      <div
-        role='button'
-        tabIndex={0}
-        onClick={() => setCreateOpen(true)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            setCreateOpen(true);
-          }
-        }}
-        className='mt-2px flex items-center gap-6px rd-full px-18px py-9px cursor-pointer font-700 text-13px text-[var(--color-text-1)] bg-[rgba(var(--primary-6),0.12)] hover:bg-[rgba(var(--primary-6),0.18)] shadow-[0_6px_18px_rgba(var(--primary-6),0.14)] transition-colors outline-none'
-      >
-        {t('geekclaw.companions.create')}
-      </div>
-    </div>
   );
 
   return (
@@ -429,7 +483,15 @@ const NomiWorkspacePage: React.FC = () => {
           </div>
         </AsideHost>
       </div>
-      <CreateCompanionModal visible={createOpen} onCancel={() => setCreateOpen(false)} onCreated={handleCreated} />
+      <CreateCompanionModal
+        visible={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onCreated={handleCreated}
+        onOpenFigures={() => {
+          setCreateOpen(false);
+          openFigures();
+        }}
+      />
     </>
   );
 };

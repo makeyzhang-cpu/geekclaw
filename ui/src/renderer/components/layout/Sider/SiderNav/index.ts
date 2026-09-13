@@ -17,7 +17,6 @@ export { default as SiderScheduledEntry } from './SiderScheduledEntry';
 export { default as SiderSearchEntry } from './SiderSearchEntry';
 export { default as SiderSectionHeader } from './SiderSectionHeader';
 export { default as SiderWorkshopEntry } from './SiderWorkshopEntry';
-export { default as SiderExpertAgentsEntry } from './SiderExpertAgentsEntry';
 export { default as SiderUserManagementEntry } from './SiderUserManagementEntry';
 export { default as SiderWorkCommunityEntry } from './SiderWorkCommunityEntry';
 export { default as SiderForeignTradeEntry } from './SiderForeignTradeEntry';

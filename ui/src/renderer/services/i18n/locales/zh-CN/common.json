@@ -5,7 +5,6 @@
     "assistantVault": "助理能力仓"
   },
   "siderRail": {
-    "expertAgent": "外贸数字团队",
     "b2bTrade": "B2B外贸工作台",
     "a2aEcommerce": "A2A跨境电商",
     "opcDist": "OPC分销工作台"
@@ -134,11 +133,12 @@
     "title": "AI外贸工作台",
     "subtitle": "聚合AI外贸专家团队、AI获客Agent、千人千面的AI邮件触达和AI WhatsApp触达、AI CRM、AI企业智脑、企业数字资产管理为一体，一站式B2B外贸AI工作平台。",
     "badge": "外贸",
-    "cardTitle": "GeekFlow 外贸工作台",
+    "cardTitle": "GeekLink 外贸平台",
     "cardDesc": "AI驱动B2B外贸自动化获客、AI邮件和AIWhatsApp精准触达自动化",
     "enter": "进入平台",
     "back": "返回",
-    "openExternal": "在浏览器中打开"
+    "openExternal": "在浏览器中打开",
+    "platformGroup": "外部平台"
   },
   "a2aEcommerce": {
     "siderLabel": "A2A跨境电商",
