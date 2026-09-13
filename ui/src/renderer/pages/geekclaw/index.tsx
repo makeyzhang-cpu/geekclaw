@@ -423,7 +423,13 @@ const NomiWorkspacePage: React.FC = () => {
         </div>
       </>
     ) : (
-      <CompanionDesk companion={companion} onOpenSettings={setTab} onOpenChat={() => void openChat()} />
+      <CompanionDesk
+        companion={companion}
+        companions={companions}
+        companionsLoading={loading}
+        onOpenSettings={setTab}
+        onOpenChat={() => void openChat()}
+      />
     )
   ) : (
     <>

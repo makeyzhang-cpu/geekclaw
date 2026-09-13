@@ -14,9 +14,11 @@ import { uuidv7 } from '@/common/utils';
 import type { TChatConversation } from '@/common/config/storage';
 import NomiChat from '@renderer/pages/conversation/platforms/geekclaw/NomiChat';
 import { useNomiModelSelection } from '@renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
+import { PreviewProvider } from '@renderer/pages/conversation/Preview';
 import { resolveExpertIcon } from '@renderer/pages/expert-agents/expertIcons';
 import type { ExpertIdentity } from '@renderer/pages/expert-agents/data';
 import { emitter } from '@renderer/utils/emitter';
+import { browserStorageKey } from '@/common/utils/browserStorageKey';
 
 type NomiConversation = Extract<TChatConversation, { type: 'geekclaw' }>;
 
@@ -176,10 +178,15 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
   );
 
   if (nomi) {
+    // NomiChat's send box consumes usePreviewContext(); mount a surface-scoped
+    // provider (same grammar as ChatLayout) so the embedded chat works outside
+    // the conversation page.
+    const previewScope = browserStorageKey('workspace-preview', 'conversation', nomi.id);
     return (
       <div className='flex-1 min-h-0 flex flex-col overflow-hidden'>
         {identityBar}
-        <NomiChat
+        <PreviewProvider key={previewScope} persistNamespace={previewScope} subscribeGlobalOpen>
+          <NomiChat
           conversation_id={nomi.id}
           workspace={workspace}
           modelSelection={modelSelection}
@@ -194,7 +201,8 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
               {heroPill}
             </div>
           }
-        />
+          />
+        </PreviewProvider>
       </div>
     );
   }

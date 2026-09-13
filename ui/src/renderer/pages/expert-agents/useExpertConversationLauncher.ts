@@ -298,5 +298,13 @@ export function useExpertConversationLauncher() {
     [ensureConversation, ensurePreset, t]
   );
 
-  return { launch, launchMulti, launchToConversation, current_model: usableModel };
+  return {
+    launch,
+    launchMulti,
+    launchToConversation,
+    current_model: usableModel,
+    /** 暴露底层链路给其他「合成人格 → 建会话」场景（如员工圆桌群聊）复用。 */
+    ensurePreset,
+    ensureConversation,
+  };
 }

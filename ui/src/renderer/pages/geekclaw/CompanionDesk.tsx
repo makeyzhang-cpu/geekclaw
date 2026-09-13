@@ -18,14 +18,23 @@ import { customFigureMetaOf } from '@renderer/pages/companion/characters/customM
 import type { CompanionMood } from '@renderer/pages/companion/characters';
 import NomiChat from '@renderer/pages/conversation/platforms/geekclaw/NomiChat';
 import { useNomiModelSelection } from '@renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
+import { PreviewProvider } from '@renderer/pages/conversation/Preview';
 import { getConversationOrNull } from '@renderer/pages/conversation/utils/conversationCache';
+import { browserStorageKey } from '@/common/utils/browserStorageKey';
 import { emitter } from '@renderer/utils/emitter';
+import CompanionModelControl from './CompanionModelControl';
+import CompanionGroupModal from './CompanionGroupModal';
+import { useCompanionGroupLauncher } from './useCompanionGroupLauncher';
+import type { ICompanionProfile, ICompanionWithStatus } from '@/common/adapter/ipcBridge';
 import type { CompanionHandle, WorkspaceTabKey } from './workspace/types';
 
 type NomiConversation = Extract<TChatConversation, { type: 'geekclaw' }>;
 
 interface CompanionDeskProps {
   companion: CompanionHandle;
+  /** Roster for the group-chat picker (page-level useCompanions result). */
+  companions: ICompanionWithStatus[];
+  companionsLoading?: boolean;
   /** Open the settings workspace on the given tab. */
   onOpenSettings: (tab: WorkspaceTabKey) => void;
   /** Reveal this companion's session in the full conversation page. */
@@ -60,7 +69,13 @@ interface DeskQuickPill {
  * conversation page via `onOpenChat`; re-hosting those three panels here would
  * duplicate a second, divergence-prone copy of their state machines.
  */
-const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings, onOpenChat }) => {
+const CompanionDesk: React.FC<CompanionDeskProps> = ({
+  companion,
+  companions,
+  companionsLoading = false,
+  onOpenSettings,
+  onOpenChat,
+}) => {
   const { t } = useTranslation();
   const { profile, status } = companion;
   const companionId = profile?.companion_id ?? null;
@@ -73,6 +88,22 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
   const [sending, setSending] = useState(false);
   /** Text to dispatch once the embedded chat surface has mounted. */
   const [pendingText, setPendingText] = useState<string | null>(null);
+  /** 员工圆桌群聊选择弹窗（方案 A：合成人格，单会话分饰多角）。 */
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupLaunching, setGroupLaunching] = useState(false);
+  const { launchGroup } = useCompanionGroupLauncher();
+
+  const handleGroupConfirm = useCallback(
+    (members: ICompanionProfile[], name: string) => {
+      setGroupLaunching(true);
+      void launchGroup(members, name)
+        .then((conversation) => {
+          if (conversation) setGroupOpen(false);
+        })
+        .finally(() => setGroupLaunching(false));
+    },
+    [launchGroup]
+  );
 
   // ── Session bootstrap ────────────────────────────────────────────────────
   // Read-only probe first: `getCompanionSession` never creates a row, so opening
@@ -188,7 +219,7 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
       key: 'summon',
       label: t('geekclaw.desk.summon', { defaultValue: '召唤伙伴' }),
       active: false,
-      onClick: onOpenChat,
+      onClick: () => setGroupOpen(true),
     },
     {
       key: 'skills',
@@ -230,6 +261,10 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
       >
         {t('geekclaw.desk.settings', { defaultValue: '设 置' })}
       </Button>
+      {/* 对话模型就地配置（唯一事实源 CompanionModelControl）：免跳设置页，选完即时生效 */}
+      <div className='shrink-0 hidden md:block ml-4px min-w-0'>
+        <CompanionModelControl companion={companion} showLabel={false} />
+      </div>
       <div className='flex-1' />
       <div className='shrink-0 hidden md:flex items-center gap-8px'>
         {quickPills.map((pill) => (
@@ -267,10 +302,15 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
 
   // ── Chat phase: the companion's real transcript, embedded ─────────────────
   if (phase === 'chat' && sessionId) {
+    // NomiChat's send box consumes usePreviewContext(); mount a surface-scoped
+    // provider (same grammar as ChatLayout) so the embedded chat works outside
+    // the conversation page.
+    const previewScope = browserStorageKey('workspace-preview', 'conversation', sessionId);
     return (
       <div className='flex-1 min-h-0 flex flex-col overflow-hidden'>
         {identityBar}
-        <NomiChat
+        <PreviewProvider key={previewScope} persistNamespace={previewScope} subscribeGlobalOpen>
+          <NomiChat
           conversation_id={sessionId}
           workspace={workspace}
           modelSelection={modelSelection}
@@ -297,6 +337,15 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
               </div>
             </div>
           }
+        />
+        </PreviewProvider>
+        <CompanionGroupModal
+          visible={groupOpen}
+          companions={companions}
+          loading={companionsLoading}
+          confirming={groupLaunching}
+          onCancel={() => setGroupOpen(false)}
+          onConfirm={handleGroupConfirm}
         />
       </div>
     );
@@ -343,6 +392,16 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
             <Plus theme='outline' size='16' fill='currentColor' strokeWidth={3} />
           </div>
         </div>
+
+        {/* 模型未配置：把配置入口直接放在输入卡片上方，就地配完即可开聊 */}
+        {!modelConfigured && (
+          <div className='w-full max-w-720px rd-12px border border-[var(--color-border-2)] bg-[var(--color-bg-2)] px-14px py-10px box-border flex flex-col gap-6px'>
+            <span className='text-12px text-t-secondary'>
+              {t('geekclaw.chat.modelMissing')}
+            </span>
+            <CompanionModelControl companion={companion} />
+          </div>
+        )}
 
         <div className='w-full max-w-720px rd-16px bg-[var(--color-bg-2)] border border-[var(--color-border-2)] shadow-[0_10px_30px_rgba(0,0,0,0.07)] box-border'>
           <div className='flex items-center gap-8px px-14px pt-12px'>
@@ -435,6 +494,15 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({ companion, onOpenSettings
           <span>{t('geekclaw.desk.workInProject', { defaultValue: '在项目中工作' })}</span>
         </div>
       </div>
+
+      <CompanionGroupModal
+        visible={groupOpen}
+        companions={companions}
+        loading={companionsLoading}
+        confirming={groupLaunching}
+        onCancel={() => setGroupOpen(false)}
+        onConfirm={handleGroupConfirm}
+      />
     </div>
   );
 };
