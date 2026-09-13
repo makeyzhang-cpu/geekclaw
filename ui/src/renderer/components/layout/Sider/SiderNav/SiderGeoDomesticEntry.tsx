@@ -7,11 +7,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@arco-design/web-react';
-import { Peoples } from '@icon-park/react';
+import { Aiming } from '@icon-park/react';
 import classNames from 'classnames';
 import type { SiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 
-interface SiderWorkCommunityEntryProps {
+interface SiderGeoDomesticEntryProps {
   isMobile: boolean;
   isActive: boolean;
   collapsed: boolean;
@@ -20,10 +20,10 @@ interface SiderWorkCommunityEntryProps {
 }
 
 /**
- * SiderWorkCommunityEntry — B2B营销运营工作台入口（AI出海智能体分组，
- * 原「AI品牌营销」hub 改造为营销运营专家工作台，路由 /marketing-ops）。
+ * SiderGeoDomesticEntry — 国内GEO AI营销（助理能力仓分组下的独立板块，
+ * 路由 /geo-domestic，应用内 webview 直开 geekgeo 平台）。
  */
-const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
+const SiderGeoDomesticEntry: React.FC<SiderGeoDomesticEntryProps> = ({
   isMobile,
   isActive,
   collapsed,
@@ -31,7 +31,7 @@ const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('workCommunity.title', { defaultValue: 'B2B营销运营工作台' });
+  const label = t('geoDomestic.title', { defaultValue: '国内GEO AI营销' });
 
   if (collapsed) {
     return (
@@ -43,7 +43,7 @@ const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
           )}
           onClick={onClick}
         >
-          <Peoples
+          <Aiming
             theme='outline'
             size='20'
             fill='currentColor'
@@ -66,7 +66,7 @@ const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
         onClick={onClick}
       >
         <span className='size-22px flex items-center justify-center shrink-0'>
-          <Peoples
+          <Aiming
             theme='outline'
             size='16'
             fill='currentColor'
@@ -80,4 +80,4 @@ const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
   );
 };
 
-export default SiderWorkCommunityEntry;
+export default SiderGeoDomesticEntry;

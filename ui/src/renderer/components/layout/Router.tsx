@@ -21,7 +21,8 @@ const ExtensionSettingsPage = React.lazy(() => import('@renderer/pages/settings/
 const LoginPage = React.lazy(() => import('@renderer/pages/login'));
 const ComponentsShowcase = React.lazy(() => import('@renderer/pages/TestShowcase'));
 const ScheduledTasksPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage'));
-const WorkCommunityPage = React.lazy(() => import('@renderer/pages/work-community'));
+const MarketingOpsPage = React.lazy(() => import('@renderer/pages/marketing-ops'));
+const GeoDomesticPage = React.lazy(() => import('@renderer/pages/geo-domestic'));
 const ForeignTradePage = React.lazy(() => import('@renderer/pages/foreign-trade'));
 const A2AEcommercePage = React.lazy(() => import('@renderer/pages/a2a-ecommerce'));
 const OpcDistPage = React.lazy(() => import('@renderer/pages/opc-dist'));
@@ -262,7 +263,11 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/webhook' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />
           <Route path='/settings' element={<Navigate to='/settings/system' replace />} />
           <Route path='/test/components' element={withRouteFallback(ComponentsShowcase)} />
-          <Route path='/work-community' element={withRouteFallback(WorkCommunityPage)} />
+          {/* B2B营销运营工作台（原 AI品牌营销 hub 改造）：营销运营专家名册 + 内嵌对话 + 国际GEO 平台 */}
+          <Route path='/marketing-ops' element={withRouteFallback(MarketingOpsPage)} />
+          <Route path='/work-community' element={<Navigate to='/marketing-ops' replace />} />
+          {/* 国内GEO AI营销 — 独立侧栏板块，应用内 webview 直开 */}
+          <Route path='/geo-domestic' element={withRouteFallback(GeoDomesticPage)} />
           <Route path='/foreign-trade' element={withRouteFallback(ForeignTradePage)} />
           {/* A2A 跨境电商 — 与「AI 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 nexsalehub */}
           <Route path='/a2a-ecommerce' element={withRouteFallback(A2AEcommercePage)} />

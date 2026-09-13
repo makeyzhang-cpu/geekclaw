@@ -15,35 +15,33 @@ import { useExpertIdentities } from '@renderer/pages/expert-agents/useExpertIden
 import { useExpertSkills } from '@renderer/pages/expert-agents/useExpertSkills';
 import { useExpertConversationLauncher } from '@renderer/pages/expert-agents/useExpertConversationLauncher';
 import {
+  isMarketingOpsIdentity,
+  isMarketingOpsSkill,
+} from '@renderer/pages/expert-agents/data';
+import {
   CollabMultiExpertModal,
   IdentityEditorModal,
   emptyIdentityDraft,
 } from '@renderer/pages/expert-agents/expertEditors';
 import type { IdentityEditorState } from '@renderer/pages/expert-agents/expertEditors';
-import {
-  isMarketingOpsIdentity,
-  isMarketingOpsSkill,
-  type ExpertIdentity,
-  type ExpertSkill,
-} from '@renderer/pages/expert-agents/data';
+import type { ExpertIdentity, ExpertSkill } from '@renderer/pages/expert-agents/data';
 import type { TChatConversation } from '@/common/config/storage';
-import ExpertRoster from './ExpertRoster';
-import ExpertDesk from './ExpertDesk';
-import SkillLibrary from './SkillLibrary';
+import ExpertRoster from '@renderer/pages/foreign-trade/ExpertRoster';
+import ExpertDesk from '@renderer/pages/foreign-trade/ExpertDesk';
+import SkillLibrary from '@renderer/pages/foreign-trade/SkillLibrary';
 
-/** GeekLink 外贸平台地址 */
-const FOREIGN_TRADE_URL = 'https://niushitv.com/v2/';
+/** 国际 GEO AI 营销平台地址（原 AI品牌营销 hub 的出海卡片） */
+const INTERNATIONAL_GEO_URL = 'https://orbitai.jkyunge.com/';
 
 /**
- * ForeignTradePage — B2B 外贸工作台。
+ * MarketingOpsPage — B2B营销运营工作台（原「AI品牌营销」hub 改造）。
  *
- * Restructured to mirror the 数字员工 surface: a roster sider (experts grouped
- * by category) plus an embedded desk that chats with the selected expert
- * in place — no route jump. The previous single entry card survives as a
- * standalone sider entry (below the skill library, visually separated) that
- * opens the GeekLink platform in an in-app webview.
+ * 与「B2B外贸工作台」同构：专家名册（按分类分组）+ 内嵌对话工作台 +
+ * 技能库 + 底部独立「外部平台」入口（国际 GEO AI 营销，应用内 webview）。
+ * 名册数据与 B2B 外贸工作台共用一份 localStorage，按 `isMarketingOps*`
+ * 规则划分归属：营销运营类的身份/技能显示在这里，其余留在外贸工作台。
  */
-const ForeignTradePage: React.FC = () => {
+const MarketingOpsPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const {
@@ -63,51 +61,43 @@ const ForeignTradePage: React.FC = () => {
   } = useExpertSkills();
   const { launch, launchMulti, launchToConversation } = useExpertConversationLauncher();
 
-  // 归属过滤（2026-09-13 板块重组）：营销运营类的身份/技能移入
-  // 「B2B营销运营工作台」（/marketing-ops），本工作台只保留外贸履约/金融/
-  // 客服/效能等部分。两页共享同一份 localStorage 数据，删除互通。
-  const tradeIdentities = useMemo(
-    () => identities.filter((item) => !isMarketingOpsIdentity(item)),
-    [identities]
-  );
-  const tradeSkills = useMemo(() => skills.filter((item) => !isMarketingOpsSkill(item)), [skills]);
+  // 归属过滤：只展示营销运营类的身份/技能（其余归 B2B 外贸工作台）。
+  const marketingIdentities = useMemo(() => identities.filter(isMarketingOpsIdentity), [identities]);
+  const marketingSkills = useMemo(() => skills.filter(isMarketingOpsSkill), [skills]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** expert id → its minted conversation. Kept here so switching experts back
-   *  and forth reuses one session instead of creating a new one per click. */
+  /** expert id → its minted conversation (same grammar as the trade workspace). */
   const [sessions, setSessions] = useState<Record<string, TChatConversation>>({});
   const [platformActive, setPlatformActive] = useState(false);
-  /** Main pane: the expert desk, or the in-place skill library. */
   const [view, setView] = useState<'desk' | 'skills'>('desk');
   const [identityEditor, setIdentityEditor] = useState<IdentityEditorState>({
     open: false,
     mode: 'edit',
     draft: emptyIdentityDraft(''),
   });
-  /** 多专家协同选择弹窗（原「协同办公」能力，已内联到本工作台） */
   const [multiExpertOpen, setMultiExpertOpen] = useState(false);
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
 
   // Land on the first expert so the desk is never a blank pane.
   useEffect(() => {
-    if (!selectedId && tradeIdentities.length > 0) {
-      setSelectedId(tradeIdentities[0].id);
+    if (!selectedId && marketingIdentities.length > 0) {
+      setSelectedId(marketingIdentities[0].id);
     }
-  }, [tradeIdentities, selectedId]);
+  }, [marketingIdentities, selectedId]);
 
   const selected: ExpertIdentity | null = useMemo(
-    () => tradeIdentities.find((item) => item.id === selectedId) ?? null,
-    [tradeIdentities, selectedId]
+    () => marketingIdentities.find((item) => item.id === selectedId) ?? null,
+    [marketingIdentities, selectedId]
   );
 
   const ensureConversation = useCallback(async (): Promise<TChatConversation | null> => {
     if (!selected) return null;
     const cached = sessions[selected.id];
     if (cached) return cached;
-    const skills = selected.skillIds
+    const boundSkills = selected.skillIds
       .map(findSkill)
       .filter((s): s is ExpertSkill => Boolean(s));
-    const conversation = await launchToConversation(selected, skills, {
+    const conversation = await launchToConversation(selected, boundSkills, {
       persistPresetId: (id) => {
         if (id !== selected.presetId) upsertIdentity({ ...selected, presetId: id });
       },
@@ -133,13 +123,11 @@ const ForeignTradePage: React.FC = () => {
   const openPlatform = useCallback(() => setPlatformActive(true), []);
 
   const identityCategories = useMemo(
-    () => Array.from(new Set(tradeIdentities.map((item) => item.category))),
-    [tradeIdentities]
+    () => Array.from(new Set(marketingIdentities.map((item) => item.category))),
+    [marketingIdentities]
   );
 
   // ── 专家身份 authoring ──
-  // Inlined from 数字外贸团队 so the desk is self-contained: the same
-  // IdentityEditorModal component backs both surfaces.
   const openIdentityCreate = () =>
     setIdentityEditor({ open: true, mode: 'create', draft: emptyIdentityDraft(createIdentityId()) });
   const openIdentityEdit = (item: ExpertIdentity) =>
@@ -161,8 +149,6 @@ const ForeignTradePage: React.FC = () => {
       okButtonProps: { status: 'danger' },
       onOk: () => {
         removeIdentity(item.id);
-        // Drop the cached session too, otherwise re-adding an identity with the
-        // same id would resurrect a conversation bound to a deleted expert.
         setSessions((prev) => {
           const next = { ...prev };
           delete next[item.id];
@@ -216,7 +202,7 @@ const ForeignTradePage: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `geekclaw-skills-${Date.now()}.json`;
+    a.download = `geekclaw-marketing-skills-${Date.now()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -224,7 +210,6 @@ const ForeignTradePage: React.FC = () => {
     Message.success('技能库已导出');
   }, [exportSkills]);
 
-  /** Start a conversation from a single skill (wrapped in a synthetic identity). */
   const handleLaunchSkill = useCallback(
     (item: ExpertSkill) => {
       const synthetic: ExpertIdentity = {
@@ -245,16 +230,16 @@ const ForeignTradePage: React.FC = () => {
   );
 
   const handleLaunchMulti = useCallback(() => {
-    const experts = tradeIdentities.filter((item) => multiSelected.includes(item.id));
+    const experts = marketingIdentities.filter((item) => multiSelected.includes(item.id));
     if (experts.length === 0) {
       Message.error('请至少选择一位专家');
       return;
     }
     launchMulti(experts, findSkill);
     setMultiExpertOpen(false);
-  }, [findSkill, identities, launchMulti, multiSelected]);
+  }, [findSkill, marketingIdentities, launchMulti, multiSelected]);
 
-  // ── GeekLink 平台内嵌视图（左栏独立入口的下游）──
+  // ── 国际 GEO 平台内嵌视图（左栏独立入口的下游）──
   if (platformActive) {
     return (
       <div className='w-full box-border px-12px md:px-24px py-24px'>
@@ -266,22 +251,22 @@ const ForeignTradePage: React.FC = () => {
                 className='flex items-center gap-4px text-13px text-t-secondary hover:text-primary-6 cursor-pointer transition-colors'
               >
                 <Left theme='outline' size='16' />
-                {t('foreignTrade.back', { defaultValue: '返回' })}
+                {t('marketingOps.back', { defaultValue: '返回' })}
               </button>
               <span className='text-14px font-600 text-t-primary'>
-                {t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' })}
+                {t('marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' })}
               </span>
             </div>
             <button
-              onClick={() => openExternalUrl(FOREIGN_TRADE_URL)}
+              onClick={() => openExternalUrl(INTERNATIONAL_GEO_URL)}
               className='inline-flex items-center gap-6px px-12px py-6px text-12px font-500 text-primary-6 border border-primary-6 rounded-8px hover:bg-primary-1 cursor-pointer transition-colors'
             >
               <LinkOut theme='outline' size={14} />
-              {t('foreignTrade.openExternal', { defaultValue: '在浏览器中打开' })}
+              {t('marketingOps.openExternal', { defaultValue: '在浏览器中打开' })}
             </button>
           </div>
           <div className='h-[calc(100vh-120px)] min-h-480px border border-[var(--color-border-2)] rounded-12px overflow-hidden bg-[var(--color-bg-2)]'>
-            <WebviewHost key='foreign-trade' url={FOREIGN_TRADE_URL} showNavBar />
+            <WebviewHost key='marketing-ops' url={INTERNATIONAL_GEO_URL} showNavBar />
           </div>
         </div>
       </div>
@@ -291,13 +276,16 @@ const ForeignTradePage: React.FC = () => {
   return (
     <div className='w-full h-full min-h-0 flex'>
       <ExpertRoster
-        identities={tradeIdentities}
+        identities={marketingIdentities}
         selectedId={selectedId}
         onSelect={(identity) => {
           setSelectedId(identity.id);
           setView('desk');
         }}
         onOpenPlatform={openPlatform}
+        platformLabel={t('marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' })}
+        rosterLabel={t('marketingOps.rosterLabel', { defaultValue: '营销运营专家名册' })}
+        searchPlaceholder={t('marketingOps.searchExpert', { defaultValue: '搜索营销运营专家' })}
         onOpenSkills={() => setView('skills')}
         onCreate={openIdentityCreate}
         onEdit={openIdentityEdit}
@@ -305,7 +293,7 @@ const ForeignTradePage: React.FC = () => {
       />
       {view === 'skills' ? (
         <SkillLibrary
-          skills={tradeSkills}
+          skills={marketingSkills}
           createId={createSkillId}
           onSave={handleSkillSave}
           onDelete={handleSkillDelete}
@@ -324,6 +312,7 @@ const ForeignTradePage: React.FC = () => {
               onEnsureConversation={ensureConversation}
               onOpenConversationPage={openConversationPage}
               onOpenPlatform={openPlatform}
+              platformLabel={t('marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' })}
               onOpenSkills={() => setView('skills')}
               onSummonExpert={() => setMultiExpertOpen(true)}
             />
@@ -333,10 +322,10 @@ const ForeignTradePage: React.FC = () => {
                 <Globe theme='outline' size='28' fill='currentColor' />
               </span>
               <span className='text-15px font-500 text-t-primary'>
-                {t('foreignTrade.emptyTitle', { defaultValue: '还没有外贸专家' })}
+                {t('marketingOps.emptyTitle', { defaultValue: '还没有营销运营专家' })}
               </span>
               <span className='max-w-360px text-13px leading-20px text-t-tertiary'>
-                {t('foreignTrade.emptyHint', {
+                {t('marketingOps.emptyHint', {
                   defaultValue: '点击左栏「新建专家身份」创建专家，即可在这里与专家对话。',
                 })}
               </span>
@@ -350,14 +339,14 @@ const ForeignTradePage: React.FC = () => {
         mode={identityEditor.mode}
         draft={identityEditor.draft}
         categories={identityCategories}
-        skills={tradeSkills}
+        skills={marketingSkills}
         onCancel={closeIdentityEditor}
         onSave={handleIdentitySave}
       />
 
       <CollabMultiExpertModal
         visible={multiExpertOpen}
-        identities={tradeIdentities}
+        identities={marketingIdentities}
         selected={multiSelected}
         onChange={setMultiSelected}
         onCancel={() => setMultiExpertOpen(false)}
@@ -367,4 +356,4 @@ const ForeignTradePage: React.FC = () => {
   );
 };
 
-export default ForeignTradePage;
+export default MarketingOpsPage;

@@ -33,8 +33,10 @@ interface ExpertDeskProps {
   onEnsureConversation: () => Promise<TChatConversation | null>;
   /** Reveal the conversation in the full conversation page. */
   onOpenConversationPage: () => void;
-  /** Open the GeekLink external platform (standalone entry in the roster). */
+  /** Open the external platform (standalone entry in the roster). */
   onOpenPlatform: () => void;
+  /** Label of the external-platform entry (defaults to GeekLink 外贸平台). */
+  platformLabel?: string;
   /** Open the in-place skill library view. */
   onOpenSkills: () => void;
   /** Pick several experts and start a collaborative conversation. */
@@ -56,10 +58,12 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
   onEnsureConversation,
   onOpenConversationPage,
   onOpenPlatform,
+  platformLabel,
   onOpenSkills,
   onSummonExpert,
 }) => {
   const { t } = useTranslation();
+  const resolvedPlatformLabel = platformLabel ?? t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' });
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [pendingText, setPendingText] = useState<string | null>(null);
@@ -264,7 +268,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
             <div
               role='button'
               tabIndex={0}
-              aria-label={t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' })}
+              aria-label={resolvedPlatformLabel}
               onClick={onOpenPlatform}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {

@@ -548,3 +548,26 @@ export function composeMultiExpertSystemPrompt(
     .filter(Boolean)
     .join('\n\n');
 }
+
+// ── 营销运营类归属（2026-09-13 板块重组）────────────────────────────────────
+// 「B2B营销运营工作台」（原 AI品牌营销）与「B2B外贸工作台」共用同一份专家
+// 数据，按下面的规则划分归属：命中营销运营类的身份/技能显示在工作台 A，
+// 其余显示在工作台 B。删除/编辑仍是同一份 localStorage 数据。
+
+/** 归入「B2B营销运营工作台」的身份分类（整体移入）。 */
+export const MARKETING_OPS_IDENTITY_CATEGORIES = ['运营增长', '电商运营', '建站开店', '创意生产'];
+
+/** 隶属「外贸拓客」分类、但业务上属营销运营的身份名。 */
+export const MARKETING_OPS_IDENTITY_NAMES = ['海外社媒引流', '跨境电商运营'];
+
+/** 归入「B2B营销运营工作台」的技能分类（整体移入）。 */
+export const MARKETING_OPS_SKILL_CATEGORIES = ['运营增长', '电商运营', '建站开店', '创意生产'];
+
+/** 该专家身份是否属于「B2B营销运营工作台」。 */
+export const isMarketingOpsIdentity = (item: ExpertIdentity): boolean =>
+  MARKETING_OPS_IDENTITY_CATEGORIES.includes(item.category) ||
+  MARKETING_OPS_IDENTITY_NAMES.includes(item.name);
+
+/** 该专家技能是否属于「B2B营销运营工作台」。 */
+export const isMarketingOpsSkill = (item: ExpertSkill): boolean =>
+  MARKETING_OPS_SKILL_CATEGORIES.includes(item.category);

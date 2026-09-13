@@ -18,9 +18,16 @@ interface ExpertRosterProps {
   identities: ExpertIdentity[];
   selectedId: string | null;
   onSelect: (identity: ExpertIdentity) => void;
-  /** Open the GeekLink external platform (in-app webview) — a standalone entry,
+  /** Open the external platform (in-app webview) — a standalone entry,
    *  deliberately NOT grouped with the skill library. */
   onOpenPlatform: () => void;
+  /** Label of the external-platform entry. Defaults to the GeekLink trade
+   *  platform; the marketing-ops workspace passes its own (国际GEO AI营销). */
+  platformLabel?: string;
+  /** Roster aria-label / search placeholder (defaults speak 外贸; the
+   *  marketing-ops workspace overrides them). */
+  rosterLabel?: string;
+  searchPlaceholder?: string;
   /** Open the in-place skill library view. */
   onOpenSkills: () => void;
   /** Author a brand-new expert identity. */
@@ -42,6 +49,9 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
   selectedId,
   onSelect,
   onOpenPlatform,
+  platformLabel,
+  rosterLabel,
+  searchPlaceholder,
   onOpenSkills,
   onCreate,
   onEdit,
@@ -49,6 +59,10 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
 }) => {
   const { t } = useTranslation();
   const [keyword, setKeyword] = useState('');
+  const resolvedPlatformLabel = platformLabel ?? t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' });
+  const resolvedRosterLabel = rosterLabel ?? t('foreignTrade.rosterLabel', { defaultValue: '外贸专家名册' });
+  const resolvedSearchPlaceholder =
+    searchPlaceholder ?? t('foreignTrade.searchExpert', { defaultValue: '搜索外贸专家' });
 
   const groups = useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -68,7 +82,7 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
   return (
     <ContentSider
       width={248}
-      ariaLabel={t('foreignTrade.rosterLabel', { defaultValue: '外贸专家名册' })}
+      ariaLabel={resolvedRosterLabel}
       header={
         <div className='px-8px pt-12px pb-8px flex flex-col gap-8px'>
           <Input
@@ -76,7 +90,7 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
             onChange={setKeyword}
             allowClear
             prefix={<Search theme='outline' size='14' fill='currentColor' />}
-            placeholder={t('foreignTrade.searchExpert', { defaultValue: '搜索外贸专家' })}
+            placeholder={resolvedSearchPlaceholder}
           />
         </div>
       }
@@ -134,9 +148,7 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
               className='flex items-center gap-6px h-34px rd-10px px-10px cursor-pointer text-12px font-500 text-t-primary bg-[var(--color-bg-2)] border border-[var(--color-border-2)] hover:border-primary-6 hover:text-primary-6 transition-colors box-border outline-none'
             >
               <Globe theme='outline' size='15' fill='currentColor' strokeWidth={3} />
-              <span className='flex-1 truncate'>
-                {t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' })}
-              </span>
+              <span className='flex-1 truncate'>{resolvedPlatformLabel}</span>
               <LinkOut theme='outline' size='13' fill='currentColor' />
             </div>
           </div>
