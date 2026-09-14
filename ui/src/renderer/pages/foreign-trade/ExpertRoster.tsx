@@ -10,7 +10,7 @@ import { Input, Tooltip } from '@arco-design/web-react';
 import { Delete, Edit, Globe, LinkOut, Plus, Search, Shop } from '@icon-park/react';
 import classNames from 'classnames';
 import ContentSider from '@renderer/components/layout/ContentSider';
-import { resolveExpertIcon } from '@renderer/pages/expert-agents/expertIcons';
+import PersonAvatar from '@renderer/pages/expert-agents/PersonAvatar';
 import { groupByIdentityCategory, type ExpertIdentity } from '@renderer/pages/expert-agents/data';
 
 interface ExpertRosterProps {
@@ -21,9 +21,12 @@ interface ExpertRosterProps {
   /** Open the external platform (in-app webview) — a standalone entry,
    *  deliberately NOT grouped with the skill library. */
   onOpenPlatform: () => void;
-  /** Label of the external-platform entry. Defaults to the GeekLink trade
-   *  platform; the marketing-ops workspace passes its own (国际GEO AI营销). */
+  /** Label of the external-platform entry. Defaults to the GeekLink 专业外贸系统;
+   *  the B2B外贸运营工作台 passes its own (国际GEO AI营销). */
   platformLabel?: string;
+  /** Heading of the external-platform block. Defaults to「外部平台」; the
+   *  B2B外贸运营工作台 passes「专业营销系统」. */
+  platformGroupLabel?: string;
   /** Roster aria-label / search placeholder (defaults speak 外贸; the
    *  marketing-ops workspace overrides them). */
   rosterLabel?: string;
@@ -34,10 +37,15 @@ interface ExpertRosterProps {
   onCreate: () => void;
   onEdit: (identity: ExpertIdentity) => void;
   onDelete: (identity: ExpertIdentity) => void;
+  /**
+   * 名册级已分配的人物形象（`assignPersonFigures` 结果）—— 保证名册与右侧
+   * 工作台头部显示同一张脸；缺省时按 seed 现算。
+   */
+  figureSrcOf?: (seed: string) => string | undefined;
 }
 
 /**
- * 外贸专家名册 — B2B 外贸工作台的左栏。
+ * 外贸专家名册 — B2B外贸业务工作台 / B2B外贸运营工作台共用的左栏。
  *
  * Same shell and item grammar as the 数字员工 roster (ContentSider + 44px rows),
  * but grouped by `ExpertIdentity.category` (外贸拓客 / 供应链履约 / …) because
@@ -50,16 +58,21 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
   onSelect,
   onOpenPlatform,
   platformLabel,
+  platformGroupLabel,
   rosterLabel,
   searchPlaceholder,
   onOpenSkills,
   onCreate,
   onEdit,
   onDelete,
+  figureSrcOf,
 }) => {
   const { t } = useTranslation();
   const [keyword, setKeyword] = useState('');
-  const resolvedPlatformLabel = platformLabel ?? t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' });
+  const resolvedPlatformLabel =
+    platformLabel ?? t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 专业外贸系统' });
+  const resolvedPlatformGroupLabel =
+    platformGroupLabel ?? t('foreignTrade.platformGroup', { defaultValue: '外部平台' });
   const resolvedRosterLabel = rosterLabel ?? t('foreignTrade.rosterLabel', { defaultValue: '外贸专家名册' });
   const resolvedSearchPlaceholder =
     searchPlaceholder ?? t('foreignTrade.searchExpert', { defaultValue: '搜索外贸专家' });
@@ -130,10 +143,10 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
               {t('foreignTrade.skillLibrary', { defaultValue: '专家技能库' })}
             </span>
           </div>
-          {/* 独立入口：GeekLink 外贸平台 — 与「专家技能库」分区隔离，不并入技能库 */}
+          {/* 独立入口：GeekLink 专业外贸系统 / 国际GEO AI营销 — 与「专家技能库」分区隔离，不并入技能库 */}
           <div className='mt-6px pt-8px border-t border-[var(--color-border-2)] flex flex-col gap-4px'>
             <span className='px-4px text-11px leading-16px text-t-tertiary truncate'>
-              {t('foreignTrade.platformGroup', { defaultValue: '外部平台' })}
+              {resolvedPlatformGroupLabel}
             </span>
             <div
               role='button'
@@ -167,7 +180,6 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
               {group.category}
             </div>
             {group.items.map((item) => {
-              const Icon = resolveExpertIcon(item.icon);
               const active = item.id === selectedId;
               return (
                 <Tooltip key={item.id} content={item.description} position='right' mini>
@@ -189,9 +201,13 @@ const ExpertRoster: React.FC<ExpertRosterProps> = ({
                         : 'text-t-primary hover:bg-fill-2 active:bg-fill-3'
                     )}
                   >
-                    <span className='size-22px flex items-center justify-center shrink-0'>
-                      <Icon theme='outline' size='16' fill='currentColor' />
-                    </span>
+                    <PersonAvatar
+                      seed={item.id || item.name}
+                      size={24}
+                      src={figureSrcOf?.(item.id || item.name)}
+                      className='ring-1 ring-[var(--color-border-2)]'
+                      title={item.name}
+                    />
                     <span className='flex flex-col min-w-0 flex-1'>
                       <span className='text-13px font-500 leading-18px truncate'>{item.name}</span>
                       <span className='text-11px leading-16px text-t-tertiary truncate'>

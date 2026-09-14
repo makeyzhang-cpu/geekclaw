@@ -14,6 +14,7 @@ import { Delete, Edit, Message } from '@icon-park/react';
 import NomiModal from '@renderer/components/base/NomiModal';
 import type { ExpertIdentity, ExpertSkill } from './data';
 import { expertIconOptions, resolveExpertIcon } from './expertIcons';
+import PersonAvatar from './PersonAvatar';
 
 /** 专家身份 / 专家技能 的编辑弹窗与技能卡片。
  *
@@ -428,7 +429,6 @@ export const CollabMultiExpertModal: React.FC<{
       </p>
       <div className='flex flex-col gap-8px' style={{ maxHeight: 360, overflowY: 'auto' }}>
         {identities.map((it) => {
-          const I = resolveExpertIcon(it.icon);
           const checked = selected.includes(it.id);
           return (
             <label
@@ -440,9 +440,7 @@ export const CollabMultiExpertModal: React.FC<{
                 checked={checked}
                 onChange={(e) => toggle(it.id, e.target.checked)}
               />
-              <span className='size-30px rounded-full bg-primary-1 text-primary-6 flex items-center justify-center shrink-0'>
-                <I size={15} theme='outline' fill='currentColor' />
-              </span>
+              <PersonAvatar seed={it.id} size={30} title={it.name} />
               <span className='flex-1 text-13px text-t-primary'>{it.name}</span>
               <span className='text-12px text-t-quaternary'>{it.category}</span>
             </label>

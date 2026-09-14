@@ -567,7 +567,16 @@
     "done": "完成",
     "currentLook": "当前形象",
     "previewLight": "浅色底",
-    "previewDark": "深色底"
+    "previewDark": "深色底",
+    "builtinTitle": "人物形象",
+    "builtinHint": "内置真实人物形象（与专家数字分身市场同源），点「用于员工」即可给数字员工换装。",
+    "builtinBadge": "内置",
+    "useForCompanion": "用于员工",
+    "applyTitle": "选用该形象",
+    "applyHint": "选择要换装的数字员工",
+    "applied": "形象已应用到该员工",
+    "applyFailed": "应用形象失败",
+    "noCompanion": "还没有数字员工，先新建一个再来换装吧"
   },
   "migrate": {
     "exportCompanion": "导出员工包",

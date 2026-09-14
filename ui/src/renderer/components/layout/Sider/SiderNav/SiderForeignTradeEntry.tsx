@@ -30,7 +30,7 @@ const SiderForeignTradeEntry: React.FC<SiderForeignTradeEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('common.siderRail.b2bTrade', { defaultValue: 'B2B外贸工作台' });
+  const label = t('common.siderRail.b2bTrade', { defaultValue: 'B2B外贸业务工作台' });
 
   if (collapsed) {
     return (

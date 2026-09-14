@@ -50,8 +50,10 @@ interface SiderProps {
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`):
  *   AI通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
- *   AI出海智能体 (B2B营销运营工作台 / B2B外贸工作台 / A2A跨境电商 / OPC分销工作台),
- *   助理能力仓 (AI创艺工作台 / 知识库 / 数字资产库 / 国内GEO AI营销 / AI客服 / 系统设置).
+ *   AI出海智能体 (B2B外贸运营工作台 / B2B外贸业务工作台),
+ *   AI跨境电商智能体 (A2A跨境电商 / OPC分销工作台 / AI创艺工作台),
+ *   AI营销智能体 (国内GEO AI营销),
+ *   助理能力仓 (AI客服 / 知识库 / 数字资产库 / 系统设置).
  * The former bottom-pinned 设置 group (browser / model hub / open capabilities /
  * settings / logout) has moved into the `UserMenu` anchored at the bottom-left
  * of `Layout`. 浏览器 / 远程&开放能力 / 模型管理 now live inside
@@ -182,9 +184,10 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
                 onClick={handleUserManagementClick}
               />
             )}
-            {/* AI出海智能体 — cross-border export agents & platforms */}
+            {/* AI出海智能体 — 外贸经营 / 外贸履约两个专家工作台 */}
             <SiderSectionHeader label={t('common.siderSection.automation')} collapsed={collapsed} />
-            {/* B2B营销运营工作台（原 AI品牌营销）— 营销运营专家名册 + 内嵌对话 */}
+            {/* B2B外贸运营工作台 — 营销运营专家名册 + 内嵌对话，
+                页内独立平台入口 =「专业营销系统」（国际GEO AI营销）。 */}
             <SiderWorkCommunityEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/marketing-ops')}
@@ -192,7 +195,8 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkCommunityClick}
             />
-            {/* B2B 外贸工作台 — 外贸专家名册 + 内嵌对话，GeekLink 平台作为独立入口 */}
+            {/* B2B外贸业务工作台 — 外贸专家名册 + 内嵌对话，
+                页内独立平台入口 =「GeekLink 专业外贸系统」。 */}
             <SiderForeignTradeEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/foreign-trade')}
@@ -200,7 +204,9 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleForeignTradeClick}
             />
-            {/* A2A 跨境电商平台 — 与「B2B 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 niushitv */}
+            {/* AI跨境电商智能体 — 跨境电商平台 / 全球分销 / AI 创艺产能 */}
+            <SiderSectionHeader label={t('common.siderSection.crossBorder')} collapsed={collapsed} />
+            {/* A2A 跨境电商平台 — 应用内 Webview 打开 niushitv */}
             <SiderRequirementsEntry
               isMobile={isMobile}
               isActive={pathname.startsWith('/a2a-ecommerce')}
@@ -216,8 +222,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleOpcClick}
             />
-            {/* 助理能力仓 — AI 创作 / 知识 / 资产 / 客服 / 设置的统一收口 */}
-            <SiderSectionHeader label={t('common.siderSection.assistantVault')} collapsed={collapsed} />
             {/* AI 创艺工作台 — infinite-canvas AI creation surface */}
             <SiderWorkshopEntry
               isMobile={isMobile}
@@ -226,6 +230,18 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkshopClick}
             />
+            {/* AI营销智能体 — GEO 营销矩阵的独立板块 */}
+            <SiderSectionHeader label={t('common.siderSection.marketing')} collapsed={collapsed} />
+            {/* 国内GEO AI营销 — 独立板块，应用内 webview 直开 geekgeo 平台 */}
+            <SiderGeoDomesticEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/geo-domestic')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleGeoDomesticClick}
+            />
+            {/* 助理能力仓 — 客服 / 知识 / 资产 / 设置的统一收口 */}
+            <SiderSectionHeader label={t('common.siderSection.assistantVault')} collapsed={collapsed} />
             {/* AI 客服 — public-facing customer service */}
             <SiderCustomerServiceEntry
               isMobile={isMobile}
@@ -250,14 +266,6 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleAssetLibraryClick}
-            />
-            {/* 国内GEO AI营销 — 独立板块，应用内 webview 直开 geekgeo 平台 */}
-            <SiderGeoDomesticEntry
-              isMobile={isMobile}
-              isActive={pathname.startsWith('/geo-domestic')}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleGeoDomesticClick}
             />
             {/* 系统设置 — 浏览器 / 远程&开放能力 / 模型管理
                 已统一收进【系统设置】→「应用」分组（「远程主机」之下），不再占用主栏；

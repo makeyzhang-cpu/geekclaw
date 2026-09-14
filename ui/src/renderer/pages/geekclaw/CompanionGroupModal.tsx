@@ -20,19 +20,29 @@ interface CompanionGroupModalProps {
   companions: ICompanionWithStatus[];
   loading?: boolean;
   confirming?: boolean;
+  /** 标题 / 主按钮 / 规则说明的可定制文案（默认按「发起员工群聊」场景）。 */
+  title?: string;
+  okText?: string;
+  hint?: string;
   onCancel: () => void;
   onConfirm: (members: ICompanionProfile[], name: string) => void;
 }
 
 /**
- * 员工圆桌群聊选择弹窗 — 挑 ≥2 位数字员工组一个群聊会话。
- * 圆桌 MVP（方案 A）：群聊由合成人格的单一会话承载，见 useCompanionGroupLauncher。
+ * 员工多选弹窗 —— 挑 ≥2 位数字员工组一个「团队」。
+ * 两个使用场景共用：
+ *  1. 数字员工页「召唤伙伴」→ 圆桌群聊（方案 A：合成人格的单一会话承载）；
+ *  2. 会话页「协作者」面板「召唤员工」→ 把多位员工合成协作团队人格。
+ * 圆桌 MVP（方案 A）：见 useCompanionGroupLauncher。
  */
 const CompanionGroupModal: React.FC<CompanionGroupModalProps> = ({
   visible,
   companions,
   loading = false,
   confirming = false,
+  title,
+  okText,
+  hint,
   onCancel,
   onConfirm,
 }) => {
@@ -74,8 +84,8 @@ const CompanionGroupModal: React.FC<CompanionGroupModalProps> = ({
     <Modal
       visible={visible}
       onCancel={onCancel}
-      title={t('geekclaw.group.modalTitle', { defaultValue: '发起员工群聊' })}
-      okText={t('geekclaw.group.start', { defaultValue: '开聊' })}
+      title={title ?? t('geekclaw.group.modalTitle', { defaultValue: '发起员工群聊' })}
+      okText={okText ?? t('geekclaw.group.start', { defaultValue: '开聊' })}
       cancelText={t('common.cancel', { defaultValue: '取消' })}
       okButtonProps={{ disabled: !canConfirm, loading: confirming }}
       onOk={handleConfirm}
@@ -94,7 +104,7 @@ const CompanionGroupModal: React.FC<CompanionGroupModalProps> = ({
           }
         />
         <div className='text-12px text-t-tertiary'>
-          {t('geekclaw.group.pickHint', {
+          {hint ?? t('geekclaw.group.pickHint', {
             defaultValue: '选择 2 位及以上员工加入群聊；群聊中 @名字 可点名发言。',
           })}
           <span className='ml-6px text-t-quaternary'>

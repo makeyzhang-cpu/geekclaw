@@ -14,6 +14,7 @@ import type { IFigureMeta } from '@/common/adapter/ipcBridge';
 import type { FigureId } from '@/common/types/ids';
 import { CHARACTERS, CUSTOM_CHARACTER_ID } from '@renderer/pages/companion/characters';
 import type { CompanionMood } from '@renderer/pages/companion/characters';
+import { BUILTIN_PERSON_FIGURES, builtinFigureMeta } from '@renderer/pages/companion/characters/builtinFigures';
 import { figureImageUrlOf } from '@renderer/pages/companion/characters/customMeta';
 import { CHECKER_BG } from './CustomFigureWizard/FrameStep';
 import CustomFigureWizard from './CustomFigureWizard';
@@ -108,6 +109,53 @@ const CharacterPicker: React.FC<{
               <span className='text-11px text-t-tertiary text-center leading-snug'>
                 {t(`geekclaw.characters.${c.nameKey}.style`)}
               </span>
+            </div>
+          );
+        })}
+
+        {/* 内置人物形象（专家数字分身市场同源）—— 与下方自建形象同构，可直选 */}
+        {BUILTIN_PERSON_FIGURES.map((person) => {
+          const meta = builtinFigureMeta(person);
+          const active = value === CUSTOM_CHARACTER_ID && figureId === meta.figure_id;
+          return (
+            <div
+              key={person.id}
+              onClick={() => onSelectFigure(meta)}
+              className={classNames(
+                'flex flex-col items-center cursor-pointer transition-all border-solid',
+                compact
+                  ? 'gap-4px rd-10px px-8px pt-8px pb-7px border'
+                  : 'gap-6px rd-12px px-10px pt-12px pb-10px border-2px',
+                active
+                  ? 'border-[var(--color-primary)] !bg-primary-1 shadow-[0_4px_14px_rgba(var(--primary-rgb),0.25)]'
+                  : 'border-transparent bg-fill-2 hover:bg-fill-3'
+              )}
+            >
+              <span
+                className={classNames(
+                  'flex items-center justify-center w-full',
+                  compact ? 'h-64px' : 'h-84px'
+                )}
+              >
+                <img
+                  src={person.src}
+                  alt={person.name}
+                  draggable={false}
+                  className={classNames(
+                    'rounded-full object-cover border border-solid border-[var(--color-border-2)]',
+                    compact ? 'w-56px h-56px' : 'w-72px h-72px'
+                  )}
+                />
+              </span>
+              <span
+                className={classNames(
+                  'text-13px font-600 truncate max-w-full',
+                  active ? 'text-[var(--color-primary)]' : 'text-t-primary'
+                )}
+              >
+                {person.name}
+              </span>
+              <span className='text-11px text-t-tertiary'>{t('geekclaw.customFigure.builtinBadge')}</span>
             </div>
           );
         })}

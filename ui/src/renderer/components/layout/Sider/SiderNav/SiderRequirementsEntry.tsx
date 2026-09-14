@@ -27,7 +27,7 @@ const SiderRequirementsEntry: React.FC<SiderRequirementsEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('a2aEcommerce.siderLabel', { defaultValue: 'A2A跨境电商' });
+  const label = t('common.siderRail.a2aEcommerce', { defaultValue: 'A2A跨境电商' });
 
   if (collapsed) {
     return (

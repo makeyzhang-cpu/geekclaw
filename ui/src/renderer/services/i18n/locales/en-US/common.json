@@ -2,12 +2,16 @@
   "siderSection": {
     "common": "AI General Agent",
     "automation": "AI Export Agent",
+    "crossBorder": "AI Cross-border Agent",
+    "marketing": "AI Marketing Agent",
     "assistantVault": "Assistant Capability Hub"
   },
   "siderRail": {
-    "b2bTrade": "B2B Trade Workspace",
+    "b2bOps": "B2B Trade Operations Workspace",
+    "b2bTrade": "B2B Trade Business Workspace",
     "a2aEcommerce": "A2A Cross-border",
-    "opcDist": "OPC Distribution Workspace"
+    "opcDist": "OPC Distribution Workspace",
+    "geoDomestic": "Domestic GEO AI Marketing"
   },
   "send": "Send",
   "cancel": "Cancel",
@@ -129,6 +133,17 @@
     "enter": "Enter platform",
     "back": "Back"
   },
+  "marketingOps": {
+    "back": "Back",
+    "emptyHint": "Click New Expert Identity on the left to create one, then chat with it here.",
+    "emptyTitle": "No marketing & operations experts yet",
+    "enter": "Open International GEO AI Marketing System",
+    "openExternal": "Open in browser",
+    "platformGroup": "Professional Marketing System",
+    "platformTitle": "International GEO AI Marketing",
+    "rosterLabel": "Marketing & Operations Expert Roster",
+    "searchExpert": "Search marketing & operations experts"
+  },
   "unit": {
     "hour_short": "h",
     "minute_short": "m",
@@ -144,10 +159,19 @@
     "back": "Back",
     "badge": "Trade",
     "cardDesc": "AI-driven B2B outbound: automated lead generation, AI email and AI WhatsApp outreach.",
-    "cardTitle": "GeekLink Trade Platform",
-    "enter": "Open",
+    "cardTitle": "GeekLink Professional Trade System",
+    "createExpert": "New Expert",
+    "deleteExpert": "Delete expert",
+    "editExpert": "Edit expert",
+    "emptyHint": "Click New Expert on the left to create one, then chat with it here.",
+    "emptyTitle": "No trade experts yet",
+    "enter": "Open GeekLink Trade System",
+    "noExpert": "No matching experts",
     "openExternal": "Open in browser",
     "platformGroup": "External platform",
+    "rosterLabel": "Trade Expert Roster",
+    "searchExpert": "Search trade experts",
+    "skillLibrary": "Expert Skill Library",
     "subtitle": "An all-in-one B2B AI workspace combining AI trade expert teams, lead-gen agents, personalized AI email and WhatsApp outreach, AI CRM, a company brain and digital asset management.",
     "title": "AI Trade Workspace"
   },

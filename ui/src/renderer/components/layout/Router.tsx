@@ -263,7 +263,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/webhook' element={<Navigate to='/requirements/extensions?tab=notify' replace />} />
           <Route path='/settings' element={<Navigate to='/settings/system' replace />} />
           <Route path='/test/components' element={withRouteFallback(ComponentsShowcase)} />
-          {/* B2B营销运营工作台（原 AI品牌营销 hub 改造）：营销运营专家名册 + 内嵌对话 + 国际GEO 平台 */}
+          {/* B2B外贸运营工作台（原 AI品牌营销 hub 改造）：营销运营专家名册 + 内嵌对话 + 国际GEO 平台 */}
           <Route path='/marketing-ops' element={withRouteFallback(MarketingOpsPage)} />
           <Route path='/work-community' element={<Navigate to='/marketing-ops' replace />} />
           {/* 国内GEO AI营销 — 独立侧栏板块，应用内 webview 直开 */}

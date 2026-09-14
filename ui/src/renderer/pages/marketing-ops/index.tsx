@@ -25,6 +25,7 @@ import {
 } from '@renderer/pages/expert-agents/expertEditors';
 import type { IdentityEditorState } from '@renderer/pages/expert-agents/expertEditors';
 import type { ExpertIdentity, ExpertSkill } from '@renderer/pages/expert-agents/data';
+import { assignPersonFigures } from '@renderer/pages/companion/characters/builtinFigures';
 import type { TChatConversation } from '@/common/config/storage';
 import ExpertRoster from '@renderer/pages/foreign-trade/ExpertRoster';
 import ExpertDesk from '@renderer/pages/foreign-trade/ExpertDesk';
@@ -34,16 +35,20 @@ import SkillLibrary from '@renderer/pages/foreign-trade/SkillLibrary';
 const INTERNATIONAL_GEO_URL = 'https://orbitai.jkyunge.com/';
 
 /**
- * MarketingOpsPage — B2B营销运营工作台（原「AI品牌营销」hub 改造）。
+ * MarketingOpsPage — B2B外贸运营工作台（原「AI品牌营销」hub 改造）。
  *
- * 与「B2B外贸工作台」同构：专家名册（按分类分组）+ 内嵌对话工作台 +
- * 技能库 + 底部独立「外部平台」入口（国际 GEO AI 营销，应用内 webview）。
- * 名册数据与 B2B 外贸工作台共用一份 localStorage，按 `isMarketingOps*`
- * 规则划分归属：营销运营类的身份/技能显示在这里，其余留在外贸工作台。
+ * 与「B2B外贸业务工作台」同构：专家名册（按分类分组）+ 内嵌对话工作台 +
+ * 技能库 + 底部独立「专业营销系统」入口（国际GEO AI营销，应用内 webview）。
+ * 名册数据与 B2B外贸业务工作台共用一份 localStorage，按 `isMarketingOps*`
+ * 规则划分归属：营销运营类的身份/技能显示在这里，其余留在外贸业务工作台。
  */
 const MarketingOpsPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // 页内平台文案：左栏底部「专业营销系统」区块 → 国际GEO AI营销系统。
+  const platformTitle = t('common.marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' });
+  const platformGroupLabel = t('common.marketingOps.platformGroup', { defaultValue: '专业营销系统' });
+  const platformEnterLabel = t('common.marketingOps.enter', { defaultValue: '进入国际GEOAI营销系统' });
   const {
     identities,
     upsertIdentity,
@@ -64,6 +69,12 @@ const MarketingOpsPage: React.FC = () => {
   // 归属过滤：只展示营销运营类的身份/技能（其余归 B2B 外贸工作台）。
   const marketingIdentities = useMemo(() => identities.filter(isMarketingOpsIdentity), [identities]);
   const marketingSkills = useMemo(() => skills.filter(isMarketingOpsSkill), [skills]);
+
+  // 名册级人物形象分配：左栏名册与右栏工作台头部取同一份结果，同一个人一张脸。
+  const figureMap = useMemo(
+    () => assignPersonFigures(marketingIdentities.map((item) => item.id || item.name)),
+    [marketingIdentities]
+  );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** expert id → its minted conversation (same grammar as the trade workspace). */
@@ -251,18 +262,16 @@ const MarketingOpsPage: React.FC = () => {
                 className='flex items-center gap-4px text-13px text-t-secondary hover:text-primary-6 cursor-pointer transition-colors'
               >
                 <Left theme='outline' size='16' />
-                {t('marketingOps.back', { defaultValue: '返回' })}
+                {t('common.marketingOps.back', { defaultValue: '返回' })}
               </button>
-              <span className='text-14px font-600 text-t-primary'>
-                {t('marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' })}
-              </span>
+              <span className='text-14px font-600 text-t-primary'>{platformTitle}</span>
             </div>
             <button
               onClick={() => openExternalUrl(INTERNATIONAL_GEO_URL)}
               className='inline-flex items-center gap-6px px-12px py-6px text-12px font-500 text-primary-6 border border-primary-6 rounded-8px hover:bg-primary-1 cursor-pointer transition-colors'
             >
               <LinkOut theme='outline' size={14} />
-              {t('marketingOps.openExternal', { defaultValue: '在浏览器中打开' })}
+              {t('common.marketingOps.openExternal', { defaultValue: '在浏览器中打开' })}
             </button>
           </div>
           <div className='h-[calc(100vh-120px)] min-h-480px border border-[var(--color-border-2)] rounded-12px overflow-hidden bg-[var(--color-bg-2)]'>
@@ -283,13 +292,15 @@ const MarketingOpsPage: React.FC = () => {
           setView('desk');
         }}
         onOpenPlatform={openPlatform}
-        platformLabel={t('marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' })}
-        rosterLabel={t('marketingOps.rosterLabel', { defaultValue: '营销运营专家名册' })}
-        searchPlaceholder={t('marketingOps.searchExpert', { defaultValue: '搜索营销运营专家' })}
+        platformLabel={platformTitle}
+        platformGroupLabel={platformGroupLabel}
+        rosterLabel={t('common.marketingOps.rosterLabel', { defaultValue: '营销运营专家名册' })}
+        searchPlaceholder={t('common.marketingOps.searchExpert', { defaultValue: '搜索营销运营专家' })}
         onOpenSkills={() => setView('skills')}
         onCreate={openIdentityCreate}
         onEdit={openIdentityEdit}
         onDelete={handleIdentityDelete}
+        figureSrcOf={(seed) => figureMap.get(seed)?.src}
       />
       {view === 'skills' ? (
         <SkillLibrary
@@ -312,9 +323,11 @@ const MarketingOpsPage: React.FC = () => {
               onEnsureConversation={ensureConversation}
               onOpenConversationPage={openConversationPage}
               onOpenPlatform={openPlatform}
-              platformLabel={t('marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' })}
+              platformLabel={platformTitle}
+              platformEnterLabel={platformEnterLabel}
               onOpenSkills={() => setView('skills')}
               onSummonExpert={() => setMultiExpertOpen(true)}
+              figureSrc={figureMap.get(selected.id || selected.name)?.src}
             />
           ) : (
             <div className='flex-1 flex flex-col items-center justify-center gap-12px px-24px text-center'>
@@ -322,10 +335,10 @@ const MarketingOpsPage: React.FC = () => {
                 <Globe theme='outline' size='28' fill='currentColor' />
               </span>
               <span className='text-15px font-500 text-t-primary'>
-                {t('marketingOps.emptyTitle', { defaultValue: '还没有营销运营专家' })}
+                {t('common.marketingOps.emptyTitle', { defaultValue: '还没有营销运营专家' })}
               </span>
               <span className='max-w-360px text-13px leading-20px text-t-tertiary'>
-                {t('marketingOps.emptyHint', {
+                {t('common.marketingOps.emptyHint', {
                   defaultValue: '点击左栏「新建专家身份」创建专家，即可在这里与专家对话。',
                 })}
               </span>

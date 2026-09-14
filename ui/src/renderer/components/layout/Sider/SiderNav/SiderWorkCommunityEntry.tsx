@@ -20,8 +20,8 @@ interface SiderWorkCommunityEntryProps {
 }
 
 /**
- * SiderWorkCommunityEntry — B2B营销运营工作台入口（AI出海智能体分组，
- * 原「AI品牌营销」hub 改造为营销运营专家工作台，路由 /marketing-ops）。
+ * SiderWorkCommunityEntry — B2B外贸运营工作台入口（AI出海智能体分组，
+ * 原「AI品牌营销」hub 改造为运营专家工作台，路由 /marketing-ops）。
  */
 const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
   isMobile,
@@ -31,7 +31,7 @@ const SiderWorkCommunityEntry: React.FC<SiderWorkCommunityEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('workCommunity.title', { defaultValue: 'B2B营销运营工作台' });
+  const label = t('common.siderRail.b2bOps', { defaultValue: 'B2B外贸运营工作台' });
 
   if (collapsed) {
     return (

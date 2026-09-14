@@ -27,21 +27,22 @@ import {
   type ExpertSkill,
 } from '@renderer/pages/expert-agents/data';
 import type { TChatConversation } from '@/common/config/storage';
+import { assignPersonFigures } from '@renderer/pages/companion/characters/builtinFigures';
 import ExpertRoster from './ExpertRoster';
 import ExpertDesk from './ExpertDesk';
 import SkillLibrary from './SkillLibrary';
 
-/** GeekLink 外贸平台地址 */
+/** GeekLink 专业外贸系统地址 */
 const FOREIGN_TRADE_URL = 'https://niushitv.com/v2/';
 
 /**
- * ForeignTradePage — B2B 外贸工作台。
+ * ForeignTradePage — B2B外贸业务工作台。
  *
  * Restructured to mirror the 数字员工 surface: a roster sider (experts grouped
  * by category) plus an embedded desk that chats with the selected expert
  * in place — no route jump. The previous single entry card survives as a
  * standalone sider entry (below the skill library, visually separated) that
- * opens the GeekLink platform in an in-app webview.
+ * opens the GeekLink 专业外贸系统 in an in-app webview.
  */
 const ForeignTradePage: React.FC = () => {
   const { t } = useTranslation();
@@ -64,13 +65,19 @@ const ForeignTradePage: React.FC = () => {
   const { launch, launchMulti, launchToConversation } = useExpertConversationLauncher();
 
   // 归属过滤（2026-09-13 板块重组）：营销运营类的身份/技能移入
-  // 「B2B营销运营工作台」（/marketing-ops），本工作台只保留外贸履约/金融/
+  // 「B2B外贸运营工作台」（/marketing-ops），本工作台只保留外贸履约/金融/
   // 客服/效能等部分。两页共享同一份 localStorage 数据，删除互通。
   const tradeIdentities = useMemo(
     () => identities.filter((item) => !isMarketingOpsIdentity(item)),
     [identities]
   );
   const tradeSkills = useMemo(() => skills.filter((item) => !isMarketingOpsSkill(item)), [skills]);
+
+  // 名册级人物形象分配：左栏名册与右栏工作台头部取同一份结果，同一个人一张脸。
+  const figureMap = useMemo(
+    () => assignPersonFigures(tradeIdentities.map((item) => item.id || item.name)),
+    [tradeIdentities]
+  );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** expert id → its minted conversation. Kept here so switching experts back
@@ -269,7 +276,7 @@ const ForeignTradePage: React.FC = () => {
                 {t('foreignTrade.back', { defaultValue: '返回' })}
               </button>
               <span className='text-14px font-600 text-t-primary'>
-                {t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' })}
+                {t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 专业外贸系统' })}
               </span>
             </div>
             <button
@@ -302,6 +309,7 @@ const ForeignTradePage: React.FC = () => {
         onCreate={openIdentityCreate}
         onEdit={openIdentityEdit}
         onDelete={handleIdentityDelete}
+        figureSrcOf={(seed) => figureMap.get(seed)?.src}
       />
       {view === 'skills' ? (
         <SkillLibrary
@@ -326,6 +334,7 @@ const ForeignTradePage: React.FC = () => {
               onOpenPlatform={openPlatform}
               onOpenSkills={() => setView('skills')}
               onSummonExpert={() => setMultiExpertOpen(true)}
+              figureSrc={figureMap.get(selected.id || selected.name)?.src}
             />
           ) : (
             <div className='flex-1 flex flex-col items-center justify-center gap-12px px-24px text-center'>

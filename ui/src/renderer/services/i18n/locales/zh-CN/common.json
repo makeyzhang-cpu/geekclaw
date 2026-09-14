@@ -2,12 +2,16 @@
   "siderSection": {
     "common": "AI通用智能体",
     "automation": "AI出海智能体",
+    "crossBorder": "AI跨境电商智能体",
+    "marketing": "AI营销智能体",
     "assistantVault": "助理能力仓"
   },
   "siderRail": {
-    "b2bTrade": "B2B外贸工作台",
+    "b2bOps": "B2B外贸运营工作台",
+    "b2bTrade": "B2B外贸业务工作台",
     "a2aEcommerce": "A2A跨境电商",
-    "opcDist": "OPC分销工作台"
+    "opcDist": "OPC分销工作台",
+    "geoDomestic": "国内GEO AI营销"
   },
   "send": "发送",
   "cancel": "取消",
@@ -129,16 +133,36 @@
     "enter": "进入平台",
     "back": "返回"
   },
+  "marketingOps": {
+    "back": "返回",
+    "platformGroup": "专业营销系统",
+    "platformTitle": "国际GEO AI营销",
+    "enter": "进入国际GEOAI营销系统",
+    "openExternal": "在浏览器中打开",
+    "rosterLabel": "营销运营专家名册",
+    "searchExpert": "搜索营销运营专家",
+    "emptyTitle": "还没有营销运营专家",
+    "emptyHint": "点击左栏「新建专家身份」创建专家，即可在这里与专家对话。"
+  },
   "foreignTrade": {
     "title": "AI外贸工作台",
     "subtitle": "聚合AI外贸专家团队、AI获客Agent、千人千面的AI邮件触达和AI WhatsApp触达、AI CRM、AI企业智脑、企业数字资产管理为一体，一站式B2B外贸AI工作平台。",
     "badge": "外贸",
-    "cardTitle": "GeekLink 外贸平台",
+    "cardTitle": "GeekLink 专业外贸系统",
     "cardDesc": "AI驱动B2B外贸自动化获客、AI邮件和AIWhatsApp精准触达自动化",
-    "enter": "进入平台",
+    "enter": "进入GeekLink外贸系统",
     "back": "返回",
     "openExternal": "在浏览器中打开",
-    "platformGroup": "外部平台"
+    "platformGroup": "外部平台",
+    "rosterLabel": "外贸专家名册",
+    "searchExpert": "搜索外贸专家",
+    "createExpert": "新建专家身份",
+    "skillLibrary": "专家技能库",
+    "noExpert": "没有匹配的专家",
+    "editExpert": "编辑专家",
+    "deleteExpert": "删除专家",
+    "emptyTitle": "还没有外贸专家",
+    "emptyHint": "点击左栏「新建专家身份」创建专家，即可在这里与专家对话。"
   },
   "a2aEcommerce": {
     "siderLabel": "A2A跨境电商",

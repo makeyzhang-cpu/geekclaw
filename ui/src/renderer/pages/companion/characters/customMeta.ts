@@ -6,6 +6,7 @@
 
 import { CUSTOM_CHARACTER_ID } from './index';
 import type { CustomFigureMeta } from './types';
+import { builtinPersonFigure } from './builtinFigures';
 import { parseFigureId, type CompanionId, type FigureId } from '@/common/types/ids';
 
 /** Wire shape of `appearance.custom_figure` (snake_case, fields may be missing). */
@@ -57,6 +58,10 @@ export function customFigureMetaOf(profile?: ProfileLike | null): CustomFigureMe
  * caches (the backend's ETag only helps once the browser re-requests).
  */
 export function customFigureUrlOf(baseUrl: string, companionId: CompanionId, meta: CustomFigureMeta): string {
+  // 内置人物形象随包分发 —— 后端 figures 表里没有它的记录，
+  // 必须直接用打包资源，绝不能拼 `/api/companion/figures/{id}/image`。
+  const builtin = builtinPersonFigure(meta.figureId);
+  if (builtin) return builtin.src;
   const v = encodeURIComponent(`${meta.aspect}-${meta.headBox.x}-${meta.headBox.y}-${meta.headBox.w}-${meta.headBox.h}`);
   if (meta.figureId) {
     return `${baseUrl}/api/companion/figures/${meta.figureId}/image?v=${v}`;
@@ -66,6 +71,8 @@ export function customFigureUrlOf(baseUrl: string, companionId: CompanionId, met
 
 /** Figure image URL straight from a library figure id (picker thumbnails). */
 export function figureImageUrlOf(baseUrl: string, figureId: FigureId, version?: string | number): string {
+  const builtin = builtinPersonFigure(figureId);
+  if (builtin) return builtin.src;
   const v = version != null ? `?v=${encodeURIComponent(String(version))}` : '';
   return `${baseUrl}/api/companion/figures/${figureId}/image${v}`;
 }

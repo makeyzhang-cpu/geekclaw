@@ -567,7 +567,16 @@
     "done": "Done",
     "currentLook": "Current look",
     "previewLight": "Light bg",
-    "previewDark": "Dark bg"
+    "previewDark": "Dark bg",
+    "builtinTitle": "People Figures",
+    "builtinHint": "Built-in real-person figures (shared with the Expert Avatar Market). Click \"Use for staff\" to re-skin a companion.",
+    "builtinBadge": "Built-in",
+    "useForCompanion": "Use for staff",
+    "applyTitle": "Use this figure",
+    "applyHint": "Pick the companion to re-skin",
+    "applied": "Figure applied to the companion",
+    "applyFailed": "Failed to apply the figure",
+    "noCompanion": "No companions yet — create one first"
   },
   "migrate": {
     "exportCompanion": "Export companion bundle",

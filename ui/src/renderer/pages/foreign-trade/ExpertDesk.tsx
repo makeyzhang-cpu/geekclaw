@@ -15,7 +15,7 @@ import type { TChatConversation } from '@/common/config/storage';
 import NomiChat from '@renderer/pages/conversation/platforms/geekclaw/NomiChat';
 import { useNomiModelSelection } from '@renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
 import { PreviewProvider } from '@renderer/pages/conversation/Preview';
-import { resolveExpertIcon } from '@renderer/pages/expert-agents/expertIcons';
+import PersonAvatar from '@renderer/pages/expert-agents/PersonAvatar';
 import type { ExpertIdentity } from '@renderer/pages/expert-agents/data';
 import { emitter } from '@renderer/utils/emitter';
 import { browserStorageKey } from '@/common/utils/browserStorageKey';
@@ -35,12 +35,19 @@ interface ExpertDeskProps {
   onOpenConversationPage: () => void;
   /** Open the external platform (standalone entry in the roster). */
   onOpenPlatform: () => void;
-  /** Label of the external-platform entry (defaults to GeekLink 外贸平台). */
+  /** Label of the external-platform entry (defaults to GeekLink 专业外贸系统). */
   platformLabel?: string;
+  /** Label of the「进入……」button under the composer. Defaults to
+   *  「进入GeekLink外贸系统」; the B2B外贸运营工作台 passes its own. */
+  platformEnterLabel?: string;
   /** Open the in-place skill library view. */
   onOpenSkills: () => void;
   /** Pick several experts and start a collaborative conversation. */
   onSummonExpert: () => void;
+  /**
+   * 名册级已分配的人物形象（与左栏同一张脸）；缺省按 seed 现算。
+   */
+  figureSrc?: string;
 }
 
 /**
@@ -59,17 +66,21 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
   onOpenConversationPage,
   onOpenPlatform,
   platformLabel,
+  platformEnterLabel,
   onOpenSkills,
   onSummonExpert,
+  figureSrc,
 }) => {
   const { t } = useTranslation();
-  const resolvedPlatformLabel = platformLabel ?? t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 外贸平台' });
+  const resolvedPlatformLabel =
+    platformLabel ?? t('foreignTrade.cardTitle', { defaultValue: 'GeekLink 专业外贸系统' });
+  const resolvedPlatformEnterLabel =
+    platformEnterLabel ?? t('foreignTrade.enter', { defaultValue: '进入GeekLink外贸系统' });
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [pendingText, setPendingText] = useState<string | null>(null);
 
   const nomi = conversation && conversation.type === 'geekclaw' ? (conversation as NomiConversation) : null;
-  const Icon = resolveExpertIcon(identity.icon);
 
   // Dispatch the queued first turn only once the conversation exists and
   // NomiChat has mounted, so no leading stream frame is dropped.
@@ -136,9 +147,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
 
   const identityBar = (
     <div className='shrink-0 flex items-center gap-10px min-w-0 px-24px pt-20px pb-8px'>
-      <span className='size-34px flex items-center justify-center shrink-0 rd-10px bg-primary-1 text-primary-6'>
-        <Icon theme='outline' size='18' fill='currentColor' strokeWidth={3} />
-      </span>
+      <PersonAvatar seed={identity.id || identity.name} size={34} shape='square' src={figureSrc} title={identity.name} />
       <div className='min-w-0'>
         <div className='text-18px leading-24px font-600 text-t-primary truncate'>{identity.name}</div>
         <div className='text-12px leading-18px text-t-tertiary truncate'>{identity.category}</div>
@@ -174,9 +183,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
 
   const heroPill = (
     <div className='flex items-center gap-6px h-34px rd-full pl-8px pr-14px bg-[var(--color-bg-2)] border border-[var(--color-border-2)] shadow-[0_4px_14px_rgba(0,0,0,0.06)]'>
-      <span className='size-24px flex items-center justify-center rd-full bg-primary-1 text-primary-6'>
-        <Icon theme='outline' size='14' fill='currentColor' strokeWidth={3} />
-      </span>
+      <PersonAvatar seed={identity.id || identity.name} size={24} src={figureSrc} title={identity.name} />
       <span className='text-13px font-600 text-t-primary'>{identity.name}</span>
     </div>
   );
@@ -279,7 +286,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
               className='flex items-center gap-4px h-28px rd-8px px-8px cursor-pointer text-12px text-t-tertiary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
             >
               <Globe theme='outline' size='14' fill='currentColor' strokeWidth={3} />
-              <span>{t('foreignTrade.enter', { defaultValue: '进入平台' })}</span>
+              <span>{resolvedPlatformEnterLabel}</span>
             </div>
             <div
               role='button'

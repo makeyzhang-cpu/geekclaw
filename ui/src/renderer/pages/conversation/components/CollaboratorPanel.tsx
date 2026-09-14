@@ -43,6 +43,10 @@ import { uuid } from '@/common/utils';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { NomiModelSelection } from '@/renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
+import type { ICompanionProfile } from '@/common/adapter/ipcBridge';
+import CompanionGroupModal from '@renderer/pages/geekclaw/CompanionGroupModal';
+import { useCompanions } from '@renderer/pages/geekclaw/useNomi';
+import { composeCompanionGroupSystemPrompt } from '@renderer/pages/geekclaw/groupPersona';
 
 const { Text } = Typography;
 
@@ -289,9 +293,129 @@ const CollaboratorPanel: React.FC<{
 
   const isManual = config.mode === 'manual';
   const isOff = config.mode === 'off';
+  /** 当前协作者是否是一个「召唤出来的员工团队」（人格由多名员工合成）。 */
+  const isTeam = config.system_prompt !== DEFAULT_CO_AGENT_CONFIG.system_prompt;
 
-  // 关闭模式且无任何历史条目 → 完全不渲染，零视觉干扰。
-  if (isOff && entries.length === 0 && records.length === 0) return null;
+  // ── 召唤员工（多选，像团队一样一起工作讨论）──────────────────────────────
+  // 复用数字员工页的多选弹窗；选中的员工人设被合成进协作者人格（单一 LLM
+  // 分饰多角），因此这里不需要后端改动，也不需要给每个员工各建会话。
+  const [summonOpen, setSummonOpen] = useState(false);
+  const { companions, loading: companionsLoading } = useCompanions();
+
+  const summonTeam = useCallback(
+    (members: ICompanionProfile[], teamName: string) => {
+      const trimmed = teamName.trim();
+      void setStored({
+        ...config,
+        // 被召唤即视为显式协作意图：off 模式下自动放开为 manual。
+        mode: config.mode === 'off' ? 'manual' : config.mode,
+        name: trimmed || `${members.map((m) => m.name).join('、')} 团队`,
+        system_prompt: composeCompanionGroupSystemPrompt(members),
+      });
+      setSummonOpen(false);
+      Message.success(
+        t('conversation.collab.teamSummoned', {
+          defaultValue: '已召唤 {{count}} 位员工加入协作团队',
+          count: members.length,
+        })
+      );
+    },
+    [config, setStored, t]
+  );
+
+  const dismissTeam = useCallback(() => {
+    void setStored({
+      ...config,
+      name: DEFAULT_CO_AGENT_CONFIG.name,
+      system_prompt: DEFAULT_CO_AGENT_CONFIG.system_prompt,
+    });
+    Message.success(t('conversation.collab.teamDismissed', { defaultValue: '已解散协作团队' }));
+  }, [config, setStored, t]);
+
+  const summonModal = (
+    <CompanionGroupModal
+      visible={summonOpen}
+      companions={companions}
+      loading={companionsLoading}
+      title={t('conversation.collab.summonTitle', { defaultValue: '召唤员工加入协作' })}
+      okText={t('conversation.collab.summonOk', { defaultValue: '召唤' })}
+      hint={t('conversation.collab.summonHint', {
+        defaultValue: '选择 2 位及以上员工组成协作团队，他们会一起参与本会话的讨论。',
+      })}
+      onCancel={() => setSummonOpen(false)}
+      onConfirm={summonTeam}
+    />
+  );
+
+  const headerRow = (
+    <div className='flex items-center gap-8px min-w-0'>
+      <span className='text-12px font-medium text-t-primary shrink-0'>{config.name}</span>
+      {isTeam && (
+        <button
+          type='button'
+          onClick={dismissTeam}
+          className='text-12px text-t-tertiary hover:text-danger-6 cursor-pointer bg-transparent border-none shrink-0'
+          data-testid='collab-dismiss-team'
+        >
+          {t('conversation.collab.dismissTeam', { defaultValue: '解散' })}
+        </button>
+      )}
+      <NomiSelect
+        size='mini'
+        contentFit
+        contentMaxWidth={320}
+        className='min-w-0 max-w-240px'
+        placeholder={t('conversation.collab.followSession', { defaultValue: '跟随会话模型' })}
+        value={explicitModelValue || undefined}
+        onChange={(value: string) => onModelPick(value ?? '')}
+      >
+        <NomiSelect.Option key='follow-session' value=''>
+          {t('conversation.collab.followSession', { defaultValue: '跟随会话模型' })}
+        </NomiSelect.Option>
+        {modelOptions.map((option) => (
+          <NomiSelect.Option key={option.key} value={option.value}>
+            {option.label}
+          </NomiSelect.Option>
+        ))}
+      </NomiSelect>
+      <div className='flex-1' />
+      <button
+        type='button'
+        onClick={() => setSummonOpen(true)}
+        className='text-12px text-primary-6 hover:text-primary-5 cursor-pointer bg-transparent border-none shrink-0'
+        data-testid='collab-summon-button'
+      >
+        {t('conversation.collab.summonTeam', { defaultValue: '召唤员工' })}
+      </button>
+      <button
+        type='button'
+        onClick={() => setRecordsOpen(true)}
+        className='text-12px text-t-secondary hover:text-t-primary cursor-pointer bg-transparent border-none shrink-0'
+        data-testid='collab-records-button'
+      >
+        {t('conversation.collab.records', { defaultValue: '协作记录' })}
+        {records.length > 0 && <span className='op-60'>{` (${records.length})`}</span>}
+      </button>
+      <button
+        type='button'
+        onClick={() => setExpanded((v) => !v)}
+        className='text-12px text-t-secondary hover:text-t-primary cursor-pointer bg-transparent border-none shrink-0'
+      >
+        {expanded ? '收起' : `展开 (${entries.length})`}
+      </button>
+    </div>
+  );
+
+  // 关闭模式且无任何历史条目 → 只留「召唤员工」入口（召唤会自动放开为 manual），
+  // 其余零视觉干扰。
+  if (isOff && entries.length === 0 && records.length === 0) {
+    return (
+      <div className='flex flex-col gap-8px rounded-8px border border-fill-3 bg-fill-1 px-12px py-10px'>
+        {headerRow}
+        {summonModal}
+      </div>
+    );
+  }
   // 自动/关键词模式在尚未产生任何条目时也不渲染（首次回复到达后自动出现）。
   if (!isManual && entries.length === 0 && records.length === 0) return null;
 
@@ -313,44 +437,7 @@ const CollaboratorPanel: React.FC<{
         </div>
       )}
 
-      <div className='flex items-center gap-8px min-w-0'>
-        <span className='text-12px font-medium text-t-primary shrink-0'>{config.name}</span>
-        <NomiSelect
-          size='mini'
-          contentFit
-          contentMaxWidth={320}
-          className='min-w-0 max-w-240px'
-          placeholder={t('conversation.collab.followSession', { defaultValue: '跟随会话模型' })}
-          value={explicitModelValue || undefined}
-          onChange={(value: string) => onModelPick(value ?? '')}
-        >
-          <NomiSelect.Option key='follow-session' value=''>
-            {t('conversation.collab.followSession', { defaultValue: '跟随会话模型' })}
-          </NomiSelect.Option>
-          {modelOptions.map((option) => (
-            <NomiSelect.Option key={option.key} value={option.value}>
-              {option.label}
-            </NomiSelect.Option>
-          ))}
-        </NomiSelect>
-        <div className='flex-1' />
-        <button
-          type='button'
-          onClick={() => setRecordsOpen(true)}
-          className='text-12px text-t-secondary hover:text-t-primary cursor-pointer bg-transparent border-none shrink-0'
-          data-testid='collab-records-button'
-        >
-          {t('conversation.collab.records', { defaultValue: '协作记录' })}
-          {records.length > 0 && <span className='op-60'>{` (${records.length})`}</span>}
-        </button>
-        <button
-          type='button'
-          onClick={() => setExpanded((v) => !v)}
-          className='text-12px text-t-secondary hover:text-t-primary cursor-pointer bg-transparent border-none shrink-0'
-        >
-          {expanded ? '收起' : `展开 (${entries.length})`}
-        </button>
-      </div>
+      {headerRow}
 
       {expanded && (
         <div className='flex flex-col gap-12px'>
@@ -435,6 +522,8 @@ const CollaboratorPanel: React.FC<{
           )}
         </div>
       </Modal>
+
+      {summonModal}
     </div>
   );
 };

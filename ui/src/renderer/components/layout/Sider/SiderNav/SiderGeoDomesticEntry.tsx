@@ -20,7 +20,7 @@ interface SiderGeoDomesticEntryProps {
 }
 
 /**
- * SiderGeoDomesticEntry — 国内GEO AI营销（助理能力仓分组下的独立板块，
+ * SiderGeoDomesticEntry — 国内GEO AI营销（AI营销智能体分组下的独立板块，
  * 路由 /geo-domestic，应用内 webview 直开 geekgeo 平台）。
  */
 const SiderGeoDomesticEntry: React.FC<SiderGeoDomesticEntryProps> = ({
@@ -31,7 +31,7 @@ const SiderGeoDomesticEntry: React.FC<SiderGeoDomesticEntryProps> = ({
   onClick,
 }) => {
   const { t } = useTranslation();
-  const label = t('geoDomestic.title', { defaultValue: '国内GEO AI营销' });
+  const label = t('common.siderRail.geoDomestic', { defaultValue: '国内GEO AI营销' });
 
   if (collapsed) {
     return (
