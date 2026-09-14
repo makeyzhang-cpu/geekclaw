@@ -1,7 +1,7 @@
 {
   "name": "@geekclaw-tauri/ui",
   "private": true,
-  "version": "5.0.58",
+  "version": "5.0.59",
   "type": "module",
   "scripts": {
     "dev": "vite",

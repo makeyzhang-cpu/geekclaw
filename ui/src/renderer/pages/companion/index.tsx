@@ -1607,19 +1607,10 @@ const CompanionPage: React.FC = () => {
   const runMenuAction = useCallback(
     (action: CompanionMenuAction) => {
       if (action === 'open-chat') {
-        // 聊天已迁进「会话」：解析（幂等 ensure）该员工的唯一会话并在主窗口打开标准
-        // /conversation/:id（旧的 /geekclaw?tab=chat 已废除）。未配置对话模型时 ensureThread
-        // 返回 400 → 回退到管理中心总览引导配置。
-        void (async () => {
-          try {
-            const cid = await ensureThread();
-            await openMainAt(`/conversation/${cid}`);
-          } catch {
-            await openMainAt(
-              companionId ? `/geekclaw?companion=${encodeURIComponent(companionId)}&tab=overview` : '/geekclaw'
-            );
-          }
-        })();
+        // 硬边界：任何情况下都不跳 /conversation 功能栏。改为把主窗口带到「数字员工」工作台
+        // 并选中该员工 —— 会话由 CompanionDesk 就地内嵌渲染，首次发送时才 mint 会话，
+        // 不再为「打开聊天」而预先创建空会话（旧实现会 ensureThread 后跳 /conversation/:id）。
+        void openMainAt(companionId ? `/geekclaw?companion=${encodeURIComponent(companionId)}` : '/geekclaw');
         return;
       }
       if (action === 'open-memories') {
@@ -1637,7 +1628,7 @@ const CompanionPage: React.FC = () => {
       }
       void hideCompanion();
     },
-    [companionId, ensureThread, hideCompanion, openMainAt]
+    [companionId, hideCompanion, openMainAt]
   );
 
   const openNativeContextMenu = useCallback(async () => {

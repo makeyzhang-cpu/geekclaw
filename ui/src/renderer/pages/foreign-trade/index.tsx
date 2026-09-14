@@ -6,7 +6,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { Globe, Left, LinkOut } from '@icon-park/react';
 import { Message, Modal } from '@arco-design/web-react';
 import { openExternalUrl } from '@/renderer/utils/platform';
@@ -21,6 +20,8 @@ import {
 } from '@renderer/pages/expert-agents/expertEditors';
 import type { IdentityEditorState } from '@renderer/pages/expert-agents/expertEditors';
 import {
+  EXPERT_TEAM_ID,
+  composeMultiExpertSystemPrompt,
   isMarketingOpsIdentity,
   isMarketingOpsSkill,
   type ExpertIdentity,
@@ -28,12 +29,16 @@ import {
 } from '@renderer/pages/expert-agents/data';
 import type { TChatConversation } from '@/common/config/storage';
 import { assignPersonFigures } from '@renderer/pages/companion/characters/builtinFigures';
+import type { TeamHeroMember } from '@renderer/components/collaboration/TeamHero';
 import ExpertRoster from './ExpertRoster';
 import ExpertDesk from './ExpertDesk';
 import SkillLibrary from './SkillLibrary';
 
 /** GeekLink 专业外贸系统地址 */
 const FOREIGN_TRADE_URL = 'https://niushitv.com/v2/';
+
+/** 多专家协同的虚拟身份 id（不在名册里，只在选中期间存在）。 */
+const TEAM_ID = EXPERT_TEAM_ID;
 
 /**
  * ForeignTradePage — B2B外贸业务工作台。
@@ -43,10 +48,15 @@ const FOREIGN_TRADE_URL = 'https://niushitv.com/v2/';
  * in place — no route jump. The previous single entry card survives as a
  * standalone sider entry (below the skill library, visually separated) that
  * opens the GeekLink 专业外贸系统 in an in-app webview.
+ *
+ * 硬约束：本页所有会话行为（点专家、召唤专家组队、开技能对话、发消息）**全部页内完成**，
+ * 任何情况下都不跳 /conversation 功能栏。为此新增两类「虚拟身份」：
+ *   - `skill-<id>`：由单个技能合成的临时专家（技能库「开聊」）；
+ *   - `__team__`   ：多专家协同小组（召唤专家多选后合成）。
+ * 它们与真实专家共用同一个 ExpertDesk 会话栏，只是会话建立走多人 / 技能提示词。
  */
 const ForeignTradePage: React.FC = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const {
     identities,
     upsertIdentity,
@@ -62,7 +72,11 @@ const ForeignTradePage: React.FC = () => {
     createId: createSkillId,
     findSkill,
   } = useExpertSkills();
-  const { launch, launchMulti, launchToConversation } = useExpertConversationLauncher();
+  const {
+    launchToConversation,
+    ensurePreset,
+    ensureConversation: createConversation,
+  } = useExpertConversationLauncher();
 
   // 归属过滤（2026-09-13 板块重组）：营销运营类的身份/技能移入
   // 「B2B外贸运营工作台」（/marketing-ops），本工作台只保留外贸履约/金融/
@@ -94,6 +108,10 @@ const ForeignTradePage: React.FC = () => {
   /** 多专家协同选择弹窗（原「协同办公」能力，已内联到本工作台） */
   const [multiExpertOpen, setMultiExpertOpen] = useState(false);
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
+  /** 技能合成 / 多专家协同的临时身份（不在名册里，只在其被选中期间存在）。 */
+  const [virtualIdentity, setVirtualIdentity] = useState<ExpertIdentity | null>(null);
+  /** 多专家协同的成员 id（合成系统提示词时用）。 */
+  const [teamExpertIds, setTeamExpertIds] = useState<string[]>([]);
 
   // Land on the first expert so the desk is never a blank pane.
   useEffect(() => {
@@ -102,46 +120,91 @@ const ForeignTradePage: React.FC = () => {
     }
   }, [tradeIdentities, selectedId]);
 
-  const selected: ExpertIdentity | null = useMemo(
-    () => tradeIdentities.find((item) => item.id === selectedId) ?? null,
-    [tradeIdentities, selectedId]
-  );
+  const selected: ExpertIdentity | null = useMemo(() => {
+    const found = tradeIdentities.find((item) => item.id === selectedId) ?? null;
+    if (found) return found;
+    return virtualIdentity && virtualIdentity.id === selectedId ? virtualIdentity : null;
+  }, [tradeIdentities, selectedId, virtualIdentity]);
 
   const ensureConversation = useCallback(async (): Promise<TChatConversation | null> => {
     if (!selected) return null;
     const cached = sessions[selected.id];
     if (cached) return cached;
-    const skills = selected.skillIds
-      .map(findSkill)
-      .filter((s): s is ExpertSkill => Boolean(s));
-    const conversation = await launchToConversation(selected, skills, {
-      persistPresetId: (id) => {
-        if (id !== selected.presetId) upsertIdentity({ ...selected, presetId: id });
-      },
-    });
+
+    let conversation: TChatConversation | null = null;
+    if (selected.id === TEAM_ID) {
+      // 多专家协同：把各专家人格 + 关联技能合成一份系统提示词，用统一链路建会话。
+      const members = tradeIdentities.filter((item) => teamExpertIds.includes(item.id));
+      const allSkills: ExpertSkill[] = [];
+      for (const expert of members) {
+        for (const sid of expert.skillIds) {
+          const skill = findSkill(sid);
+          if (skill && !allSkills.includes(skill)) allSkills.push(skill);
+        }
+      }
+      const instructions = composeMultiExpertSystemPrompt(members, allSkills);
+      const presetId = await ensurePreset(selected.name, '多专家协同办公', instructions);
+      if (!presetId) return null;
+      conversation = await createConversation(selected.name, presetId);
+    } else {
+      const boundSkills = selected.skillIds
+        .map(findSkill)
+        .filter((s): s is ExpertSkill => Boolean(s));
+      const fromSkill = selected.id.startsWith('skill-');
+      conversation = await launchToConversation(selected, boundSkills, {
+        persistPresetId: (id) => {
+          if (id === selected.presetId) return;
+          if (fromSkill) {
+            // 技能合成的临时身份：preset 记回技能本身，绝不写一条假的专家记录。
+            const skill = findSkill(selected.skillIds[0]);
+            if (skill) upsertSkill({ ...skill, presetId: id });
+            return;
+          }
+          upsertIdentity({ ...selected, presetId: id });
+        },
+      });
+    }
     if (conversation) {
       setSessions((prev) => ({ ...prev, [selected.id]: conversation }));
     }
     return conversation;
-  }, [findSkill, launchToConversation, selected, sessions, upsertIdentity]);
-
-  const openConversationPage = useCallback(() => {
-    if (!selected) return;
-    const cached = sessions[selected.id];
-    if (cached) {
-      void navigate(`/conversation/${cached.id}`);
-      return;
-    }
-    void ensureConversation().then((conversation) => {
-      if (conversation) void navigate(`/conversation/${conversation.id}`);
-    });
-  }, [ensureConversation, navigate, selected, sessions]);
+  }, [
+    createConversation,
+    ensurePreset,
+    findSkill,
+    launchToConversation,
+    selected,
+    sessions,
+    teamExpertIds,
+    tradeIdentities,
+    upsertIdentity,
+    upsertSkill,
+  ]);
 
   const openPlatform = useCallback(() => setPlatformActive(true), []);
+
+  /** 在本页内切到某位专家（左栏名册与「一起工作」成员卡共用）。 */
+  const selectIdentity = useCallback((id: string) => {
+    setSelectedId(id);
+    setView('desk');
+  }, []);
 
   const identityCategories = useMemo(
     () => Array.from(new Set(tradeIdentities.map((item) => item.category))),
     [tradeIdentities]
+  );
+
+  /** 「一起工作」成员卡：本工作台的专家名册（含当前专家）。 */
+  const teamMembers = useMemo<TeamHeroMember[]>(
+    () =>
+      tradeIdentities.map((item) => ({
+        id: item.id,
+        name: item.name,
+        subtitle: item.category,
+        figureSrc: figureMap.get(item.id || item.name)?.src,
+        active: item.id === selectedId,
+      })),
+    [figureMap, selectedId, tradeIdentities]
   );
 
   // ── 专家身份 authoring ──
@@ -231,35 +294,45 @@ const ForeignTradePage: React.FC = () => {
     Message.success('技能库已导出');
   }, [exportSkills]);
 
-  /** Start a conversation from a single skill (wrapped in a synthetic identity). */
-  const handleLaunchSkill = useCallback(
-    (item: ExpertSkill) => {
-      const synthetic: ExpertIdentity = {
-        id: `skill-${item.id}`,
-        name: item.name,
-        category: item.category,
-        description: item.description,
-        icon: item.icon,
-        skillIds: [item.id],
-      };
-      launch(synthetic, [item], {
-        persistPresetId: (id) => {
-          if (id !== item.presetId) upsertSkill({ ...item, presetId: id });
-        },
-      });
-    },
-    [launch, upsertSkill]
-  );
+  /**
+   * 从单个技能开聊：合成一个临时专家身份并**切到工作台**（不跳会话页），
+   * 首条消息发出时才真正建会话（见 ensureConversation）。
+   */
+  const handleLaunchSkill = useCallback((item: ExpertSkill) => {
+    const synthetic: ExpertIdentity = {
+      id: `skill-${item.id}`,
+      name: item.name,
+      category: item.category,
+      description: item.description,
+      icon: item.icon,
+      skillIds: [item.id],
+      presetId: item.presetId,
+    };
+    setVirtualIdentity(synthetic);
+    setSelectedId(synthetic.id);
+    setView('desk');
+  }, []);
 
+  /** 召唤多位专家组成协同小组：合成临时团队身份并在本页内打开。 */
   const handleLaunchMulti = useCallback(() => {
     const experts = tradeIdentities.filter((item) => multiSelected.includes(item.id));
     if (experts.length === 0) {
       Message.error('请至少选择一位专家');
       return;
     }
-    launchMulti(experts, findSkill);
+    setTeamExpertIds(experts.map((item) => item.id));
+    setVirtualIdentity({
+      id: TEAM_ID,
+      name: t('foreignTrade.teamName', { defaultValue: '跨境外贸协同小组' }),
+      category: t('foreignTrade.teamCategory', { defaultValue: '多专家协同' }),
+      description: experts.map((item) => item.name).join('、'),
+      icon: 'Peoples',
+      skillIds: experts.flatMap((item) => item.skillIds),
+    });
+    setSelectedId(TEAM_ID);
+    setView('desk');
     setMultiExpertOpen(false);
-  }, [findSkill, identities, launchMulti, multiSelected]);
+  }, [multiSelected, t, tradeIdentities]);
 
   // ── GeekLink 平台内嵌视图（左栏独立入口的下游）──
   if (platformActive) {
@@ -300,10 +373,7 @@ const ForeignTradePage: React.FC = () => {
       <ExpertRoster
         identities={tradeIdentities}
         selectedId={selectedId}
-        onSelect={(identity) => {
-          setSelectedId(identity.id);
-          setView('desk');
-        }}
+        onSelect={(identity) => selectIdentity(identity.id)}
         onOpenPlatform={openPlatform}
         onOpenSkills={() => setView('skills')}
         onCreate={openIdentityCreate}
@@ -330,11 +400,15 @@ const ForeignTradePage: React.FC = () => {
               identity={selected}
               conversation={sessions[selected.id] ?? null}
               onEnsureConversation={ensureConversation}
-              onOpenConversationPage={openConversationPage}
               onOpenPlatform={openPlatform}
               onOpenSkills={() => setView('skills')}
               onSummonExpert={() => setMultiExpertOpen(true)}
               figureSrc={figureMap.get(selected.id || selected.name)?.src}
+              members={teamMembers}
+              onSelectMember={selectIdentity}
+              membersTitle={t('foreignTrade.membersTitle', {
+                defaultValue: '本工作台专家 · 点卡片即可切换',
+              })}
             />
           ) : (
             <div className='flex-1 flex flex-col items-center justify-center gap-12px px-24px text-center'>

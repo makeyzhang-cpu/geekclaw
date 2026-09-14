@@ -6,7 +6,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Message, Modal, Spin } from '@arco-design/web-react';
 import { AddOne, Left, Pic } from '@icon-park/react';
 import classNames from 'classnames';
@@ -63,7 +63,6 @@ const TAB_COMPONENTS: Record<WorkspaceTabKey, React.ComponentType<import('./work
  */
 const NomiWorkspacePage: React.FC = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -254,18 +253,6 @@ const NomiWorkspacePage: React.FC = () => {
     [refresh]
   );
 
-  const openChat = useCallback(async () => {
-    if (!selectedCompanionId) return;
-    try {
-      const thread = await ipcBridge.companion.ensureCompanionSession.invoke({ companion_id: selectedCompanionId });
-      void navigate(`/conversation/${thread.conversation_id}`);
-    } catch {
-      // A companion with no model configured cannot mint a session — keep the
-      // user here, where they can configure it.
-      Message.info(t('geekclaw.chat.modelMissing'));
-    }
-  }, [navigate, selectedCompanionId, t]);
-
   const reportAttention = useMemo(
     () =>
       Object.fromEntries(
@@ -407,7 +394,6 @@ const NomiWorkspacePage: React.FC = () => {
               activeTab={activeTab}
               onTabChange={setTab}
               attention={attentionFlags}
-              onOpenChat={() => void openChat()}
             />
           </div>
         </div>
@@ -428,7 +414,7 @@ const NomiWorkspacePage: React.FC = () => {
         companions={companions}
         companionsLoading={loading}
         onOpenSettings={setTab}
-        onOpenChat={() => void openChat()}
+        onSelectCompanion={selectCompanion}
       />
     )
   ) : (

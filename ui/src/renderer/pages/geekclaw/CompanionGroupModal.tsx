@@ -90,7 +90,7 @@ const CompanionGroupModal: React.FC<CompanionGroupModalProps> = ({
       okButtonProps={{ disabled: !canConfirm, loading: confirming }}
       onOk={handleConfirm}
       unmountOnExit
-      style={{ width: 520 }}
+      style={{ width: 580 }}
     >
       <div className='flex flex-col gap-12px pt-4px'>
         <Input
@@ -111,7 +111,8 @@ const CompanionGroupModal: React.FC<CompanionGroupModalProps> = ({
             {t('geekclaw.group.pickedCount', { defaultValue: '已选 {{count}} 位', count: selected.length })}
           </span>
         </div>
-        <div className='max-h-320px overflow-y-auto grid grid-cols-2 gap-8px pr-2px'>
+        {/* 成员卡：左姓名 / 职位，右立绘（与工作台「一起工作」会话栏同一套卡片语法） */}
+        <div className='max-h-360px overflow-y-auto grid grid-cols-2 gap-10px pr-2px'>
           {loading && (
             <div className='col-span-2 py-24px text-center text-12px text-t-tertiary'>
               {t('common.loading', { defaultValue: '加载中…' })}
@@ -138,36 +139,37 @@ const CompanionGroupModal: React.FC<CompanionGroupModalProps> = ({
                   }
                 }}
                 className={classNames(
-                  'flex items-center gap-8px h-52px rd-10px px-10px cursor-pointer box-border outline-none transition-colors border',
+                  'relative flex items-center gap-8px h-84px rd-14px px-13px box-border overflow-hidden cursor-pointer outline-none transition-all border',
                   active
-                    ? 'border-primary-6 bg-[rgba(var(--primary-6),0.08)] text-primary-6'
-                    : 'border-[var(--color-border-2)] bg-[var(--color-bg-2)] hover:bg-fill-2 text-t-primary'
+                    ? 'border-primary-6 bg-[rgba(var(--primary-6),0.06)] shadow-[0_6px_18px_rgba(0,0,0,0.08)]'
+                    : 'border-[var(--color-border-2)] bg-[var(--color-bg-2)] hover:border-primary-5 hover:shadow-[0_6px_18px_rgba(0,0,0,0.06)]'
                 )}
               >
-                <CompanionAvatar
-                  character={c.character}
-                  companionId={c.companion_id}
-                  customFigure={customFigureMetaOf(c)}
-                  mood={(c.status?.mood as CompanionMood) || 'content'}
-                  activity='idle'
-                  size={30}
-                />
                 <span className='flex flex-col min-w-0 flex-1'>
-                  <span className='text-13px font-500 leading-18px truncate'>{c.name}</span>
-                  {c.status && (
-                    <span className='text-11px leading-16px text-t-tertiary'>
-                      Lv{c.status.level}
-                    </span>
-                  )}
+                  <span className='text-14px leading-20px font-600 text-t-primary truncate'>
+                    {c.name}
+                  </span>
+                  <span className='text-11px leading-16px text-t-tertiary truncate'>
+                    {c.status
+                      ? `Lv${c.status.level}`
+                      : t('geekclaw.companions.createTitle', { defaultValue: '数字员工' })}
+                  </span>
                 </span>
-                <span
-                  className={classNames(
-                    'flex items-center justify-center size-18px rd-full shrink-0 border transition-colors',
-                    active ? 'bg-primary-6 border-primary-6 text-[var(--color-bg-1)]' : 'border-[var(--color-border-3)]'
-                  )}
-                >
-                  {active && <Check theme='outline' size='12' fill='currentColor' strokeWidth={4} />}
+                <span className='shrink-0 size-60px flex items-end justify-center overflow-hidden rd-14px bg-fill-1'>
+                  <CompanionAvatar
+                    character={c.character}
+                    companionId={c.companion_id}
+                    customFigure={customFigureMetaOf(c)}
+                    mood={(c.status?.mood as CompanionMood) || 'content'}
+                    activity='idle'
+                    size={60}
+                  />
                 </span>
+                {active && (
+                  <span className='absolute top-7px right-7px flex items-center justify-center size-18px rd-full bg-primary-6 text-[var(--color-bg-1)] ring-2 ring-[var(--color-bg-2)]'>
+                    <Check theme='outline' size='12' fill='currentColor' strokeWidth={4} />
+                  </span>
+                )}
               </div>
             );
           })}

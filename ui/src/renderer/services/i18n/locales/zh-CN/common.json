@@ -133,6 +133,16 @@
     "enter": "进入平台",
     "back": "返回"
   },
+  "teamHero": {
+    "workTogetherWith": "与 {{name}} 一起工作",
+    "placeholder": "输入您的问题…",
+    "polish": "优化提示词",
+    "polishUndo": "还原",
+    "polishLead": "请针对以下任务给出专业、可执行的答复：",
+    "polishTail": "输出要求：结论先行；必要时分点说明，并给出可直接落地的示例。",
+    "send": "发送",
+    "more": "更多"
+  },
   "marketingOps": {
     "back": "返回",
     "platformGroup": "专业营销系统",
@@ -142,7 +152,10 @@
     "rosterLabel": "营销运营专家名册",
     "searchExpert": "搜索营销运营专家",
     "emptyTitle": "还没有营销运营专家",
-    "emptyHint": "点击左栏「新建专家身份」创建专家，即可在这里与专家对话。"
+    "emptyHint": "点击左栏「新建专家身份」创建专家，即可在这里与专家对话。",
+    "membersTitle": "本工作台专家 · 点卡片即可切换",
+    "teamName": "营销运营协同小组",
+    "teamCategory": "多专家协同"
   },
   "foreignTrade": {
     "title": "AI外贸工作台",
@@ -162,7 +175,10 @@
     "editExpert": "编辑专家",
     "deleteExpert": "删除专家",
     "emptyTitle": "还没有外贸专家",
-    "emptyHint": "点击左栏「新建专家身份」创建专家，即可在这里与专家对话。"
+    "emptyHint": "点击左栏「新建专家身份」创建专家，即可在这里与专家对话。",
+    "membersTitle": "本工作台专家 · 点卡片即可切换",
+    "teamName": "跨境外贸协同小组",
+    "teamCategory": "多专家协同"
   },
   "a2aEcommerce": {
     "siderLabel": "A2A跨境电商",

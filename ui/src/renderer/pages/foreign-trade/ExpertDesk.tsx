@@ -4,11 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Message } from '@arco-design/web-react';
-import { ArrowUp, BookOne, Brain, Globe, Robot } from '@icon-park/react';
-import classNames from 'classnames';
+import { Message } from '@arco-design/web-react';
+import { Globe } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import { uuidv7 } from '@/common/utils';
 import type { TChatConversation } from '@/common/config/storage';
@@ -17,6 +16,8 @@ import { useNomiModelSelection } from '@renderer/pages/conversation/platforms/ge
 import { PreviewProvider } from '@renderer/pages/conversation/Preview';
 import PersonAvatar from '@renderer/pages/expert-agents/PersonAvatar';
 import type { ExpertIdentity } from '@renderer/pages/expert-agents/data';
+import TeamHero from '@renderer/components/collaboration/TeamHero';
+import type { TeamHeroMember } from '@renderer/components/collaboration/TeamHero';
 import { emitter } from '@renderer/utils/emitter';
 import { browserStorageKey } from '@/common/utils/browserStorageKey';
 
@@ -31,45 +32,54 @@ interface ExpertDeskProps {
   conversation: TChatConversation | null;
   /** Create the expert's conversation (preset + conversation.create). */
   onEnsureConversation: () => Promise<TChatConversation | null>;
-  /** Reveal the conversation in the full conversation page. */
-  onOpenConversationPage: () => void;
   /** Open the external platform (standalone entry in the roster). */
   onOpenPlatform: () => void;
   /** Label of the external-platform entry (defaults to GeekLink 专业外贸系统). */
   platformLabel?: string;
-  /** Label of the「进入……」button under the composer. Defaults to
+  /** Label of the「进入……」link under the composer. Defaults to
    *  「进入GeekLink外贸系统」; the B2B外贸运营工作台 passes its own. */
   platformEnterLabel?: string;
   /** Open the in-place skill library view. */
   onOpenSkills: () => void;
-  /** Pick several experts and start a collaborative conversation. */
+  /** Pick several experts and start a collaborative conversation (in place). */
   onSummonExpert: () => void;
   /**
    * 名册级已分配的人物形象（与左栏同一张脸）；缺省按 seed 现算。
    */
   figureSrc?: string;
+  /** 「一起工作」成员卡：该工作台的专家名册（含当前专家）。 */
+  members: TeamHeroMember[];
+  /** 点成员卡 —— 调用方在**本页内**切到该专家（不得跳转会话页）。 */
+  onSelectMember: (id: string) => void;
+  /** 成员卡区的小标题（如「本工作台专家」）。 */
+  membersTitle?: string;
 }
 
 /**
- * 外贸专家工作台 — mirrors CompanionDesk: a real embedded chat surface
+ * 专家工作台 — mirrors CompanionDesk: a real embedded chat surface
  * (NomiChat) rather than a route jump, with the expert's preset-backed session.
  *
  * The session is minted lazily on the first send — experts have no permanent
  * session row like companions do, and `conversation.create` is not idempotent,
  * so minting on select would spam the conversation list for a user who is only
  * browsing the roster.
+ *
+ * 会话栏（TeamHero）：标题 + 头像组 + 大输入框 + 横排专家卡片，全部**页内**行为 ——
+ * 点卡片换专家、召唤专家组队、开技能库、发消息，任何情况下都不跳 /conversation。
  */
 const ExpertDesk: React.FC<ExpertDeskProps> = ({
   identity,
   conversation,
   onEnsureConversation,
-  onOpenConversationPage,
   onOpenPlatform,
   platformLabel,
   platformEnterLabel,
   onOpenSkills,
   onSummonExpert,
   figureSrc,
+  members,
+  onSelectMember,
+  membersTitle,
 }) => {
   const { t } = useTranslation();
   const resolvedPlatformLabel =
@@ -133,17 +143,33 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
     }
   }, [input, nomi, onEnsureConversation, sending, t]);
 
-  const quickPills = [
-    { key: 'auto-work', label: t('geekclaw.desk.autoWork', { defaultValue: '自动工作' }), icon: <Robot theme='outline' size='14' fill='currentColor' strokeWidth={3} /> },
-    { key: 'idmm', label: t('geekclaw.desk.idmm', { defaultValue: '智能决策' }), icon: <Brain theme='outline' size='14' fill='currentColor' strokeWidth={3} /> },
-    { key: 'knowledge', label: t('geekclaw.desk.knowledge', { defaultValue: '知识库' }), icon: <BookOne theme='outline' size='14' fill='currentColor' strokeWidth={3} /> },
-  ];
+  /** 会话栏快捷入口 —— 两个都是页内行为（多专家弹窗 / 页内技能库）。 */
+  const entryChips = useMemo(
+    () => [
+      {
+        key: 'summon',
+        label: t('foreignTrade.summonExpert', { defaultValue: '召唤专家' }),
+        active: false,
+        onClick: onSummonExpert,
+      },
+      {
+        key: 'skills',
+        label: t('foreignTrade.expertSkills', { defaultValue: '专家技能' }),
+        active: false,
+        onClick: onOpenSkills,
+      },
+    ],
+    [onOpenSkills, onSummonExpert, t]
+  );
 
-  const entryChips = [
-    { key: 'collaborate', label: t('geekclaw.desk.collaborate', { defaultValue: '协作' }), active: true, onClick: onOpenConversationPage },
-    { key: 'summon', label: t('foreignTrade.summonExpert', { defaultValue: '召唤专家' }), active: false, onClick: onSummonExpert },
-    { key: 'skills', label: t('foreignTrade.expertSkills', { defaultValue: '专家技能' }), active: false, onClick: onOpenSkills },
-  ];
+  /** 标题右侧叠放的小圆头像（名册前 7 位）。 */
+  const headAvatars = useMemo(
+    () =>
+      members.slice(0, 7).map((member) => (
+        <PersonAvatar key={member.id} seed={member.id} size={26} src={member.figureSrc} title={member.name} />
+      )),
+    [members]
+  );
 
   const identityBar = (
     <div className='shrink-0 flex items-center gap-10px min-w-0 px-24px pt-20px pb-8px'>
@@ -152,39 +178,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
         <div className='text-18px leading-24px font-600 text-t-primary truncate'>{identity.name}</div>
         <div className='text-12px leading-18px text-t-tertiary truncate'>{identity.category}</div>
       </div>
-      {nomi && (
-        <Button size='small' shape='round' className='shrink-0 ml-6px' onClick={onOpenConversationPage}>
-          {t('geekclaw.desk.openInConversation', { defaultValue: '在会话中打开' })}
-        </Button>
-      )}
       <div className='flex-1' />
-      <div className='shrink-0 hidden md:flex items-center gap-8px'>
-        {quickPills.map((pill) => (
-          <div
-            key={pill.key}
-            role='button'
-            tabIndex={0}
-            onClick={onOpenConversationPage}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onOpenConversationPage();
-              }
-            }}
-            className='flex items-center gap-5px h-30px rd-full px-12px cursor-pointer text-12px text-t-secondary bg-fill-2 hover:bg-fill-3 hover:text-t-primary transition-colors outline-none'
-          >
-            {pill.icon}
-            <span className='truncate'>{pill.label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const heroPill = (
-    <div className='flex items-center gap-6px h-34px rd-full pl-8px pr-14px bg-[var(--color-bg-2)] border border-[var(--color-border-2)] shadow-[0_4px_14px_rgba(0,0,0,0.06)]'>
-      <PersonAvatar seed={identity.id || identity.name} size={24} src={figureSrc} title={identity.name} />
-      <span className='text-13px font-600 text-t-primary'>{identity.name}</span>
     </div>
   );
 
@@ -198,20 +192,23 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
         {identityBar}
         <PreviewProvider key={previewScope} persistNamespace={previewScope} subscribeGlobalOpen>
           <NomiChat
-          conversation_id={nomi.id}
-          workspace={workspace}
-          modelSelection={modelSelection}
-          session_mode='yolo'
-          hideModeSelector
-          agent_name={identity.name}
-          emptySlot={
-            <div className='flex flex-col items-center gap-12px py-40px px-24px text-center'>
-              <p className='m-0 text-20px font-600 leading-tight text-t-primary'>
-                {t('conversation.welcome.title')}
-              </p>
-              {heroPill}
-            </div>
-          }
+            conversation_id={nomi.id}
+            workspace={workspace}
+            modelSelection={modelSelection}
+            session_mode='yolo'
+            hideModeSelector
+            agent_name={identity.name}
+            emptySlot={
+              <div className='flex flex-col items-center gap-12px py-40px px-24px text-center'>
+                <p className='m-0 text-20px font-600 leading-tight text-t-primary'>
+                  {t('conversation.welcome.title')}
+                </p>
+                <div className='flex items-center gap-6px h-30px rd-full pl-8px pr-14px bg-[var(--color-bg-2)] border border-[var(--color-border-2)]'>
+                  <PersonAvatar seed={identity.id || identity.name} size={22} src={figureSrc} title={identity.name} />
+                  <span className='text-12px font-600 text-t-primary'>{identity.name}</span>
+                </div>
+              </div>
+            }
           />
         </PreviewProvider>
       </div>
@@ -219,59 +216,24 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
   }
 
   return (
-    <div className='flex-1 min-h-0 flex flex-col overflow-y-auto'>
+    <div className='flex-1 min-h-0 flex flex-col overflow-hidden'>
       {identityBar}
 
-      <div className='flex-1 flex flex-col items-center justify-center gap-18px px-24px py-32px'>
-        <p className='m-0 text-22px font-600 leading-tight text-t-primary text-center'>
-          {t('conversation.welcome.title')}
-        </p>
-
-        {heroPill}
-
-        <p className='m-0 max-w-520px text-13px leading-20px text-t-tertiary text-center'>
-          {identity.description}
-        </p>
-
-        <div className='w-full max-w-720px rd-16px bg-[var(--color-bg-2)] border border-[var(--color-border-2)] shadow-[0_10px_30px_rgba(0,0,0,0.07)] box-border'>
-          <div className='flex items-center gap-8px px-14px pt-12px'>
-            {entryChips.map((chip) => (
-              <div
-                key={chip.key}
-                role='button'
-                tabIndex={0}
-                onClick={chip.onClick}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    chip.onClick();
-                  }
-                }}
-                className={classNames(
-                  'flex items-center gap-4px h-26px rd-full px-10px cursor-pointer text-12px transition-colors outline-none',
-                  chip.active
-                    ? 'font-600 text-primary-6 bg-[rgba(var(--primary-6),0.10)]'
-                    : 'text-t-secondary hover:bg-fill-2 hover:text-t-primary'
-                )}
-              >
-                {chip.label}
-              </div>
-            ))}
-          </div>
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                void handleSend();
-              }
-            }}
-            placeholder={`${identity.name}，${t('conversation.welcome.placeholder')}`}
-            className='w-full box-border min-h-64px max-h-160px resize-none bg-transparent border-0 outline-none px-14px pt-10px pb-4px text-13px leading-20px text-t-primary placeholder:text-[var(--color-text-3)]'
-            rows={2}
-          />
-          <div className='flex items-center justify-between px-12px pb-12px'>
+      <TeamHero
+        title={identity.name}
+        headAvatars={headAvatars}
+        members={members}
+        onSelectMember={onSelectMember}
+        membersTitle={membersTitle}
+        chips={entryChips}
+        input={input}
+        onInputChange={setInput}
+        onSend={() => void handleSend()}
+        sending={sending}
+        placeholder={t('common.teamHero.placeholder', { defaultValue: '输入您的问题…' })}
+        footer={
+          <div className='flex flex-col gap-6px'>
+            <p className='m-0 text-13px leading-20px text-t-tertiary'>{identity.description}</p>
             <div
               role='button'
               tabIndex={0}
@@ -283,32 +245,14 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
                   onOpenPlatform();
                 }
               }}
-              className='flex items-center gap-4px h-28px rd-8px px-8px cursor-pointer text-12px text-t-tertiary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
+              className='flex items-center gap-5px h-28px rd-8px px-8px -ml-8px w-fit cursor-pointer text-12px text-t-tertiary hover:text-t-primary hover:bg-fill-2 transition-colors outline-none'
             >
               <Globe theme='outline' size='14' fill='currentColor' strokeWidth={3} />
               <span>{resolvedPlatformEnterLabel}</span>
             </div>
-            <div
-              role='button'
-              tabIndex={0}
-              aria-label={t('geekclaw.openChat')}
-              onClick={() => void handleSend()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  void handleSend();
-                }
-              }}
-              className={classNames(
-                'flex items-center justify-center size-30px rd-full cursor-pointer text-[var(--color-bg-1)] bg-primary-6 hover:bg-primary-5 transition-colors outline-none',
-                (sending || !input.trim()) && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              <ArrowUp theme='outline' size='15' fill='currentColor' strokeWidth={4} />
-            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 };

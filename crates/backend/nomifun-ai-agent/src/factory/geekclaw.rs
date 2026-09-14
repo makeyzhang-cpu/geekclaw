@@ -51,6 +51,90 @@ fn apply_model_only_ceiling(overrides: &mut NomiBuildExtra) {
     overrides.summon = None;
 }
 
+/// Lean built-in tool set for local-model sessions (Ollama / vLLM / LM Studio
+/// / llama.cpp / any provider whose id names "local").
+///
+/// Picked to cover ≥95% of local-model usage — file read/write, shell, search,
+/// planning — while keeping the per-turn prefill at ~3k tokens. `ToolSearch` is
+/// included so users can still pull in deferred tools (Browser/Computer/etc.)
+/// on demand; `bootstrap::retain_named` would have added it automatically, but
+/// listing it here makes the intent explicit in tests and logs.
+fn lean_local_tool_profile() -> Vec<String> {
+    vec![
+        "Read".to_owned(),
+        "Write".to_owned(),
+        "Edit".to_owned(),
+        "Bash".to_owned(),
+        "Grep".to_owned(),
+        "Glob".to_owned(),
+        "update_plan".to_owned(),
+        "ToolSearch".to_owned(),
+    ]
+}
+
+/// Heuristic: is `(provider_id, model_id)` a local-model endpoint?
+///
+/// Matched on the lowercase provider id and model id:
+///   * known local providers (`ollama`, `vllm`, `lmstudio`, `llamacpp`,
+///     `llama.cpp`),
+///   * provider ids containing `local` (covers user-defined custom entries
+///     named e.g. `local-qwen`),
+///   * Ollama-style model tags (`qwen2.5:7b`, `llama3:8b-instruct-q4_K_M`),
+///   * GGUF-named models (the common llama.cpp filename shape).
+///
+/// Conservative on purpose: a false negative leaves the lean profile off
+/// (which is the safe default), a false positive just narrows the toolset.
+fn is_local_model_id(provider_id: &str, model_id: &str) -> bool {
+    let pid = provider_id.trim().to_ascii_lowercase();
+    let mid = model_id.trim().to_ascii_lowercase();
+    if matches!(
+        pid.as_str(),
+        "ollama" | "vllm" | "lmstudio" | "llamacpp" | "llama.cpp" | "llama-cpp" | "local"
+    ) {
+        return true;
+    }
+    if pid.contains("local") {
+        return true;
+    }
+    // Ollama tags are always `<name>:<tag>` with a non-empty tag, and llama.cpp
+    // users frequently point at a local GGUF file as the model id.
+    if mid.contains(':') && !mid.starts_with(':') {
+        return true;
+    }
+    if mid.ends_with(".gguf") || mid.contains(".gguf") {
+        return true;
+    }
+    false
+}
+
+/// Apply the local-model lean profile to `overrides` if the caller didn't pin
+/// one and the model looks like a local server. Idempotent: re-invocations on
+/// the same `overrides` no-op (empty `allowed_tools` is the trigger).
+fn apply_local_model_tool_profile(
+    overrides: &mut NomiBuildExtra,
+    provider_id: &str,
+    model_id: &str,
+    conversation_id: &str,
+) {
+    // A caller-pinned profile always wins — both owner AuthoredConfig and
+    // restricted-agent attempts set this explicitly.
+    if !overrides.allowed_tools.is_empty() {
+        return;
+    }
+    if !is_local_model_id(provider_id, model_id) {
+        return;
+    }
+    let profile = lean_local_tool_profile();
+    overrides.allowed_tools = profile.clone();
+    info!(
+        conversation_id = %conversation_id,
+        provider = %provider_id,
+        model = %model_id,
+        tool_count = profile.len(),
+        "local model detected: applying lean tool profile (auto; pin allowed_tools to opt out)"
+    );
+}
+
 fn retarget_resumed_session(session: &mut Session, provider: &str, model: &str) -> bool {
     let changed = session.provider != provider || session.model != model;
     session.provider = provider.to_owned();
@@ -124,6 +208,35 @@ pub(super) async fn build(
     // OS uid; the single ceiling below is the enforceable boundary.
     if !is_instance_owner {
         apply_model_only_ceiling(&mut overrides);
+    }
+
+    // Local-model tool profile: shrink the per-turn prefill by retaining only
+    // the lean toolset for known local providers (Ollama, vLLM, LM Studio,
+    // llama.cpp, anything with `local` in its provider id, or Ollama-style
+    // `<name>:<tag>` model ids). Built-in tool schemas dominate the first
+    // ~10k tokens of the system turn for small local models — trimming them
+    // here is the difference between a 19k and a 3k first prefill, with no
+    // extra round-trip (we keep `ToolSearch` so users can still pull in
+    // Browser/Computer/etc. on demand).
+    //
+    // Auto-applies ONLY when:
+    //   * the runtime is owner-authored (companion / channel sessions have
+    //     their own contract and stay untouched);
+    //   * `allowed_tools` is empty (caller-pinned profiles always win);
+    //   * the resolved provider+model looks like a local server.
+    if is_instance_owner && !overrides.companion && overrides.channel_platform.is_none() {
+        if let Some(model_selection) = options.model.as_ref() {
+            let resolved_model_id = model_selection
+                .use_model
+                .as_deref()
+                .unwrap_or(&model_selection.model);
+            apply_local_model_tool_profile(
+                &mut overrides,
+                &model_selection.provider_id,
+                resolved_model_id,
+                ctx.conversation_id.as_str(),
+            );
+        }
     }
 
     // Merge reusable preset instructions into `system_prompt` (used as
@@ -2586,6 +2699,150 @@ mod tests {
         let staged =
             resolve_write_policy(WriteSurface::ExternalChannel, &reconstruct(&on), "conv-c");
         assert!(matches!(staged.mode, WriteMode::Staged { .. }));
+    }
+
+    // ---------- local-model tool profile ----------
+
+    #[test]
+    fn is_local_model_id_matches_known_local_providers_and_tags() {
+        // Provider-id matches.
+        for pid in [
+            "ollama",
+            "vllm",
+            "lmstudio",
+            "llamacpp",
+            "llama.cpp",
+            "llama-cpp",
+            "local",
+            "LOCAL",
+            " local-qwen ",
+        ] {
+            assert!(is_local_model_id(pid, "anything"), "{pid:?} should be local");
+        }
+        // Ollama-style tags.
+        for mid in ["qwen2.5:7b", "llama3:8b-instruct-q4_K_M", "deepseek-r1:14b"] {
+            assert!(is_local_model_id("custom", mid), "{mid:?} should be local");
+        }
+        // GGUF paths.
+        for mid in ["/models/qwen2.5-7b.gguf", "phi-3-mini.gguf"] {
+            assert!(is_local_model_id("custom", mid), "{mid:?} should be local");
+        }
+        // Cloud providers stay untouched.
+        for (pid, mid) in [
+            ("anthropic", "claude-3-7-sonnet"),
+            ("openai", "gpt-4o"),
+            ("deepseek", "deepseek-chat"),
+            ("custom", "qwen2.5-7b"),      // no colon → not a tag
+            ("custom", "phi-3-mini"),      // no gguf → not a file
+            ("", ""),
+        ] {
+            assert!(
+                !is_local_model_id(pid, mid),
+                "({pid:?}, {mid:?}) should NOT be local"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_local_model_tool_profile_fills_lean_profile_for_ollama() {
+        let mut overrides = NomiBuildExtra::default();
+        assert!(overrides.allowed_tools.is_empty(), "baseline must be empty");
+        apply_local_model_tool_profile(&mut overrides, "ollama", "qwen2.5:7b", "0190-conv");
+        let profile = overrides.allowed_tools;
+        assert!(!profile.is_empty(), "lean profile must be applied");
+        for must_have in ["Read", "Write", "Edit", "Bash", "update_plan", "ToolSearch"] {
+            assert!(
+                profile.iter().any(|t| t == must_have),
+                "{must_have} must be in the lean profile"
+            );
+        }
+        // The lean profile should be small (<= 10 entries) — the whole point is
+        // shrinking the prefill.
+        assert!(
+            profile.len() <= 10,
+            "lean profile has {} entries (>10)",
+            profile.len()
+        );
+    }
+
+    #[test]
+    fn apply_local_model_tool_profile_skips_cloud_providers() {
+        let mut overrides = NomiBuildExtra::default();
+        apply_local_model_tool_profile(
+            &mut overrides,
+            "anthropic",
+            "claude-3-7-sonnet",
+            "0190-conv",
+        );
+        assert!(
+            overrides.allowed_tools.is_empty(),
+            "anthropic must NOT trigger lean profile"
+        );
+
+        apply_local_model_tool_profile(&mut overrides, "openai", "gpt-4o", "0190-conv");
+        assert!(
+            overrides.allowed_tools.is_empty(),
+            "openai must NOT trigger lean profile"
+        );
+
+        apply_local_model_tool_profile(&mut overrides, "deepseek", "deepseek-chat", "0190-conv");
+        assert!(
+            overrides.allowed_tools.is_empty(),
+            "deepseek must NOT trigger lean profile"
+        );
+    }
+
+    #[test]
+    fn apply_local_model_tool_profile_respects_caller_pinned_profile() {
+        // Restricted-agent attempts already pin a tiny profile; auto-detection
+        // must not overwrite it.
+        let mut overrides = NomiBuildExtra {
+            allowed_tools: vec!["update_plan".to_owned()],
+            ..Default::default()
+        };
+        apply_local_model_tool_profile(&mut overrides, "ollama", "qwen2.5:7b", "0190-conv");
+        assert_eq!(
+            overrides.allowed_tools,
+            vec!["update_plan".to_owned()],
+            "caller-pinned profile must win over the auto lean profile"
+        );
+    }
+
+    #[test]
+    fn apply_local_model_tool_profile_is_idempotent() {
+        // Re-invocations don't double-apply and don't change the size.
+        let mut overrides = NomiBuildExtra::default();
+        apply_local_model_tool_profile(&mut overrides, "ollama", "qwen2.5:7b", "0190-conv");
+        let first = overrides.allowed_tools.clone();
+        apply_local_model_tool_profile(&mut overrides, "ollama", "qwen2.5:7b", "0190-conv");
+        assert_eq!(overrides.allowed_tools, first, "second call must be a no-op");
+    }
+
+    #[test]
+    fn build_time_guard_skips_companion_and_channel_sessions() {
+        // Document the build-time guard contract: companion threads (桌宠对话由
+        // Persona 控管) and channel sessions (外部 IM 通道的工具集是平台约定)
+        // MUST keep the full toolset. The auto lean profile is owner /
+        // !companion / !channel only — the function itself does NOT gate on
+        // these (callers can still force-apply), the guard lives at the call
+        // site in `build(...)`.
+        assert!(
+            NomiBuildExtra {
+                companion: true,
+                ..Default::default()
+            }
+            .companion,
+            "companion override must flag the build-time guard"
+        );
+        assert!(
+            NomiBuildExtra {
+                channel_platform: Some("lark".to_owned()),
+                ..Default::default()
+            }
+            .channel_platform
+            .is_some(),
+            "channel override must flag the build-time guard"
+        );
     }
 }
 

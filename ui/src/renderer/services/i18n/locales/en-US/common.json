@@ -133,6 +133,16 @@
     "enter": "Enter platform",
     "back": "Back"
   },
+  "teamHero": {
+    "workTogetherWith": "Work together with {{name}}",
+    "placeholder": "Ask anything…",
+    "polish": "Optimize prompt",
+    "polishUndo": "Undo",
+    "polishLead": "Give a professional, actionable response to the following task:",
+    "polishTail": "Output: lead with the conclusion; use bullet points and give directly actionable examples where helpful.",
+    "send": "Send",
+    "more": "More"
+  },
   "marketingOps": {
     "back": "Back",
     "emptyHint": "Click New Expert Identity on the left to create one, then chat with it here.",
@@ -142,7 +152,10 @@
     "platformGroup": "Professional Marketing System",
     "platformTitle": "International GEO AI Marketing",
     "rosterLabel": "Marketing & Operations Expert Roster",
-    "searchExpert": "Search marketing & operations experts"
+    "searchExpert": "Search marketing & operations experts",
+    "membersTitle": "Experts in this workspace · click a card to switch",
+    "teamName": "Marketing Ops Collaboration Team",
+    "teamCategory": "Multi-expert collaboration"
   },
   "unit": {
     "hour_short": "h",
@@ -173,7 +186,10 @@
     "searchExpert": "Search trade experts",
     "skillLibrary": "Expert Skill Library",
     "subtitle": "An all-in-one B2B AI workspace combining AI trade expert teams, lead-gen agents, personalized AI email and WhatsApp outreach, AI CRM, a company brain and digital asset management.",
-    "title": "AI Trade Workspace"
+    "title": "AI Trade Workspace",
+    "membersTitle": "Experts in this workspace · click a card to switch",
+    "teamName": "Cross-border Trade Collaboration Team",
+    "teamCategory": "Multi-expert collaboration"
   },
   "a2aEcommerce": {
     "back": "Back",

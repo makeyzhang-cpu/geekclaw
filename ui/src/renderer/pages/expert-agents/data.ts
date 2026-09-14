@@ -571,3 +571,9 @@ export const isMarketingOpsIdentity = (item: ExpertIdentity): boolean =>
 /** 该专家技能是否属于「B2B外贸运营工作台」。 */
 export const isMarketingOpsSkill = (item: ExpertSkill): boolean =>
   MARKETING_OPS_SKILL_CATEGORIES.includes(item.category);
+
+// ── 多专家协同的虚拟身份（2026-09-14 会话栏改造）──────────────────────────────
+// 「召唤专家」多选后不再跳 /conversation，而是在工作台内就地开一个协同会话。
+// 它用一个**不在名册里**的虚拟身份承载，两个 B2B 工作台共用同一个 id，
+// 这样 ExpertDesk / 会话缓存 / 成员卡高亮的判断完全一致。
+export const EXPERT_TEAM_ID = '__team__';

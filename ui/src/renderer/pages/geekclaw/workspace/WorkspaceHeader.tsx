@@ -21,7 +21,12 @@ interface Props {
   onTabChange: (key: WorkspaceTabKey) => void;
   /** Tabs currently reporting something awaiting the user. */
   attention: Partial<Record<WorkspaceTabKey, boolean>>;
-  onOpenChat: () => void;
+  /**
+   * @deprecated 保留形参以兼容既有调用，但**不再传**：打开会话已不再跳转
+   * /conversation —— 数字员工页的所有会话行为都在页内完成（见 CompanionDesk）。
+   * 传入时才会渲染那个按钮，当前没有任何调用方传。
+   */
+  onOpenChat?: () => void;
 }
 
 const TAB_LABEL_KEYS: Record<WorkspaceTabKey, { key: string; zh: string }> = {
@@ -73,11 +78,13 @@ const WorkspaceHeader: React.FC<Props> = ({ companion, activeTab, onTabChange, a
             </div>
           )}
         </div>
-        {/* Chat lives in /conversation — this is the one path from管理 into it,
-            so it stays a visible primary action rather than hiding in a menu. */}
-        <Button type='primary' shape='round' size='small' className='shrink-0' onClick={onOpenChat}>
-          {t('geekclaw.openChat')}
-        </Button>
+        {/* 打开会话不再从这里跳 /conversation：会话行为全部落在页内，
+            这个按钮只在调用方显式传入 onOpenChat 时才渲染（当前无人传）。 */}
+        {onOpenChat && (
+          <Button type='primary' shape='round' size='small' className='shrink-0' onClick={onOpenChat}>
+            {t('geekclaw.openChat')}
+          </Button>
+        )}
       </div>
       <SegmentedTabs
         items={items}

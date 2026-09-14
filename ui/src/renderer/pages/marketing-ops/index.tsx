@@ -6,7 +6,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { Globe, Left, LinkOut } from '@icon-park/react';
 import { Message, Modal } from '@arco-design/web-react';
 import { openExternalUrl } from '@/renderer/utils/platform';
@@ -15,6 +14,8 @@ import { useExpertIdentities } from '@renderer/pages/expert-agents/useExpertIden
 import { useExpertSkills } from '@renderer/pages/expert-agents/useExpertSkills';
 import { useExpertConversationLauncher } from '@renderer/pages/expert-agents/useExpertConversationLauncher';
 import {
+  EXPERT_TEAM_ID,
+  composeMultiExpertSystemPrompt,
   isMarketingOpsIdentity,
   isMarketingOpsSkill,
 } from '@renderer/pages/expert-agents/data';
@@ -27,12 +28,16 @@ import type { IdentityEditorState } from '@renderer/pages/expert-agents/expertEd
 import type { ExpertIdentity, ExpertSkill } from '@renderer/pages/expert-agents/data';
 import { assignPersonFigures } from '@renderer/pages/companion/characters/builtinFigures';
 import type { TChatConversation } from '@/common/config/storage';
+import type { TeamHeroMember } from '@renderer/components/collaboration/TeamHero';
 import ExpertRoster from '@renderer/pages/foreign-trade/ExpertRoster';
 import ExpertDesk from '@renderer/pages/foreign-trade/ExpertDesk';
 import SkillLibrary from '@renderer/pages/foreign-trade/SkillLibrary';
 
 /** 国际 GEO AI 营销平台地址（原 AI品牌营销 hub 的出海卡片） */
 const INTERNATIONAL_GEO_URL = 'https://orbitai.jkyunge.com/';
+
+/** 多专家协同的虚拟身份 id（与 B2B外贸业务工作台共用同一个）。 */
+const TEAM_ID = EXPERT_TEAM_ID;
 
 /**
  * MarketingOpsPage — B2B外贸运营工作台（原「AI品牌营销」hub 改造）。
@@ -41,10 +46,12 @@ const INTERNATIONAL_GEO_URL = 'https://orbitai.jkyunge.com/';
  * 技能库 + 底部独立「专业营销系统」入口（国际GEO AI营销，应用内 webview）。
  * 名册数据与 B2B外贸业务工作台共用一份 localStorage，按 `isMarketingOps*`
  * 规则划分归属：营销运营类的身份/技能显示在这里，其余留在外贸业务工作台。
+ *
+ * 硬约束同 B2B外贸业务工作台：所有会话行为页内完成，任何情况下都不跳
+ * /conversation 功能栏（技能合成与多专家协同走虚拟身份，见 ForeignTradePage）。
  */
 const MarketingOpsPage: React.FC = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   // 页内平台文案：左栏底部「专业营销系统」区块 → 国际GEO AI营销系统。
   const platformTitle = t('common.marketingOps.platformTitle', { defaultValue: '国际GEO AI营销' });
   const platformGroupLabel = t('common.marketingOps.platformGroup', { defaultValue: '专业营销系统' });
@@ -64,7 +71,11 @@ const MarketingOpsPage: React.FC = () => {
     createId: createSkillId,
     findSkill,
   } = useExpertSkills();
-  const { launch, launchMulti, launchToConversation } = useExpertConversationLauncher();
+  const {
+    launchToConversation,
+    ensurePreset,
+    ensureConversation: createConversation,
+  } = useExpertConversationLauncher();
 
   // 归属过滤：只展示营销运营类的身份/技能（其余归 B2B 外贸工作台）。
   const marketingIdentities = useMemo(() => identities.filter(isMarketingOpsIdentity), [identities]);
@@ -88,6 +99,10 @@ const MarketingOpsPage: React.FC = () => {
   });
   const [multiExpertOpen, setMultiExpertOpen] = useState(false);
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
+  /** 技能合成 / 多专家协同的临时身份（不在名册里，只在其被选中期间存在）。 */
+  const [virtualIdentity, setVirtualIdentity] = useState<ExpertIdentity | null>(null);
+  /** 多专家协同的成员 id（合成系统提示词时用）。 */
+  const [teamExpertIds, setTeamExpertIds] = useState<string[]>([]);
 
   // Land on the first expert so the desk is never a blank pane.
   useEffect(() => {
@@ -96,46 +111,91 @@ const MarketingOpsPage: React.FC = () => {
     }
   }, [marketingIdentities, selectedId]);
 
-  const selected: ExpertIdentity | null = useMemo(
-    () => marketingIdentities.find((item) => item.id === selectedId) ?? null,
-    [marketingIdentities, selectedId]
-  );
+  const selected: ExpertIdentity | null = useMemo(() => {
+    const found = marketingIdentities.find((item) => item.id === selectedId) ?? null;
+    if (found) return found;
+    return virtualIdentity && virtualIdentity.id === selectedId ? virtualIdentity : null;
+  }, [marketingIdentities, selectedId, virtualIdentity]);
 
   const ensureConversation = useCallback(async (): Promise<TChatConversation | null> => {
     if (!selected) return null;
     const cached = sessions[selected.id];
     if (cached) return cached;
-    const boundSkills = selected.skillIds
-      .map(findSkill)
-      .filter((s): s is ExpertSkill => Boolean(s));
-    const conversation = await launchToConversation(selected, boundSkills, {
-      persistPresetId: (id) => {
-        if (id !== selected.presetId) upsertIdentity({ ...selected, presetId: id });
-      },
-    });
+
+    let conversation: TChatConversation | null = null;
+    if (selected.id === TEAM_ID) {
+      // 多专家协同：把各专家人格 + 关联技能合成一份系统提示词，用统一链路建会话。
+      const members = marketingIdentities.filter((item) => teamExpertIds.includes(item.id));
+      const allSkills: ExpertSkill[] = [];
+      for (const expert of members) {
+        for (const sid of expert.skillIds) {
+          const skill = findSkill(sid);
+          if (skill && !allSkills.includes(skill)) allSkills.push(skill);
+        }
+      }
+      const instructions = composeMultiExpertSystemPrompt(members, allSkills);
+      const presetId = await ensurePreset(selected.name, '多专家协同办公', instructions);
+      if (!presetId) return null;
+      conversation = await createConversation(selected.name, presetId);
+    } else {
+      const boundSkills = selected.skillIds
+        .map(findSkill)
+        .filter((s): s is ExpertSkill => Boolean(s));
+      const fromSkill = selected.id.startsWith('skill-');
+      conversation = await launchToConversation(selected, boundSkills, {
+        persistPresetId: (id) => {
+          if (id === selected.presetId) return;
+          if (fromSkill) {
+            // 技能合成的临时身份：preset 记回技能本身，绝不写一条假的专家记录。
+            const skill = findSkill(selected.skillIds[0]);
+            if (skill) upsertSkill({ ...skill, presetId: id });
+            return;
+          }
+          upsertIdentity({ ...selected, presetId: id });
+        },
+      });
+    }
     if (conversation) {
       setSessions((prev) => ({ ...prev, [selected.id]: conversation }));
     }
     return conversation;
-  }, [findSkill, launchToConversation, selected, sessions, upsertIdentity]);
-
-  const openConversationPage = useCallback(() => {
-    if (!selected) return;
-    const cached = sessions[selected.id];
-    if (cached) {
-      void navigate(`/conversation/${cached.id}`);
-      return;
-    }
-    void ensureConversation().then((conversation) => {
-      if (conversation) void navigate(`/conversation/${conversation.id}`);
-    });
-  }, [ensureConversation, navigate, selected, sessions]);
+  }, [
+    createConversation,
+    ensurePreset,
+    findSkill,
+    launchToConversation,
+    marketingIdentities,
+    selected,
+    sessions,
+    teamExpertIds,
+    upsertIdentity,
+    upsertSkill,
+  ]);
 
   const openPlatform = useCallback(() => setPlatformActive(true), []);
+
+  /** 在本页内切到某位专家（左栏名册与「一起工作」成员卡共用）。 */
+  const selectIdentity = useCallback((id: string) => {
+    setSelectedId(id);
+    setView('desk');
+  }, []);
 
   const identityCategories = useMemo(
     () => Array.from(new Set(marketingIdentities.map((item) => item.category))),
     [marketingIdentities]
+  );
+
+  /** 「一起工作」成员卡：本工作台的专家名册（含当前专家）。 */
+  const teamMembers = useMemo<TeamHeroMember[]>(
+    () =>
+      marketingIdentities.map((item) => ({
+        id: item.id,
+        name: item.name,
+        subtitle: item.category,
+        figureSrc: figureMap.get(item.id || item.name)?.src,
+        active: item.id === selectedId,
+      })),
+    [figureMap, marketingIdentities, selectedId]
   );
 
   // ── 专家身份 authoring ──
@@ -221,34 +281,44 @@ const MarketingOpsPage: React.FC = () => {
     Message.success('技能库已导出');
   }, [exportSkills]);
 
-  const handleLaunchSkill = useCallback(
-    (item: ExpertSkill) => {
-      const synthetic: ExpertIdentity = {
-        id: `skill-${item.id}`,
-        name: item.name,
-        category: item.category,
-        description: item.description,
-        icon: item.icon,
-        skillIds: [item.id],
-      };
-      launch(synthetic, [item], {
-        persistPresetId: (id) => {
-          if (id !== item.presetId) upsertSkill({ ...item, presetId: id });
-        },
-      });
-    },
-    [launch, upsertSkill]
-  );
+  /**
+   * 从单个技能开聊：合成临时专家身份并**切到工作台**（不跳会话页）。
+   */
+  const handleLaunchSkill = useCallback((item: ExpertSkill) => {
+    const synthetic: ExpertIdentity = {
+      id: `skill-${item.id}`,
+      name: item.name,
+      category: item.category,
+      description: item.description,
+      icon: item.icon,
+      skillIds: [item.id],
+      presetId: item.presetId,
+    };
+    setVirtualIdentity(synthetic);
+    setSelectedId(synthetic.id);
+    setView('desk');
+  }, []);
 
+  /** 召唤多位专家组成协同小组：合成临时团队身份并在本页内打开。 */
   const handleLaunchMulti = useCallback(() => {
     const experts = marketingIdentities.filter((item) => multiSelected.includes(item.id));
     if (experts.length === 0) {
       Message.error('请至少选择一位专家');
       return;
     }
-    launchMulti(experts, findSkill);
+    setTeamExpertIds(experts.map((item) => item.id));
+    setVirtualIdentity({
+      id: TEAM_ID,
+      name: t('common.marketingOps.teamName', { defaultValue: '营销运营协同小组' }),
+      category: t('common.marketingOps.teamCategory', { defaultValue: '多专家协同' }),
+      description: experts.map((item) => item.name).join('、'),
+      icon: 'Peoples',
+      skillIds: experts.flatMap((item) => item.skillIds),
+    });
+    setSelectedId(TEAM_ID);
+    setView('desk');
     setMultiExpertOpen(false);
-  }, [findSkill, marketingIdentities, launchMulti, multiSelected]);
+  }, [marketingIdentities, multiSelected, t]);
 
   // ── 国际 GEO 平台内嵌视图（左栏独立入口的下游）──
   if (platformActive) {
@@ -287,10 +357,7 @@ const MarketingOpsPage: React.FC = () => {
       <ExpertRoster
         identities={marketingIdentities}
         selectedId={selectedId}
-        onSelect={(identity) => {
-          setSelectedId(identity.id);
-          setView('desk');
-        }}
+        onSelect={(identity) => selectIdentity(identity.id)}
         onOpenPlatform={openPlatform}
         platformLabel={platformTitle}
         platformGroupLabel={platformGroupLabel}
@@ -321,13 +388,17 @@ const MarketingOpsPage: React.FC = () => {
               identity={selected}
               conversation={sessions[selected.id] ?? null}
               onEnsureConversation={ensureConversation}
-              onOpenConversationPage={openConversationPage}
               onOpenPlatform={openPlatform}
               platformLabel={platformTitle}
               platformEnterLabel={platformEnterLabel}
               onOpenSkills={() => setView('skills')}
               onSummonExpert={() => setMultiExpertOpen(true)}
               figureSrc={figureMap.get(selected.id || selected.name)?.src}
+              members={teamMembers}
+              onSelectMember={selectIdentity}
+              membersTitle={t('common.marketingOps.membersTitle', {
+                defaultValue: '本工作台专家 · 点卡片即可切换',
+              })}
             />
           ) : (
             <div className='flex-1 flex flex-col items-center justify-center gap-12px px-24px text-center'>

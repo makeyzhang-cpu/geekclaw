@@ -12,7 +12,6 @@
 // 人格合成逻辑已抽到零依赖的 `./groupPersona`，供会话页协作者面板共用。
 
 import { useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Message } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import type { ICompanionProfile } from '@/common/adapter/ipcBridge';
@@ -23,12 +22,15 @@ import { companionGroupNameOf, composeCompanionGroupSystemPrompt } from './group
 export { composeCompanionGroupSystemPrompt, companionGroupNameOf } from './groupPersona';
 
 /**
- * 圆桌群聊启动器：合成 Preset → 用统一 agent 会话链路建会话 → 跳转会话页。
+ * 圆桌群聊启动器：合成 Preset → 用统一 agent 会话链路建会话。
+ *
+ * ⚠️ **不跳转**：只返回会话对象，由调用方在自己页面内就地渲染。
+ * 群聊的发起入口（数字员工工作台「召唤伙伴」）必须全程留在本页 ——
+ * 任何情况下都不进 /conversation 功能栏。
  * Preset / 会话创建、默认模型解析与占位模型告警全部复用 useExpertConversationLauncher。
  */
 export function useCompanionGroupLauncher() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { ensurePreset, ensureConversation } = useExpertConversationLauncher();
 
   const launchGroup = useCallback(
@@ -45,7 +47,6 @@ export function useCompanionGroupLauncher() {
         const conversation = await ensureConversation(name, presetId);
         if (conversation) {
           Message.success(t('geekclaw.group.launched', { defaultValue: '员工群聊已开启' }));
-          void navigate(`/conversation/${conversation.id}`);
         }
         return conversation;
       } catch (error) {
@@ -56,7 +57,7 @@ export function useCompanionGroupLauncher() {
         return null;
       }
     },
-    [ensureConversation, ensurePreset, navigate, t]
+    [ensureConversation, ensurePreset, t]
   );
 
   return { launchGroup };
