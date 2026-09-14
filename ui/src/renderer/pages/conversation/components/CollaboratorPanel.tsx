@@ -170,14 +170,36 @@ const CollaboratorPanel: React.FC<{
       setEntries((prev) => [...prev, { id: entryId, question, loading: true }]);
       try {
       const history = buildHistory(listRef.current as IMessageText[], config.history_window || 0);
-      // 模型跟随会话：设置页未显式指定协作者 provider/model 时，注入当前会话主模型
-      // （provider_id=modelSelection.current_model.id / model=use_model）。避免回落后端
-      // 全局 resolve_default_model → 本地会话 + 云端默认模型渠道缺失 → 502 Bad gateway。
+      // 协作者模型独立选择：填了就算，没填就拿主模型补另一个，避免后端混搭。
+      // 优先级：用户填的两个都有效 → 完全独立生效；
+      //         用户只填了一个 → 另一个用主模型 use_model 补齐（防止 provider/model 不匹配触发 502）；
+      //         都没填 → 整体跟随会话主模型（避免回落后端全局默认 → 渠道缺失 → 502）。
       const cur = modelSelection.current_model;
-      const requestConfig: ICoAgentConfig =
-        cur?.id && cur.use_model && (!config.provider_id || !config.model)
-          ? { ...config, provider_id: cur.id, model: cur.use_model }
-          : config;
+      const requestConfig: ICoAgentConfig = (() => {
+        const userProvider = config.provider_id?.trim();
+        const userModel = config.model?.trim();
+        const hasProvider = !!userProvider;
+        const hasModel = !!userModel;
+        const hasMain = !!cur?.id && !!cur.use_model;
+        if (hasProvider && hasModel) {
+          // 用户两个都填了 → 完全独立，不动
+          return { ...config, provider_id: userProvider, model: userModel };
+        }
+        if (hasProvider && !hasModel && hasMain) {
+          // 只填 provider → model 跟随主模型
+          return { ...config, provider_id: userProvider, model: cur.use_model };
+        }
+        if (!hasProvider && hasModel && hasMain) {
+          // 只填 model → provider 跟随主模型（保持 provider/model 配对一致）
+          return { ...config, provider_id: cur.id, model: userModel };
+        }
+        if (hasMain) {
+          // 都没填 → 整体跟随主模型
+          return { ...config, provider_id: cur.id, model: cur.use_model };
+        }
+        // 主模型也没拿到（理论不该发生）→ 原样下发，让后端按自己的规则兜底
+        return config;
+      })();
       const res = await ipcBridge.coAgent.run.invoke({
         config: requestConfig,
         message: question,
