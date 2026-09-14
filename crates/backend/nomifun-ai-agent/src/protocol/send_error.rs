@@ -712,6 +712,23 @@ fn classify_provider_api(lower: &str) -> Option<ClassifiedError> {
             Some(AgentErrorResolutionTarget::Feedback),
         ));
     }
+    if lower.contains("missing function name") && lower.contains("openai-compatible provider") {
+        // A dropped tool-call name in the SSE stream means the OpenAI-compatible
+        // gateway did not forward the `function.name` field — a malformed
+        // payload, not a transient blip. The model's reply is otherwise
+        // untrustworthy (id/arguments may also be incomplete), so retrying the
+        // same prompt typically reproduces the same bad delta. Classify as
+        // InvalidRequest (not retryable) and surface the SendFeedback target
+        // so the user gets a clear "switch model / switch gateway" message
+        // instead of a misleading Retry button.
+        return Some(provider_error(
+            "The model provider returned a malformed tool call (missing function name)",
+            AgentErrorCode::UserLlmProviderInvalidRequest,
+            false,
+            AgentErrorResolutionKind::SendFeedback,
+            Some(AgentErrorResolutionTarget::Feedback),
+        ));
+    }
     if contains_any(
         lower,
         &[
@@ -1020,7 +1037,6 @@ mod tests {
     fn classifies_provider_protocol_failures_as_retryable_gateway_errors() {
         for detail in [
             "GeekClaw agent error: API error: OpenAI-compatible provider emitted non-usage data after finish_reason",
-            "GeekClaw agent error: API error: OpenAI-compatible provider returned a tool call with a missing function name (call `call_123`)",
             "GeekClaw agent error: API error: provider stream protocol violation: tool progress 'Write' (call-123) was not advertised in this request",
         ] {
             let err = AgentSendError::from_app_error(AppError::BadGateway(detail.into()));
@@ -1029,6 +1045,24 @@ mod tests {
             assert_eq!(err.stream_error().retryable, Some(true));
             assert_eq!(err.stream_error().feedback_recommended, Some(false));
         }
+    }
+
+    #[test]
+    fn classifies_missing_function_name_as_invalid_request_not_retryable() {
+        // A dropped `function.name` in the SSE stream is a malformed payload,
+        // not a transient blip — retrying the same prompt typically reproduces
+        // the same bad delta. Surface as InvalidRequest (no Retry button) and
+        // route the user to SendFeedback so the chat UI explains the model /
+        // gateway issue instead of offering a misleading retry.
+        let detail = "GeekClaw agent error: API error: OpenAI-compatible provider returned a tool call with a missing function name (call `call_123`)";
+        let err = AgentSendError::from_app_error(AppError::BadGateway(detail.into()));
+        assert_eq!(err.code(), Some(AgentErrorCode::UserLlmProviderInvalidRequest));
+        assert_eq!(err.ownership(), Some(AgentErrorOwnership::UserLlmProvider));
+        assert_eq!(err.stream_error().retryable, Some(false));
+        assert_eq!(
+            err.stream_error().resolution.as_ref().map(|value| value.kind),
+            Some(AgentErrorResolutionKind::SendFeedback)
+        );
     }
 
     #[test]
