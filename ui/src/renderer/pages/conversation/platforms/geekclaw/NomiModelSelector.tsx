@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { IModelSuggestion } from '@/common/config/storage';
 import type { NomiModelSelection } from './useNomiModelSelection';
 import { compositeKey } from '@/common/utils/compositeKey';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
@@ -32,98 +33,152 @@ const NomiModelSelector: React.FC<{
   const providerLabel = useModelSelectorProviderLabel();
 
   const current_model = selection?.current_model;
+  const suggestion: IModelSuggestion | null = selection?.modelSuggestion ?? null;
 
   const renderLogo = () => <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />;
 
-  if (disabled || !selection) {
-    return (
-      <Button
-        className={classNames(
-          'sendbox-model-btn header-model-btn min-w-0',
-          compact ? '!max-w-[120px]' : '!max-w-[280px]',
-          isMobileHeaderCompact && '!max-w-[160px]',
-          className
-        )}
-        shape='round'
-        size='small'
-        style={{ cursor: 'default' }}
-        aria-label={t('conversation.welcome.useCliModel')}
-      >
-        <span className='flex items-center gap-6px min-w-0'>
-          {renderLogo()}
-          <span className='sendbox-responsive-label block truncate min-w-0'>
-            {t('conversation.welcome.useCliModel')}
+  const renderControl = () => {
+    if (disabled || !selection) {
+      return (
+        <Button
+          className={classNames(
+            'sendbox-model-btn header-model-btn min-w-0',
+            compact ? '!max-w-[120px]' : '!max-w-[280px]',
+            isMobileHeaderCompact && '!max-w-[160px]',
+            className
+          )}
+          shape='round'
+          size='small'
+          style={{ cursor: 'default' }}
+          aria-label={t('conversation.welcome.useCliModel')}
+        >
+          <span className='flex items-center gap-6px min-w-0'>
+            {renderLogo()}
+            <span className='sendbox-responsive-label block truncate min-w-0'>
+              {t('conversation.welcome.useCliModel')}
+            </span>
           </span>
-        </span>
-      </Button>
+        </Button>
+      );
+    }
+
+    const { providers, getAvailableModels, handleSelectModel } = selection;
+
+    const label = getModelDisplayLabel({
+      selected_value: current_model?.use_model,
+      selectedLabel: current_model?.use_model || '',
+      defaultModelLabel,
+      fallbackLabel: t('conversation.welcome.selectModel'),
+    });
+
+    return (
+      <Dropdown
+        trigger='click'
+        // Mobile: portal the popup to <body> so it escapes the titlebar slot.
+        // Desktop: leave default container so click events reach Menu.Item normally.
+        {...(isMobileHeaderCompact ? { getPopupContainer: () => document.body } : {})}
+        droplist={
+          <Menu>
+            {providers.map((provider) => {
+              const models = getAvailableModels(provider);
+              if (!models.length) return null;
+
+              return (
+                <Menu.ItemGroup title={providerLabel(provider)} key={provider.id}>
+                  {models.map((modelName) => (
+                    <Menu.Item
+                      key={compositeKey(provider.id, modelName)}
+                      data-testid={`geekclaw-model-option-${modelName}`}
+                      className={current_model?.id === provider.id && current_model?.use_model === modelName ? '!bg-2' : ''}
+                      onClick={() => void handleSelectModel(provider, modelName)}
+                    >
+                      <div className='flex items-center gap-8px w-full'>
+                        <span>{modelName}</span>
+                      </div>
+                    </Menu.Item>
+                  ))}
+                </Menu.ItemGroup>
+              );
+            })}
+          </Menu>
+        }
+      >
+        <Button
+          data-testid='geekclaw-model-selector'
+          className={classNames(
+            'sendbox-model-btn header-model-btn min-w-0',
+            compact ? '!max-w-[120px]' : '!max-w-[280px]',
+            isMobileHeaderCompact && '!max-w-[160px]',
+            className
+          )}
+          shape='round'
+          size='small'
+          aria-label={label}
+        >
+          <span className='flex items-center gap-6px min-w-0'>
+            {renderLogo()}
+            <span className='sendbox-responsive-label block truncate min-w-0'>{label}</span>
+            <Down
+              theme='outline'
+              size={12}
+              fill={iconColors.secondary}
+              className='sendbox-responsive-chevron shrink-0'
+            />
+          </span>
+        </Button>
+      </Dropdown>
     );
+  };
+
+  // No staged AI suggestion → just the selector.
+  if (!suggestion) {
+    return renderControl();
   }
 
-  const { providers, getAvailableModels, handleSelectModel } = selection;
-
-  const label = getModelDisplayLabel({
-    selected_value: current_model?.use_model,
-    selectedLabel: current_model?.use_model || '',
-    defaultModelLabel,
-    fallbackLabel: t('conversation.welcome.selectModel'),
-  });
+  // A model swap is staged: float a compact "🤖 AI 推荐" chip above the
+  // selector so it never disrupts the sendbox's inline flex row. The chip is
+  // positioned above and to the left of the button (bottom-full / left-0).
+  const providerName = (() => {
+    const provider = selection?.providers.find((p) => p.id === suggestion.provider_id);
+    return provider ? providerLabel(provider) : suggestion.provider_id;
+  })();
 
   return (
-    <Dropdown
-      trigger='click'
-      // Mobile: portal the popup to <body> so it escapes the titlebar slot.
-      // Desktop: leave default container so click events reach Menu.Item normally.
-      {...(isMobileHeaderCompact ? { getPopupContainer: () => document.body } : {})}
-      droplist={
-        <Menu>
-          {providers.map((provider) => {
-            const models = getAvailableModels(provider);
-            if (!models.length) return null;
-
-            return (
-              <Menu.ItemGroup title={providerLabel(provider)} key={provider.id}>
-                {models.map((modelName) => (
-                  <Menu.Item
-                    key={compositeKey(provider.id, modelName)}
-                    data-testid={`geekclaw-model-option-${modelName}`}
-                    className={current_model?.id === provider.id && current_model?.use_model === modelName ? '!bg-2' : ''}
-                    onClick={() => void handleSelectModel(provider, modelName)}
-                  >
-                    <div className='flex items-center gap-8px w-full'>
-                      <span>{modelName}</span>
-                    </div>
-                  </Menu.Item>
-                ))}
-              </Menu.ItemGroup>
-            );
-          })}
-        </Menu>
-      }
-    >
-      <Button
-        data-testid='geekclaw-model-selector'
-        className={classNames(
-          'sendbox-model-btn header-model-btn min-w-0',
-          compact ? '!max-w-[120px]' : '!max-w-[280px]',
-          isMobileHeaderCompact && '!max-w-[160px]',
-          className
-        )}
-        shape='round'
-        size='small'
-        aria-label={label}
+    <div className='relative inline-flex'>
+      {renderControl()}
+      <div
+        data-testid='geekclaw-model-suggestion'
+        className='absolute bottom-full left-0 mb-2 z-50 flex items-center gap-6px flex-wrap max-w-340px rounded-8px px-8px py-6px shadow-md'
+        style={{ background: 'rgb(var(--gray-2))', border: '1px solid rgb(var(--geekclaw-6))' }}
       >
-        <span className='flex items-center gap-6px min-w-0'>
-          {renderLogo()}
-          <span className='sendbox-responsive-label block truncate min-w-0'>{label}</span>
-          <Down
-            theme='outline'
-            size={12}
-            fill={iconColors.secondary}
-            className='sendbox-responsive-chevron shrink-0'
-          />
+        <span className='text-11px leading-tight shrink-0' style={{ color: 'rgb(var(--geekclaw-6))' }}>
+          🤖 {t('geekclaw.chat.modelSuggestion')}
         </span>
-      </Button>
-    </Dropdown>
+        <span className='text-11px text-t-secondary'>
+          {t('geekclaw.chat.modelSuggestionBody', {
+            provider: providerName,
+            model: suggestion.model,
+            reason: suggestion.reason,
+          })}
+        </span>
+        <button
+          type='button'
+          className='px-8px py-2px rd-4px text-11px cursor-pointer border-none'
+          style={{ background: 'rgb(var(--geekclaw-6))', color: '#fff' }}
+          onClick={() => void selection?.onAdoptModelSuggestion?.(suggestion)}
+        >
+          {t('geekclaw.chat.modelSuggestionAdopt')}
+        </button>
+        <button
+          type='button'
+          className='px-8px py-2px rd-4px text-11px cursor-pointer'
+          style={{ background: 'transparent', color: 'rgb(var(--gray-6))', border: '1px solid rgb(var(--gray-4))' }}
+          onClick={() => void selection?.onDismissModelSuggestion?.()}
+        >
+          {t('geekclaw.chat.modelSuggestionIgnore')}
+        </button>
+      </div>
+    </div>
   );
 };
 

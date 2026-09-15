@@ -91,6 +91,12 @@ interface IChatConversation<T, Extra> {
   linked_execution_id?: ExecutionId;
   execution_step_id?: ExecutionStepId;
   execution_attempt_id?: ExecutionAttemptId;
+  /**
+   * AI-proposed model swap staged for the user to confirm in the UI. `null`
+   * when no suggestion is pending. Auto-adopted suggestions are written straight
+   * to `model` (above) and never appear here.
+   */
+  model_suggestion?: IModelSuggestion | null;
 }
 
 // Token 使用统计数据类型
@@ -408,6 +414,19 @@ export interface IProvider {
 export type TProviderWithModel = Omit<IProvider, 'models'> & {
   use_model: string;
 };
+
+/**
+ * An AI-proposed model swap for a conversation or companion. The backend emits
+ * this via the `suggest_model` tool: it auto-adopts the first proposal when the
+ * target's authoritative `model` is still unset, otherwise stages it here for
+ * the user to confirm in the UI. Mirrors the backend `ModelSuggestion` wire type.
+ */
+export interface IModelSuggestion {
+  provider_id: string;
+  model: string;
+  reason: string;
+  suggested_at: number;
+}
 
 // MCP Server Configuration Types
 export interface IMcpServerTransportStdio {

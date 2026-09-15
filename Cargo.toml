@@ -3,10 +3,18 @@ resolver = "3"
 members = ["crates/agent/*", "crates/backend/*", "crates/shared/*", "apps/web", "apps/desktop"]
 
 [workspace.package]
-version = "5.0.60"
+version = "5.0.61"
 edition = "2024"
 license = "Apache-2.0"
 repository = "local/geekclaw-tauri"
+
+# 预存死代码 / 未用变量告警统一静默（vendored fork 部分功能被裁剪，属历史遗留，
+# 非本次改动引入）。仅放开 dead_code / unused_mut / unused_variables，不影响
+# unused_imports 等能暴露真实问题的 lint。
+[workspace.lints.rust]
+dead_code = "allow"
+unused_mut = "allow"
+unused_variables = "allow"
 
 [workspace.dependencies]
 # --- Internal crates: backend (from geekclaw-be-rs) ---

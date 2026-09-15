@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use nomifun_common::{
-    AppError, CompanionId, ProviderId, ProviderUsage, ProviderUsageFeature, SharedProviderLifecycleBarrier,
+    AppError, CompanionId, ProviderId, ProviderUsage, ProviderUsageFeature,
+    SharedProviderLifecycleBarrier,
 };
 use nomifun_db::IProviderRepository;
 use serde::Serialize;
@@ -492,6 +493,21 @@ impl CompanionService {
             config: self.config.clone(),
             registry: self.registry.clone(),
             skill_paths: self.skill_paths.clone(),
+        })
+    }
+
+    /// Build the `ModelSuggestionSink` the agent factory needs — gives every
+    /// companion_session conversation the `suggest_model` tool. The backend
+    /// auto-adopts the first proposal (when the profile `model` is still unset)
+    /// or stages it in `model_suggestion` for the user to confirm.
+    pub fn model_suggestion_sink(&self) -> Arc<dyn nomifun_common::ModelSuggestionSink> {
+        Arc::new(crate::companion::CompanionStoreSink {
+            store: self.store.clone(),
+            config: self.config.clone(),
+            registry: self.registry.clone(),
+            emitter: self.emitter.clone(),
+            companion_dir: self.shared_dir.clone(),
+            event_store_lock: self.event_store_lock.clone(),
         })
     }
 

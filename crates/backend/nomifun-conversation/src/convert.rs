@@ -9,7 +9,7 @@ use nomifun_api_types::{ConversationArtifactResponse, ConversationResponse, Mess
 use nomifun_common::{
     AgentExecutionTemplateId, AgentType, AppError, ConversationId, ConversationSource,
     ConversationStatus, CronJobId, MessageId, MessagePosition, MessageStatus, MessageType,
-    ProviderId, ProviderWithModel, validate_uuidv7,
+    ModelSuggestion, ProviderId, ProviderWithModel, validate_uuidv7,
 };
 use nomifun_db::MessageSearchRow;
 use nomifun_db::models::{ConversationArtifactRow, ConversationRow, MessageRow};
@@ -80,6 +80,9 @@ pub fn row_to_response_with_extra(
     let source: Option<ConversationSource> = row.source.as_deref().map(string_to_enum).transpose()?;
 
     let model: Option<ProviderWithModel> = row.model.as_deref().map(parse_provider_with_model).transpose()?;
+    let model_suggestion: Option<ModelSuggestion> = extra
+        .get("model_suggestion")
+        .and_then(|v| serde_json::from_value::<ModelSuggestion>(v.clone()).ok());
     let preset_snapshot = row
         .preset_snapshot
         .as_deref()
@@ -105,6 +108,7 @@ pub fn row_to_response_with_extra(
         name: row.name,
         r#type: agent_type,
         model,
+        model_suggestion,
         status,
         runtime: None,
         source,

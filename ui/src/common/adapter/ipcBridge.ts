@@ -14,6 +14,7 @@
 
 import type { ConfirmationCorrelationId, IConfirmation } from '@/common/chat/chatLib';
 import type { ICoAgentResult, IRunCoAgentRequest } from '@/common/types/coAgent';
+import type { IModelSuggestion } from '@/common/config/storage';
 import { bridge } from '@/platform';
 import type { McpConnectionTestRequest } from './mcpRequest';
 import {
@@ -496,6 +497,15 @@ const fromApiConversationArtifact = (
         ...artifact.payload,
         cron_job_id: parseCronJobId(artifact.payload.cron_job_id),
       },
+    };
+  }
+  if (artifact.kind === 'office_file') {
+    // office_file artifacts carry no cron relation, so their payload is passed
+    // through verbatim (parsing `cron_job_id` would fail on the missing field).
+    return {
+      ...common,
+      kind: artifact.kind,
+      payload: { ...artifact.payload },
     };
   }
   return {
@@ -3121,7 +3131,7 @@ export interface IUserMessageCreatedEvent {
   created_at: number;
 }
 
-export type IConversationArtifactKind = 'cron_trigger' | 'skill_suggest';
+export type IConversationArtifactKind = 'cron_trigger' | 'skill_suggest' | 'office_file';
 export type IConversationArtifactStatus = 'active' | 'pending' | 'dismissed' | 'saved';
 
 export interface IConversationArtifactBase<
@@ -3160,7 +3170,25 @@ export type ISkillSuggestArtifact = IConversationArtifactBase<
   }
 >;
 
-export type IConversationArtifact = ICronTriggerArtifact | ISkillSuggestArtifact;
+export interface IOfficeFileArtifact extends IConversationArtifactBase<
+  'office_file',
+  {
+    /** Absolute path of the produced office file on disk. */
+    file_path: string;
+    /** Workspace root that owns the file (used to resolve relative paths). */
+    workspace?: string;
+    /** Display name of the file (e.g. `季度报告.docx`). */
+    name: string;
+    /** Lowercase extension without dot, e.g. `docx`. */
+    extension?: string;
+    /** MIME type hint, e.g. `application/vnd.openxmlformats-officedocument.wordprocessingml.document`. */
+    mime_type?: string;
+    /** File size in bytes. */
+    size_bytes?: number;
+  }
+> {}
+
+export type IConversationArtifact = ICronTriggerArtifact | ISkillSuggestArtifact | IOfficeFileArtifact;
 
 export interface IConversationTurnStartedEvent {
   conversation_id: ConversationId;
@@ -4825,6 +4853,12 @@ export interface ICompanionProfile {
   character: string;
   persona: ICompanionPersona;
   model: ICompanionModelRef | null;
+  /**
+   * AI-proposed model swap staged for the user to confirm in the UI. `null`
+   * when no suggestion is pending. Auto-adopted suggestions are written straight
+   * to `model` (above) and never appear here.
+   */
+  model_suggestion: IModelSuggestion | null;
   /** This companion's own 定时学习 loop (install-wide until 2026-08). */
   learn: ICompanionLearnConfig;
   /** This companion's own 技能进化 loop (install-wide until 2026-08). */
@@ -4914,6 +4948,7 @@ export type ICompanionProfilePatch = {
   character?: string;
   persona?: Partial<ICompanionPersona>;
   model?: ICompanionModelRef | null;
+  model_suggestion?: IModelSuggestion | null;
   learn?: Partial<ICompanionLearnConfig>;
   evolve?: Partial<ICompanionEvolveConfig>;
   skills?: Partial<ICompanionSkillConfig>;

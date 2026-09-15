@@ -351,6 +351,7 @@ impl PtyHandle {
     }
 }
 
+#[allow(unused_variables)]
 fn command_with_locale_precedence(
     program: String,
     args: Vec<String>,

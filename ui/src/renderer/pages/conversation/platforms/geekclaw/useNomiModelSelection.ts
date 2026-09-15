@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { IProvider, TProviderWithModel } from '@/common/config/storage';
+import type { IModelSuggestion, IProvider, TProviderWithModel } from '@/common/config/storage';
 import { useModelProviderList } from '@/renderer/hooks/agent/useModelProviderList';
 import { useModelsForTask } from '@/renderer/hooks/agent/useModelsForTask';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,16 +15,29 @@ export type NomiModelSelection = {
   getAvailableModels: (provider: IProvider) => string[];
   handleSelectModel: (provider: IProvider, modelName: string) => Promise<void>;
   getDisplayModelName: (modelName?: string) => string;
+  /** AI-proposed model swap staged for the user to confirm, or null/undefined. */
+  modelSuggestion?: IModelSuggestion | null;
+  /** Adopt the staged suggestion: switch to the suggested model. */
+  onAdoptModelSuggestion?: (suggestion: IModelSuggestion) => void | Promise<void>;
+  /** Dismiss the staged suggestion without switching models. */
+  onDismissModelSuggestion?: () => void | Promise<void>;
 };
 
 export type UseNomiModelSelectionOptions = {
   initialModel: TProviderWithModel | undefined;
   onSelectModel: (provider: IProvider, modelName: string) => Promise<boolean>;
+  /** AI-proposed model swap staged for the user to confirm, or null/undefined. */
+  modelSuggestion?: IModelSuggestion | null;
+  onAdoptModelSuggestion?: (suggestion: IModelSuggestion) => void | Promise<void>;
+  onDismissModelSuggestion?: () => void | Promise<void>;
 };
 
 export const useNomiModelSelection = ({
   initialModel,
   onSelectModel,
+  modelSuggestion,
+  onAdoptModelSuggestion,
+  onDismissModelSuggestion,
 }: UseNomiModelSelectionOptions): NomiModelSelection => {
   const [current_model, setCurrentModel] = useState<TProviderWithModel | undefined>(initialModel);
 
@@ -86,5 +99,8 @@ export const useNomiModelSelection = ({
     getAvailableModels,
     handleSelectModel,
     getDisplayModelName,
+    modelSuggestion,
+    onAdoptModelSuggestion,
+    onDismissModelSuggestion,
   };
 };

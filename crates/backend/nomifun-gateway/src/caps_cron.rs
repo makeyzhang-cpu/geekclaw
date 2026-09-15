@@ -134,14 +134,8 @@ async fn create(deps: Arc<GatewayDeps>, ctx: CallerCtx, p: CronCreateParams) -> 
                 match provider_support::resolve_nomi_model(&deps, &ctx, None).await {
                     Ok((m, source)) => {
                         let req = UpdateConversationRequest {
-                            name: None,
-                            pinned: None,
                             model: Some(m.clone()),
-                            delegation_policy: None,
-                            execution_model_pool: None,
-                            decision_policy: None,
-                            execution_template_id: None,
-                            extra: None,
+                            ..Default::default()
                         };
                         if let Err(e) = deps
                             .conversation_service

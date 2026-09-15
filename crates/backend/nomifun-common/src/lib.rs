@@ -80,5 +80,8 @@ pub use pagination::PaginatedResult;
 pub use provider_lifecycle::{ProviderLifecycleBarrier, SharedProviderLifecycleBarrier};
 pub use provider_usage::{ProviderInUseDetails, ProviderUsage, ProviderUsageFeature};
 pub use timestamp::{TimestampMs, now_ms};
-pub use types::{CommandSpec, Confirmation, ConfirmationOption, EnvVar, ProviderWithModel};
+pub use types::{
+    CommandSpec, Confirmation, ConfirmationOption, EnvVar, ModelSuggestion, ModelSuggestionSink,
+    ProviderWithModel,
+};
 pub use vision_registry::VisionUnsupportedRegistry;

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use nomifun_common::ModelSuggestionSink;
 use serde_json::{Value, json};
 
 use geekclaw_protocol::events::ToolCategory;
@@ -282,6 +283,117 @@ impl Tool for ListRecentEventsTool {
             .unwrap_or(20)
             .clamp(1, 50) as usize;
         match self.sink.recent_events(limit).await {
+            Ok(out) => ToolResult {
+                content: out,
+                is_error: false,
+                images: Vec::new(),
+            },
+            Err(e) => ToolResult {
+                content: e,
+                is_error: true,
+                images: Vec::new(),
+            },
+        }
+    }
+
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Info
+    }
+}
+
+/// `suggest_model` — let the agent propose (and, on first use, auto-adopt) a
+/// model for the current session. Covers BOTH companion and regular
+/// conversations: the injected `ModelSuggestionSink` routes to the correct
+/// authoritative store (companion profile vs. conversation `extra`).
+pub struct SuggestModelTool {
+    sink: Arc<dyn ModelSuggestionSink>,
+    /// The conversation this tool instance serves — passed to the sink so the
+    /// backend can scope the suggestion to the right session.
+    conversation_id: String,
+}
+
+impl SuggestModelTool {
+    pub fn new(sink: Arc<dyn ModelSuggestionSink>, conversation_id: impl Into<String>) -> Self {
+        Self {
+            sink,
+            conversation_id: conversation_id.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for SuggestModelTool {
+    fn name(&self) -> &str {
+        "suggest_model"
+    }
+
+    fn description(&self) -> &str {
+        "当你判断当前模型不适合这个任务（例如上下文太长、需要更强推理、当前模型频繁报错或明显更慢）时，\
+         推荐一个更合适的模型。后端会在该会话尚未设定模型时自动采用你的推荐，否则把推荐展示给用户确认。\
+         参数：provider_id（供应商 id，如 openai/deepseek/anthropic/google）、model（模型名，如 gpt-4o/\
+         deepseek-chat/claude-3-5-sonnet）、reason（一句话中文推荐理由）。"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        json!({
+            "type": "object",
+            "properties": {
+                "provider_id": {
+                    "type": "string",
+                    "description": "模型供应商 id，如 openai / deepseek / anthropic / google"
+                },
+                "model": {
+                    "type": "string",
+                    "description": "推荐的模型名，如 gpt-4o / deepseek-chat / claude-3-5-sonnet"
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "推荐理由（一句话，中文，说明为什么更适合）"
+                }
+            },
+            "required": ["provider_id", "model", "reason"]
+        })
+    }
+
+    fn is_concurrency_safe(&self, _input: &Value) -> bool {
+        false
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult {
+        let provider_id = input
+            .get("provider_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let model = input
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let reason = input
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if provider_id.is_empty() || model.is_empty() {
+            return ToolResult {
+                content: "provider_id 和 model 不能为空".into(),
+                is_error: true,
+                images: Vec::new(),
+            };
+        }
+        if reason.is_empty() {
+            return ToolResult {
+                content: "reason 不能为空（给一句中文推荐理由）".into(),
+                is_error: true,
+                images: Vec::new(),
+            };
+        }
+        match self
+            .sink
+            .suggest_model(&self.conversation_id, provider_id, model, reason)
+            .await
+        {
             Ok(out) => ToolResult {
                 content: out,
                 is_error: false,

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use async_trait::async_trait;
 use crate::ProviderId;
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,43 @@ impl ProviderWithModel {
         }
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// ModelSuggestion (AI-proposed model swap)
+// ---------------------------------------------------------------------------
+
+/// An AI-proposed model swap for a companion or conversation. The agent emits
+/// this via the `suggest_model` tool; the backend either auto-applies it (when
+/// the target's authoritative `model` is still unset) or stages it for the
+/// user to confirm in the UI. Kept as a discrete, queryable field — never
+/// buried in free-text — so suggestions are auditable and reversible.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelSuggestion {
+    #[serde(deserialize_with = "deserialize_provider_id")]
+    pub provider_id: String,
+    pub model: String,
+    pub reason: String,
+    pub suggested_at: i64,
+}
+
+/// Backend seam that persists an AI model suggestion for the session the agent
+/// is running in. `nomifun-companion` and `nomifun-conversation` each provide a
+/// concrete impl that routes to the correct authoritative model store
+/// (companion profile vs. conversation `extra`); the agent engine only depends
+/// on this trait.
+#[async_trait]
+pub trait ModelSuggestionSink: Send + Sync {
+    /// Persist (and possibly auto-apply) an AI model suggestion for
+    /// `conversation_id`. Returns a human-readable confirmation/explanation line.
+    async fn suggest_model(
+        &self,
+        conversation_id: &str,
+        provider_id: &str,
+        model: &str,
+        reason: &str,
+    ) -> Result<String, String>;
 }
 
 /// A pending tool-call confirmation item.

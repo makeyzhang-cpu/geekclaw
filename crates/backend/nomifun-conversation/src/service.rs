@@ -5002,6 +5002,45 @@ impl ConversationService {
             None
         };
 
+        // Fold the AI model suggestion (a first-class field backed by the
+        // `extra.model_suggestion` column) into the same merged extra payload.
+        // This lets a suggestion be adopted/cleared in one PATCH alongside any
+        // other field. When `req.extra` was absent, start from the persisted
+        // extra so the suggestion is never lost on a suggestion-only update.
+        let merged_extra = if req.model_suggestion.is_some() {
+            let mut extra_value: serde_json::Value = merged_extra
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                .unwrap_or_else(|| {
+                    serde_json::from_str::<serde_json::Value>(&existing.extra)
+                        .unwrap_or_else(|_| serde_json::json!({}))
+                });
+            if !extra_value.is_object() {
+                extra_value = serde_json::json!({});
+            }
+            match &req.model_suggestion {
+                Some(Some(s)) => {
+                    extra_value["model_suggestion"] =
+                        serde_json::to_value(s).map_err(|error| {
+                            AppError::Internal(format!(
+                                "Failed to serialize model suggestion: {error}"
+                            ))
+                        })?;
+                }
+                Some(None) => {
+                    if let Some(obj) = extra_value.as_object_mut() {
+                        obj.remove("model_suggestion");
+                    }
+                }
+                None => {}
+            }
+            Some(serde_json::to_string(&extra_value).map_err(|error| {
+                AppError::Internal(format!("Failed to serialize merged extra: {error}"))
+            })?)
+        } else {
+            merged_extra
+        };
+
         // Handle pinned_at: set timestamp on pin, clear on unpin
         let pinned_at = req.pinned.map(|p| if p { Some(now) } else { None });
 
@@ -9271,6 +9310,159 @@ impl ConversationService {
             if turn_token.is_cancelled() {
                 // Stop owns orphan finalization and exact force-release.
                 return;
+            }
+
+            // Part A: after the agent turn completes, scan the conversation
+            // workspace for Office documents (.docx/.xlsx/.pptx) the agent
+            // produced (typically through the officecli skill) and register each
+            // new file as a downloadable `office_file` conversation artifact.
+            {
+                let ws: Option<String> = panic_runtime_registry
+                    .get_runtime(&conv_id)
+                    .map(|agent| agent.workspace().to_owned());
+                if let Some(ws) = ws {
+                    let workspace_path = Path::new(ws.as_str());
+                    if workspace_path.is_dir() {
+                    let now = now_ms();
+                    let registered: std::collections::HashSet<String> =
+                        match service.conversation_repo.list_artifacts(&conv_id).await {
+                            Ok(rows) => rows
+                                .into_iter()
+                                .filter(|r| r.kind == "office_file")
+                                .filter_map(|r| {
+                                    serde_json::from_str::<serde_json::Value>(&r.payload).ok()
+                                })
+                                .filter_map(|p| {
+                                    p.get("file_path")
+                                        .and_then(|v| v.as_str())
+                                        .map(str::to_owned)
+                                })
+                                .collect(),
+                            Err(error) => {
+                                warn!(
+                                    conversation_id = %conv_id,
+                                    error = %ErrorChain(&error),
+                                    "office artifact scan: failed to list existing artifacts"
+                                );
+                                std::collections::HashSet::new()
+                            }
+                        };
+
+                    let mut stack: Vec<std::path::PathBuf> = vec![workspace_path.to_path_buf()];
+                    while let Some(dir) = stack.pop() {
+                        let mut entries = match std::fs::read_dir(&dir) {
+                            Ok(e) => e,
+                            Err(_) => continue,
+                        };
+                        while let Some(entry) = entries.next().transpose().ok().flatten() {
+                            let path = entry.path();
+                            if path.is_dir() {
+                                // Skip the artifact store's internal copy dir so
+                                // imported duplicates are never re-registered.
+                                if entry.file_name().to_string_lossy() == "geekclaw-artifacts" {
+                                    continue;
+                                }
+                                stack.push(path);
+                                continue;
+                            }
+                            if !path.is_file() {
+                                continue;
+                            }
+                            let ext = path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .map(|e| e.to_lowercase());
+                            let is_office =
+                                matches!(ext.as_deref(), Some("docx") | Some("xlsx") | Some("pptx"));
+                            if !is_office {
+                                continue;
+                            }
+                            let fname = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+                            // Skip Office temporary lock files (~$foo.docx).
+                            if fname.starts_with("~$") {
+                                continue;
+                            }
+                            let path_str = path.to_string_lossy().to_string();
+                            if registered.contains(&path_str) {
+                                continue;
+                            }
+                            let mime_type = match ext.as_deref() {
+                                Some("docx") => {
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                }
+                                Some("xlsx") => {
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                }
+                                Some("pptx") => {
+                                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                }
+                                _ => "application/octet-stream",
+                            };
+                            let name = path
+                                .file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_else(|| path_str.clone());
+                            let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                            let id = nomifun_common::ConversationArtifactId::new().into_string();
+                            let payload = serde_json::json!({
+                                "file_path": path_str,
+                                "workspace": ws,
+                                "name": name,
+                                "extension": ext.unwrap_or_default(),
+                                "mime_type": mime_type,
+                                "size_bytes": size_bytes,
+                            });
+                            let row = nomifun_db::ConversationArtifactRow {
+                                conversation_artifact_id: id.clone(),
+                                conversation_id: conv_id.clone(),
+                                cron_job_id: None,
+                                kind: "office_file".into(),
+                                status: "active".into(),
+                                payload: payload.to_string(),
+                                created_at: now,
+                                updated_at: now,
+                            };
+                            let upserted =
+                                match service.conversation_repo.upsert_artifact(&row).await {
+                                    Ok(r) => r,
+                                    Err(error) => {
+                                        warn!(
+                                            conversation_id = %conv_id,
+                                            error = %ErrorChain(&error),
+                                            "office artifact scan: failed to persist artifact"
+                                        );
+                                        continue;
+                                    }
+                                };
+                            let response = nomifun_api_types::ConversationArtifactResponse {
+                                conversation_artifact_id: upserted.conversation_artifact_id.clone(),
+                                conversation_id: conv_id.clone(),
+                                cron_job_id: None,
+                                kind: nomifun_api_types::ConversationArtifactKind::OfficeFile,
+                                status: nomifun_api_types::ConversationArtifactStatus::Active,
+                                payload,
+                                created_at: now,
+                                updated_at: now,
+                            };
+                            match serde_json::to_value(&response) {
+                                Ok(event) => {
+                                    service.user_events.send_to_user(
+                                        user_id_owned.as_str(),
+                                        WebSocketMessage::new("conversation.artifact", event),
+                                    );
+                                }
+                                Err(error) => {
+                                    warn!(
+                                        conversation_id = %conv_id,
+                                        error = %ErrorChain(&error),
+                                        "office artifact scan: failed to serialize event"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                }
             }
 
             // Turn-final knowledge write-back is deliberately detached from

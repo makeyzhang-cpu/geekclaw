@@ -112,7 +112,10 @@ fn validate_artifact_write(artifact: &ConversationArtifactRow) -> Result<(), DbE
             artifact.conversation_id
         ))
     })?;
-    if !matches!(artifact.kind.as_str(), "cron_trigger" | "skill_suggest") {
+    if !matches!(
+        artifact.kind.as_str(),
+        "cron_trigger" | "skill_suggest" | "office_file"
+    ) {
         return Err(DbError::Conflict(format!(
             "unsupported Conversation artifact kind '{}'",
             artifact.kind
@@ -127,35 +130,43 @@ fn validate_artifact_write(artifact: &ConversationArtifactRow) -> Result<(), DbE
             artifact.status
         )));
     }
-    let cron_job_id = artifact.cron_job_id.as_deref().ok_or_else(|| {
-        DbError::Conflict(format!(
-            "{} artifact requires a cron_job_id relation",
-            artifact.kind
-        ))
-    })?;
-    CronJobId::parse(cron_job_id).map_err(|error| {
-        DbError::Conflict(format!("invalid artifact cron_job_id '{cron_job_id}': {error}"))
-    })?;
-    let payload: serde_json::Value = serde_json::from_str(&artifact.payload).map_err(|error| {
-        DbError::Conflict(format!("artifact payload must be valid JSON: {error}"))
-    })?;
-    let payload = payload.as_object().ok_or_else(|| {
-        DbError::Conflict("artifact payload must be a JSON object".into())
-    })?;
-    let payload_cron_job_id = payload
-        .get("cron_job_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| {
+    // `office_file` artifacts are produced by the agent inside the conversation
+    // workspace (e.g. through the officecli skill) and intentionally carry no
+    // cron relation, so they are exempt from the cron_job_id requirement that
+    // applies to `cron_trigger` / `skill_suggest` artifacts.
+    if artifact.kind != "office_file" {
+        let cron_job_id = artifact.cron_job_id.as_deref().ok_or_else(|| {
             DbError::Conflict(format!(
-                "{} artifact payload requires a string cron_job_id",
+                "{} artifact requires a cron_job_id relation",
                 artifact.kind
             ))
         })?;
-    if payload_cron_job_id != cron_job_id {
-        return Err(DbError::Conflict(format!(
-            "{} artifact payload cron_job_id does not match its row relation",
-            artifact.kind
-        )));
+        CronJobId::parse(cron_job_id).map_err(|error| {
+            DbError::Conflict(format!(
+                "invalid artifact cron_job_id '{cron_job_id}': {error}"
+            ))
+        })?;
+        let payload: serde_json::Value = serde_json::from_str(&artifact.payload).map_err(|error| {
+            DbError::Conflict(format!("artifact payload must be valid JSON: {error}"))
+        })?;
+        let payload = payload.as_object().ok_or_else(|| {
+            DbError::Conflict("artifact payload must be a JSON object".into())
+        })?;
+        let payload_cron_job_id = payload
+            .get("cron_job_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                DbError::Conflict(format!(
+                    "{} artifact payload requires a string cron_job_id",
+                    artifact.kind
+                ))
+            })?;
+        if payload_cron_job_id != cron_job_id {
+            return Err(DbError::Conflict(format!(
+                "{} artifact payload cron_job_id does not match its row relation",
+                artifact.kind
+            )));
+        }
     }
     Ok(())
 }

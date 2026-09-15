@@ -571,11 +571,7 @@ async fn update(deps: Arc<GatewayDeps>, ctx: CallerCtx, p: UpdateConversationPar
         name: p.name,
         pinned: p.pinned,
         model,
-        delegation_policy: None,
-        execution_model_pool: None,
-        decision_policy: None,
-        execution_template_id: None,
-        extra: None,
+        ..Default::default()
     };
     match deps.conversation_service.update(&user_id, &id, req, &deps.runtime_registry).await {
         Ok(resp) => ok(json!({

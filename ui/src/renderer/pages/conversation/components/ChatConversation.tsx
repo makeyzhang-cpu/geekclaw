@@ -6,7 +6,7 @@
 
 import type { ConversationId, SshHostId } from '@/common/types/ids';
 import { ipcBridge } from '@/common';
-import type { IConversationMcpStatus, IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
+import type { IConversationMcpStatus, IModelSuggestion, IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
 import addChatIcon from '@/renderer/assets/icons/add-chat.svg';
 import { CronJobManager } from '@/renderer/pages/cron';
 import { usePresetInfo } from '@/renderer/hooks/agent/usePresetInfo';
@@ -355,10 +355,47 @@ const NomiConversationPanel: React.FC<{
     [activeCollaborators, conversation.id],
   );
 
+  // Latest provider catalog for resolving a staged AI model suggestion to a
+  // concrete IProvider when the user adopts it.
+  const providersRef = useRef<IProvider[]>([]);
+
+  const adoptModelSuggestion = useCallback(
+    async (s: IModelSuggestion) => {
+      const provider = providersRef.current.find((p) => p.id === s.provider_id);
+      if (!provider) {
+        Message.error(t('geekclaw.chat.modelSuggestionProviderMissing'));
+        return;
+      }
+      const ok = await onSelectModel(provider, s.model);
+      if (ok) {
+        // Clear the staged suggestion once the model has been switched.
+        await ipcBridge.conversation.update.invoke({
+          conversation_id: conversation.id,
+          updates: { model_suggestion: null },
+        });
+      }
+    },
+    [conversation.id, onSelectModel, t],
+  );
+
+  const dismissModelSuggestion = useCallback(async () => {
+    await ipcBridge.conversation.update.invoke({
+      conversation_id: conversation.id,
+      updates: { model_suggestion: null },
+    });
+  }, [conversation.id]);
+
   const modelSelection = useNomiModelSelection({
     initialModel: conversation.model,
     onSelectModel,
+    modelSuggestion: conversation.model_suggestion,
+    onAdoptModelSuggestion: adoptModelSuggestion,
+    onDismissModelSuggestion: dismissModelSuggestion,
   });
+
+  useEffect(() => {
+    providersRef.current = modelSelection.providers;
+  }, [modelSelection.providers]);
 
   // Main model reference used by the collaboration selector.
   const mainModelRef = useMemo<TExecutionModelRef | null>(

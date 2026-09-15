@@ -939,6 +939,16 @@ pub(super) async fn build(
         } else {
             None
         },
+        // AI model suggestion sink: companion sessions write to the companion
+        // profile, ordinary sessions write to the conversation. Owner-only, like
+        // the other native sinks.
+        if is_instance_owner && overrides.companion {
+            deps.companion_model_sink.clone()
+        } else if is_instance_owner {
+            deps.conversation_model_sink.clone()
+        } else {
+            None
+        },
         summon_wiring,
         host_wiring,
     )

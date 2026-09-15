@@ -68,6 +68,10 @@ const useErrorRetry = (message: IMessageTips): (() => void) | null => {
   const messageList = useMessageList();
   return useMemo(() => {
     if (message.content.type !== 'error') return null;
+    // Non-retryable errors must never surface a "Retry" affordance — the
+    // failure is terminal (e.g. invalid model, auth rejection) and re-running
+    // the same request cannot succeed. Suppress before any other gating.
+    if (message.content.error?.retryable === false) return null;
     if (conversationContext?.type !== 'geekclaw') return null;
     if (conversationContext.readOnly === true) return null;
     if (conversationContext.isProcessing === true) return null;

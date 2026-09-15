@@ -15,7 +15,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use nomifun_common::{CompanionId, FigureId, ProviderWithModel, now_ms};
+use nomifun_common::{CompanionId, FigureId, ModelSuggestion, ProviderWithModel, now_ms};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
@@ -319,6 +319,9 @@ pub struct CompanionProfileConfig {
         serialize_with = "serialize_optional_model"
     )]
     pub model: Option<ProviderWithModel>,
+    /// AI 建议切换到的对话模型（首次/未确认时由后端自动采用，否则仅作提案待用户在 UI 确认）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_suggestion: Option<ModelSuggestion>,
     /// This companion's own 定时学习 loop. `#[serde(default)]` so a profile
     /// written before the settings moved off the shared config still loads; the
     /// boot migration then seeds it from the retired install-wide values.
@@ -358,6 +361,7 @@ impl CompanionProfileConfig {
             character: character.to_owned(),
             persona: PersonaConfig::default(),
             model: None,
+            model_suggestion: None,
             learn: CompanionLearnConfig::default(),
             evolve: CompanionEvolveConfig::default(),
             skills: CompanionSkillConfig::default(),

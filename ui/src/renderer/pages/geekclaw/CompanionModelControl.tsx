@@ -10,7 +10,7 @@ import { Tooltip } from '@arco-design/web-react';
 import NomiSelect from '@/renderer/components/base/NomiSelect';
 import { useProvidersQuery } from '@renderer/hooks/agent/useModelProviderList';
 import { useModelsForTask } from '@/renderer/hooks/agent/useModelsForTask';
-import type { ProviderId } from '@/common/types/ids';
+import { parseProviderId, type ProviderId } from '@/common/types/ids';
 import type { useCompanion } from './useNomi';
 import { useModelSelectorProviderLabel } from '@/renderer/hooks/agent/useModelSelectorProviderLabel';
 
@@ -148,6 +148,48 @@ const CompanionModelControl: React.FC<Props> = ({ companion, showLabel = true })
           ))}
         </NomiSelect>
       </div>
+      {profile.model_suggestion &&
+        (() => {
+          const suggestion = profile.model_suggestion;
+          const suggestionProvider = enabledProviders.find((p) => p.id === suggestion.provider_id);
+          const providerName = suggestionProvider ? providerLabel(suggestionProvider) : suggestion.provider_id;
+          return (
+            <div className='flex items-center gap-6px flex-wrap'>
+              <span
+                className='text-11px leading-tight shrink-0'
+                style={{ color: 'rgb(var(--geekclaw-6))' }}
+              >
+                🤖 {t('geekclaw.chat.modelSuggestion')}
+              </span>
+              <span className='text-11px text-t-secondary'>{t('geekclaw.chat.modelSuggestionBody', {
+                provider: providerName,
+                model: suggestion.model,
+                reason: suggestion.reason,
+              })}</span>
+              <button
+                type='button'
+                className='px-8px py-2px rd-4px text-11px cursor-pointer border-none'
+                style={{ background: 'rgb(var(--geekclaw-6))', color: '#fff' }}
+                onClick={() =>
+                  void patchCompanion({
+                    model: { provider_id: parseProviderId(suggestion.provider_id), model: suggestion.model },
+                    model_suggestion: null,
+                  })
+                }
+              >
+                {t('geekclaw.chat.modelSuggestionAdopt')}
+              </button>
+              <button
+                type='button'
+                className='px-8px py-2px rd-4px text-11px cursor-pointer'
+                style={{ background: 'transparent', color: 'rgb(var(--gray-6))', border: '1px solid rgb(var(--gray-4))' }}
+                onClick={() => void patchCompanion({ model_suggestion: null })}
+              >
+                {t('geekclaw.chat.modelSuggestionIgnore')}
+              </button>
+            </div>
+          );
+        })()}
       {hint && (
         <span className='text-11px leading-tight' style={{ color: 'rgb(var(--warning-6))' }}>
           {hint}

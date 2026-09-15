@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use geekclaw_agent::bootstrap::AgentBootstrap;
 use geekclaw_agent::companion_tools::{
     CompanionMemorySink, CompanionSkillContributor, CompanionSkillSink, CompanionSkillTool, ListRecentEventsTool,
-    RecallMemoriesTool, SaveMemoryTool,
+    RecallMemoriesTool, SaveMemoryTool, SuggestModelTool,
 };
 use geekclaw_agent::summon_tools::{
     SummonContextContributor, SummonContextSink,
@@ -25,7 +25,8 @@ use geekclaw_protocol::{ToolApprovalManager, ToolApprovalResult};
 use geekclaw_types::message::ContentBlock;
 use nomifun_api_types::{AgentModeResponse, SlashCommandItem};
 use nomifun_common::{
-    AgentKillReason, AgentType, AppError, Confirmation, ConversationStatus, ErrorChain, TimestampMs, now_ms,
+    AgentKillReason, AgentType, AppError, Confirmation, ConversationStatus, ErrorChain, ModelSuggestionSink,
+    TimestampMs, now_ms,
 };
 use serde_json::Value;
 use tokio::sync::{Mutex, Notify, broadcast};
@@ -403,6 +404,7 @@ impl GeekClawAgentManager {
             knowledge_writeback_staged,
             companion_skill_sink,
             None,
+            None,
             NomiHostWiring::default(),
         )
         .await
@@ -423,6 +425,7 @@ impl GeekClawAgentManager {
         knowledge_write_bases: Vec<(nomifun_common::KnowledgeBaseId, String)>,
         knowledge_writeback_staged: bool,
         companion_skill_sink: Option<Arc<dyn CompanionSkillSink>>,
+        model_suggestion_sink: Option<Arc<dyn ModelSuggestionSink>>,
         summon_wiring: Option<NomiSummonWiring>,
         host_wiring: NomiHostWiring,
     ) -> Result<Self, AppError> {
@@ -570,6 +573,15 @@ impl GeekClawAgentManager {
         if companion_skill_sink.is_some() {
             config.tools.allow_list.push("companion_skill".to_owned());
         }
+        // AI model suggestion tool (design §模型自检): registered for every
+        // GeekClaw session that has a `ModelSuggestionSink` (companion profile
+        // OR ordinary conversation). Allow-listed past the approval gate because
+        // it only writes a model proposal / adopts the first one — no host
+        // action. Must be set BEFORE bootstrap so it reaches the engine's
+        // allow_list. Registration of the tool itself happens after build().
+        if model_suggestion_sink.is_some() {
+            config.tools.allow_list.push("suggest_model".to_owned());
+        }
 
         // The native knowledge_write (回血) tool writes only into the user's own
         // bound knowledge base (DIRECT → base body; STAGED → review inbox) via
@@ -705,6 +717,17 @@ impl GeekClawAgentManager {
                 .registry_mut()
                 .register(Box::new(ListRecentEventsTool::new(sink)));
             debug!(conversation_id = %conversation_id, "Registered companion memory tools");
+        }
+        // AI model suggestion tool (design §模型自检): lets the agent propose a
+        // better-fitting model for THIS session. The sink routes to the right
+        // authoritative store — companion profile (auto-adopt when unset) or
+        // ordinary conversation `extra` (staged proposal). Present for every
+        // GeekClaw session that carries a `ModelSuggestionSink`.
+        if let Some(sink) = model_suggestion_sink {
+            engine
+                .registry_mut()
+                .register(Box::new(SuggestModelTool::new(sink, conversation_id.clone())));
+            debug!(conversation_id = %conversation_id, "Registered suggest_model tool");
         }
         // Summoned-companion session (spec §设计 B2/B3): read-only recall over
         // the summoned companion's memories, confirmation-style propose, and

@@ -16,7 +16,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nomifun_ai_agent::CompanionMemorySink;
 use nomifun_api_types::CreateConversationRequest;
-use nomifun_common::{AppError, ProviderWithModel};
+use nomifun_common::{
+    AppError, CompanionId, ModelSuggestion, ModelSuggestionSink, ProviderWithModel, now_ms,
+};
 use nomifun_conversation::ConversationService;
 
 use crate::collector::{self, SharedConfig, SharedEventStoreLock};
@@ -998,18 +1000,12 @@ impl CompanionThreads {
                 self.authoritative_user_id.as_ref(),
                 conversation_id,
                 nomifun_api_types::UpdateConversationRequest {
-                    name: None,
-                    pinned: None,
                     model: Some(ProviderWithModel {
                         provider_id: model.provider_id.clone(),
                         model: model.model.clone(),
                         use_model: model.use_model.clone(),
                     }),
-                    delegation_policy: None,
-                    execution_model_pool: None,
-                    decision_policy: None,
-                    execution_template_id: None,
-                    extra: None,
+                    ..Default::default()
                 },
                 &self.runtime_registry,
             )
@@ -1033,13 +1029,6 @@ impl CompanionThreads {
                 self.authoritative_user_id.as_ref(),
                 conversation_id,
                 nomifun_api_types::UpdateConversationRequest {
-                    name: None,
-                    pinned: None,
-                    model: None,
-                    delegation_policy: None,
-                    execution_model_pool: None,
-                    decision_policy: None,
-                    execution_template_id: None,
                     extra: Some(serde_json::json!({
                         "system_prompt": system_prompt,
                         "preset_instructions_embedded": true,
@@ -1050,6 +1039,7 @@ impl CompanionThreads {
                         "exclude_auto_inject_skills": snapshot.excluded_auto_skills.clone(),
                         "preset_knowledge_binding": true,
                     })),
+                    ..Default::default()
                 },
                 &self.runtime_registry,
             )
@@ -1219,6 +1209,75 @@ impl CompanionMemorySink for CompanionStoreSink {
             out.push_str(&format!("- [{ts}|{}] {brief}\n", e.source));
         }
         Ok(out)
+    }
+}
+
+#[async_trait]
+impl ModelSuggestionSink for CompanionStoreSink {
+    async fn suggest_model(
+        &self,
+        conversation_id: &str,
+        provider_id: &str,
+        model: &str,
+        reason: &str,
+    ) -> Result<String, String> {
+        // Resolve the owning companion (mirrors the memory owner chain).
+        let Some(owner) = self.owner_of(conversation_id).await else {
+            return Err("还没有伙伴，无法建议模型：请先创建一个伙伴。".into());
+        };
+        let companion_id = match CompanionId::try_from(owner.as_str()) {
+            Ok(id) => id,
+            Err(e) => return Err(format!("无法解析伙伴 id：{e}")),
+        };
+        // Validate the proposed model shape before touching anything.
+        let proposed = ProviderWithModel {
+            provider_id: provider_id.to_owned(),
+            model: model.to_owned(),
+            use_model: None,
+        };
+        if let Err(e) = proposed.validate() {
+            return Err(format!("建议的模型格式无效：{e}"));
+        }
+        let profile = self
+            .registry
+            .get(&companion_id.to_string())
+            .await
+            .ok_or_else(|| format!("找不到伙伴 {companion_id}"))?;
+        let suggestion = ModelSuggestion {
+            provider_id: provider_id.to_owned(),
+            model: model.to_owned(),
+            reason: reason.to_owned(),
+            suggested_at: now_ms(),
+        };
+        // First-time / unconfirmed: authoritative model is unset → auto-apply.
+        if profile.model.is_none() {
+            let patch = serde_json::json!({
+                "model": { "provider_id": provider_id, "model": model },
+                "model_suggestion": null,
+            });
+            let updated = self
+                .registry
+                .patch(&companion_id.to_string(), patch)
+                .await
+                .map_err(|e| e.to_string())?;
+            self.emitter
+                .emit_companion_updated(&updated.companion_id, &updated);
+            return Ok(format!(
+                "已自动采用你推荐的模型 {provider_id}/{model}（首次设定）。理由：{reason}"
+            ));
+        }
+        // Already confirmed a model → stage the proposal for the user to confirm.
+        let patch = serde_json::json!({ "model_suggestion": suggestion });
+        let updated = self
+            .registry
+            .patch(&companion_id.to_string(), patch)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.emitter
+            .emit_companion_updated(&updated.companion_id, &updated);
+        Ok(format!(
+            "已记录你的模型建议 {provider_id}/{model}，等待主人在员工设置中确认。理由：{reason}"
+        ))
     }
 }
 

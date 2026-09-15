@@ -38,6 +38,7 @@ import MessageToolCall from './components/MessageToolCall';
 import MessageToolGroup from './components/MessageToolGroup';
 import { isSuccessfulWriteFileResult } from './components/toolGroupArtifactVisibility';
 import MessageCronTrigger from './components/MessageCronTrigger';
+import MessageOfficeFileCard from './components/MessageOfficeFileCard';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
@@ -927,6 +928,7 @@ const MessageList: React.FC<{
       .filter((artifact) => {
         if (artifact.kind === 'cron_trigger') return artifact.status === 'active';
         if (artifact.kind === 'skill_suggest') return artifact.status === 'pending';
+        if (artifact.kind === 'office_file') return artifact.status === 'active';
         return false;
       })
       .map<IArtifactVO>((artifact) => ({
@@ -1438,6 +1440,8 @@ const MessageList: React.FC<{
         >
           {item.artifact.kind === 'cron_trigger' ? (
             <MessageCronTrigger artifact={item.artifact} />
+          ) : item.artifact.kind === 'office_file' ? (
+            <MessageOfficeFileCard artifact={item.artifact} />
           ) : (
             <MessageSkillSuggest artifact={item.artifact} />
           )}

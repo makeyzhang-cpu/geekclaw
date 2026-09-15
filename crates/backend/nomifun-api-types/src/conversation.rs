@@ -1,6 +1,7 @@
 use nomifun_common::{
     AgentType, ConversationSource, ConversationStatus, DecisionPolicy, DelegationPolicy,
-    MessagePosition, MessageStatus, MessageType, PaginatedResult, ProviderWithModel, TimestampMs,
+    MessagePosition, MessageStatus, MessageType, ModelSuggestion, PaginatedResult, ProviderWithModel,
+    TimestampMs,
 };
 use serde::{Deserialize, Serialize};
 
@@ -68,7 +69,7 @@ pub struct CreateConversationRequest {
 ///
 /// All fields optional — only supplied fields are applied.
 /// `extra` uses merge semantics (patch, not replace).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateConversationRequest {
     pub name: Option<String>,
@@ -87,6 +88,12 @@ pub struct UpdateConversationRequest {
         deserialize_with = "deserialize_optional_execution_template_patch"
     )]
     pub execution_template_id: Option<Option<String>>,
+    /// AI-proposed model swap staged for the user to confirm. `None` leaves the
+    /// stored suggestion untouched; `Some(None)` clears it; `Some(Some(s))`
+    /// writes `s` into the `extra.model_suggestion` column (the backend-owned
+    /// storage for both geekclaw and companion conversations).
+    #[serde(default, deserialize_with = "double_option")]
+    pub model_suggestion: Option<Option<ModelSuggestion>>,
     pub extra: Option<serde_json::Value>,
 }
 
@@ -294,6 +301,11 @@ pub struct ConversationResponse {
         deserialize_with = "crate::serde_util::deserialize_optional_provider_with_model"
     )]
     pub model: Option<ProviderWithModel>,
+    /// AI-proposed model swap staged for the user to confirm in the UI. `None`
+    /// when no suggestion is pending. Auto-adopted suggestions are written
+    /// straight to `model` (above) and never appear here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_suggestion: Option<ModelSuggestion>,
     pub status: ConversationStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<ConversationRuntimeSummary>,
@@ -387,6 +399,9 @@ pub struct ActiveCountResponse {
 pub enum ConversationArtifactKind {
     CronTrigger,
     SkillSuggest,
+    /// Office document (.docx/.xlsx/.pptx) produced by the agent inside the
+    /// conversation workspace — rendered as a downloadable/previewable card.
+    OfficeFile,
 }
 
 /// Durable artifact state exposed to the client.
@@ -932,6 +947,7 @@ mod tests {
                 model: "m1".into(),
                 use_model: None,
             }),
+            model_suggestion: None,
             status: ConversationStatus::Pending,
             runtime: None,
             source: Some(ConversationSource::GeekClaw),
@@ -988,6 +1004,7 @@ mod tests {
             name: "Test".into(),
             r#type: AgentType::Acp,
             model: None,
+            model_suggestion: None,
             status: ConversationStatus::Pending,
             runtime: None,
             source: None,
@@ -1033,6 +1050,7 @@ mod tests {
             name: "Round".into(),
             r#type: AgentType::Acp,
             model: None,
+            model_suggestion: None,
             status: ConversationStatus::Running,
             runtime: None,
             source: None,
@@ -1184,7 +1202,8 @@ mod tests {
                 name: "Code Review".into(),
                 r#type: AgentType::Acp,
                 model: None,
-                status: ConversationStatus::Finished,
+                model_suggestion: None,
+            status: ConversationStatus::Finished,
                 runtime: None,
                 source: None,
                 pinned: false,
@@ -1234,7 +1253,8 @@ mod tests {
                 name: "Search Test".into(),
                 r#type: AgentType::Acp,
                 model: None,
-                status: ConversationStatus::Finished,
+                model_suggestion: None,
+            status: ConversationStatus::Finished,
                 runtime: None,
                 source: None,
                 pinned: false,
@@ -1314,7 +1334,8 @@ mod tests {
                 name: "Test".into(),
                 r#type: AgentType::Acp,
                 model: None,
-                status: ConversationStatus::Pending,
+                model_suggestion: None,
+            status: ConversationStatus::Pending,
                 runtime: None,
                 source: None,
                 pinned: false,
@@ -1368,7 +1389,8 @@ mod tests {
                     name: "Conv".into(),
                     r#type: AgentType::Acp,
                     model: None,
-                    status: ConversationStatus::Finished,
+                    model_suggestion: None,
+            status: ConversationStatus::Finished,
                     runtime: None,
                     source: None,
                     pinned: false,

@@ -10,7 +10,6 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Extension, Router};
 use base64::Engine as _;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use dashmap::DashMap;
@@ -30,7 +29,6 @@ use nomifun_common::{AppError, now_ms};
 use nomifun_common::constants::SESSION_MAX_AGE_SECONDS;
 use nomifun_db::{
     DbError, ICloudProviderRepository, IExpertRepository, IProviderRepository, IUserRepository,
-    SqliteCloudProviderRepository,
     models::{ModelPricing, Order, SubscriptionPlan, User},
 };
 
@@ -2799,6 +2797,7 @@ async fn oauth_geekclaw_exchange_handler(
         // Tolerant parse: accept either the cloud's custom `{success, token}` shape OR a
         // standard OAuth2 `{access_token, token_type, expires_in}` response.
         #[derive(Deserialize)]
+        #[allow(dead_code)]
         struct CloudTokenResp {
             #[serde(default)]
             success: bool,
@@ -3347,6 +3346,7 @@ const KV_AVATAR_LIPSYNC_STYLE: &str = "avatar_lipsync_style";
 
 /// Default 火山引擎 TTS resource id (unidirectional stream). Override in admin
 /// if 火山引擎控制台 assigns a different one.
+#[allow(dead_code)]
 const VOLC_TTS_DEFAULT_RESOURCE_ID: &str = "volc.service_type.10029";
 const VOLC_TTS_DEFAULT_MODEL: &str = "seed-tts-2.0-standard";
 const VOLC_TTS_BASE_URL: &str = "https://openspeech.bytedance.com";

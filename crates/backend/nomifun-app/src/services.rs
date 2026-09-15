@@ -3006,6 +3006,14 @@ impl AppServices {
             // Companion self-evolved skill auto-use (`companion_skill` tool + per-turn
             // when_to_use injection). Only registered for companion sessions (factory gates).
             companion_skill_sink: Some(companion_service.skill_sink()),
+            // AI model suggestion sink for companion sessions: writes to the
+            // companion profile (auto-adopt when unset, else stage a proposal).
+            companion_model_sink: Some(companion_service.model_suggestion_sink()),
+            // AI model suggestion sink for ordinary conversations: writes to
+            // `conversation.model` (auto-adopt) or `extra.model_suggestion`.
+            conversation_model_sink: Some(Arc::new(
+                nomifun_conversation::ConversationModelSuggestionSink::new(conversation_repo.clone()),
+            )),
             // Live knowledge_search sink: registers the retrieval tool over the
             // shared KnowledgeService. The field's declared type
             // `Option<Arc<dyn KnowledgeRetrievalSink>>` drives the unsized

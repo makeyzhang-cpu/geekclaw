@@ -7,6 +7,7 @@ mod failover_seam;
 mod message_persistence;
 mod orphan_recovery;
 pub mod model_failover;
+pub mod model_suggestion_sink;
 pub mod relay_error_code;
 pub mod response_middleware;
 pub mod routes;
@@ -38,6 +39,7 @@ pub use service::{
     DeliveryNotifyRegistration, IdempotentMessageDelivery, IdmmTurnScope,
     PublicTurnDeliveryState, TurnCompletionObserver,
 };
+pub use model_suggestion_sink::ConversationModelSuggestionSink;
 pub use state::ConversationRouterState;
 
 #[cfg(test)]

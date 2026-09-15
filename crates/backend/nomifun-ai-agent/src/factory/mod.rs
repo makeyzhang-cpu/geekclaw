@@ -207,6 +207,15 @@ pub struct AgentFactoryDeps {
     /// (`companion_skill` tool + per-turn when_to_use ContextContributor). Only
     /// registered for companion sessions (`extra.companion_session` true).
     pub companion_skill_sink: Option<Arc<dyn CompanionSkillSink>>,
+    /// Sink that persists an AI model suggestion for a companion session.
+    /// Routes to the companion profile (auto-adopt when its `model` is unset,
+    /// else stage a proposal in `model_suggestion`). Mirrors
+    /// `conversation_model_sink` for non-companion sessions.
+    pub companion_model_sink: Option<Arc<dyn nomifun_common::ModelSuggestionSink>>,
+    /// Sink that persists an AI model suggestion for an ordinary (non-companion)
+    /// GeekClaw conversation. Routes to `conversation.model` (auto-adopt when
+    /// unset) or `conversation.extra.model_suggestion` (staged proposal).
+    pub conversation_model_sink: Option<Arc<dyn nomifun_common::ModelSuggestionSink>>,
     /// Optional sink enabling the geekclaw native `knowledge_search` tool. When
     /// `Some` AND the session has bound knowledge bases, the tool is registered
     /// into the in-process engine. `None` (standalone) leaves it unregistered.
