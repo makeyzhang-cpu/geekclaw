@@ -30,6 +30,8 @@ import {
   SiderUserManagementEntry,
   SiderWorkCommunityEntry,
   SiderForeignTradeEntry,
+  SiderTradeFollowUpEntry,
+  SiderTradeKnowledgeEntry,
 } from './SiderNav';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import SiderThemeControl from './SiderThemeControl';
@@ -50,7 +52,7 @@ interface SiderProps {
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`):
  *   AI通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
- *   AI出海智能体 (B2B外贸运营工作台 / B2B外贸业务工作台),
+ *   AI出海智能体 (B2B外贸运营工作台 / B2B外贸业务工作台 / B2B外贸跟单工作台 / 外贸人知识库),
  *   AI跨境电商智能体 (A2A跨境电商 / OPC分销工作台 / AI创艺工作台),
  *   AI营销智能体 (国内GEO AI营销),
  *   助理能力仓 (AI客服 / 知识库 / 数字资产库 / 系统设置).
@@ -90,6 +92,8 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleWorkCommunityClick = () => navTo('/marketing-ops');
   const handleGeoDomesticClick = () => navTo('/geo-domestic');
   const handleForeignTradeClick = () => navTo('/foreign-trade');
+  const handleTradeFollowUpClick = () => navTo('/foreign-trade-ops');
+  const handleTradeKnowledgeClick = () => navTo('/trade-knowledge');
   const handleRequirementsClick = () => navTo('/a2a-ecommerce');
   const handleOpcClick = () => navTo('/opc-dist');
   const handleKnowledgeClick = () => navTo('/knowledge');
@@ -203,6 +207,23 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleForeignTradeClick}
+            />
+            {/* B2B外贸跟单工作台 — 19 种外贸单证生成 + 订单跟单台账，
+                单证引擎内置（离线可用），不依赖任何外部站点。 */}
+            <SiderTradeFollowUpEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/foreign-trade-ops')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleTradeFollowUpClick}
+            />
+            {/* 外贸人知识库 — 随包内置的外贸业务表格 / 文档模板库：在线查阅 + 直接下载。 */}
+            <SiderTradeKnowledgeEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/trade-knowledge')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleTradeKnowledgeClick}
             />
             {/* AI跨境电商智能体 — 跨境电商平台 / 全球分销 / AI 创艺产能 */}
             <SiderSectionHeader label={t('common.siderSection.crossBorder')} collapsed={collapsed} />

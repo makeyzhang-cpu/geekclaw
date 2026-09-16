@@ -1938,9 +1938,21 @@ async fn set_plan_handler(
     ensure_admin(&current_user)?;
     let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
     let plan = req.plan.trim();
+    // Allowed values are the storefront tiers from《GeekClawAI办公盒子各版本服务表》
+    // (see `ui/src/renderer/pages/pricing/planCatalog.ts`) plus:
+    //   - "free": the "no paid subscription" sentinel every new user starts on —
+    //     it is NOT a purchasable tier and must stay assignable.
+    //   - "pro" / "team": legacy tiers, kept so existing users can still be set
+    //     back to their historical plan after an admin experiment.
     match plan {
-        "free" | "pro" | "team" => {}
-        _ => return Err(AppError::BadRequest("Plan must be 'free', 'pro', or 'team'".into())),
+        "free" | "basic" | "geo" | "trade-biz" | "trade-ops" | "trade-flagship" | "pro" | "team" => {}
+        _ => {
+            return Err(AppError::BadRequest(
+                "Plan must be one of 'free', 'basic', 'geo', 'trade-biz', 'trade-ops', \
+                 'trade-flagship', 'pro', 'team'"
+                    .into(),
+            ))
+        }
     }
     state
         .user_repo

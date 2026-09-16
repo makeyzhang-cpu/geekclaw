@@ -2,6 +2,18 @@
  * @license
  * Copyright 2025-2026 GeekClaw (geekclaw.com)
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * 套餐与定价 —— 依据《GeekClawAI办公盒子各版本服务表》实现。
+ *
+ * 页面结构（自上而下）：
+ *   1. 端侧算力盒子（所有档位共用的硬件前提 + 押金政策）
+ *   2. 五档价格卡（月付 / 年付切换，年价取文档原值，不按折扣公式推算）
+ *   3. 功能对比矩阵（保留文档的 √ / 开发中 / — 三态与三级合并单元格）
+ *   4. 模型按量计费表 + 常见问题
+ *
+ * 定价真源是 `planCatalog.ts`（前端静态目录，与文档逐项对齐）。云端
+ * `GET /api/store/plans` 只用来把档位解析成下单所需的 `plan_id`——**不再**
+ * 用云端返回的数据替换档位或价格，否则后台残留的旧档位会把页面顶掉。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,14 +31,22 @@ import type {
   OrderStatusResponse,
   SubscribeRequest,
 } from '@/common/types/billing/billingTypes';
-import { BRAND, PLAN_TIERS, type PlanId } from './planCatalog';
+import {
+  BRAND,
+  HARDWARE_DEPOSIT_CNY,
+  PLAN_FEATURE_ROWS,
+  PLAN_TIERS,
+  computeMatrixSpans,
+  findTier,
+  yearlyPerMonth,
+  yearlySaving,
+  type FeatureState,
+  type PlanId,
+} from './planCatalog';
 import packageInfo from '../../../../package.json';
 import './index.css';
 
-/**
- * A plan as returned by the central cloud backend via the desktop proxy
- * `GET /api/store/plans` (which relays https://www.geekclaw.ai/admin data).
- */
+/** A plan row as returned by the cloud storefront (`GET /api/store/plans`). */
 interface StorePlan {
   plan_id: string;
   name: string;
@@ -42,87 +62,7 @@ interface StorePlansResponse {
   plans: StorePlan[];
 }
 
-/**
- * Unified card model consumed by the render loop. It is produced either from
- * the cloud-synced `StorePlan[]` (fromCloud = true) or from the built-in
- * `PLAN_TIERS` fallback (fromCloud = false) when the cloud is unreachable, so
- * the page is never blank.
- */
-interface DisplayPlan {
-  id: string;
-  tierKey: PlanId;
-  /** Cloud display name; empty => resolve via i18n `pricing.tier.<tierKey>`. */
-  name: string;
-  priceMonthly: number;
-  isFree: boolean;
-  recommended: boolean;
-  credits: number;
-  quotaKey: PlanId;
-  featureKeys: string[];
-  /** When true, `featureKeys` are literal strings (not i18n keys). */
-  featureIsRaw: boolean;
-  description?: string;
-  fromCloud: boolean;
-  /**
-   * The backend plan identifier (`subscription_plans.backend_plan`).
-   * Used to decide which card is the user's current plan, because
-   * `BillingBalance.plan` is stored as `backend_plan`, not as the frontend
-   * tier key or cloud `plan_id`.
-   */
-  backendPlan: string;
-}
-
-/** Map cloud plans into DisplayPlan[]. Falls back to the built-in catalog. */
-function toDisplayPlans(store: StorePlan[] | null): DisplayPlan[] {
-  const knownTierIds = new Set<PlanId>(['free', 'pro', 'team']);
-  if (!store || store.length === 0) {
-    return PLAN_TIERS.map((tier) => ({
-      id: tier.id,
-      tierKey: tier.tierKey,
-      name: '',
-      priceMonthly: tier.priceMonthly,
-      isFree: tier.priceMonthly === 0,
-      recommended: tier.recommended,
-      credits: -1,
-      quotaKey: tier.quotaKey,
-      featureKeys: tier.featureKeys,
-      featureIsRaw: false,
-      description: undefined,
-      fromCloud: false,
-      backendPlan: tier.id,
-    }));
-  }
-  return store
-    .slice()
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((sp): DisplayPlan => {
-      const base = PLAN_TIERS.find((t) => t.id === sp.backend_plan);
-      const isFree = sp.price_fen === 0;
-      // Preserve the real backend plan for current-plan matching. Only fall
-      // back to the built-in tier key for i18n/feature lookup; unknown
-      // backend_plan values stay distinct so they don't all collapse to 'pro'.
-      const tierKey = (base?.tierKey ??
-        (knownTierIds.has(sp.backend_plan as PlanId)
-          ? (sp.backend_plan as PlanId)
-          : 'pro')) as PlanId;
-      return {
-        id: sp.plan_id,
-        tierKey,
-        name: sp.name,
-        priceMonthly: sp.price_fen / 100,
-        isFree,
-        recommended: base?.recommended ?? false,
-        credits: sp.credits,
-        quotaKey: (base?.quotaKey ?? 'pro') as PlanId,
-        featureKeys: base ? base.featureKeys : [],
-        featureIsRaw: !base,
-        description: sp.description,
-        fromCloud: true,
-        backendPlan: sp.backend_plan,
-      };
-    });
-}
-
+type BillingCycle = 'monthly' | 'yearly';
 type QrChannel = 'wechat' | 'alipay';
 
 interface QrOrder {
@@ -141,6 +81,26 @@ const CHANNEL_LABELS: Record<QrChannel, string> = {
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes, matching frontend polling policy
 
+/** 三态徽标：√ / 开发中 / — */
+const FeatureMark: React.FC<{ state: FeatureState }> = ({ state }) => {
+  const { t } = useTranslation();
+  if (state === 'dev') {
+    return <span className='pricing-matrix-dev'>{t('pricing.matrix.state.dev')}</span>;
+  }
+  if (state === true) {
+    return (
+      <span className='pricing-matrix-yes' aria-label='included'>
+        ✓
+      </span>
+    );
+  }
+  return (
+    <span className='pricing-matrix-no' aria-label='not included'>
+      {t('pricing.matrix.state.no')}
+    </span>
+  );
+};
+
 const PricingPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -151,6 +111,7 @@ const PricingPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [cycle, setCycle] = useState<BillingCycle>('yearly');
   const cloud = useCloudAuth();
 
   // QR checkout modal state
@@ -158,8 +119,6 @@ const PricingPage: React.FC = () => {
   const [qrChannel, setQrChannel] = useState<QrChannel>('wechat');
   const [qrStatus, setQrStatus] = useState<'pending' | 'paid' | 'failed' | null>(null);
   const [qrStatusText, setQrStatusText] = useState<string>('等待扫码支付…');
-  // Track which plan is currently being subscribed to, so only that card
-  // shows a loading state instead of all upgrade buttons flashing together.
   const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
@@ -171,8 +130,6 @@ const PricingPage: React.FC = () => {
       }
       setError(null);
       setModelsError(null);
-      // Billing info: when signed into a cloud account, read balance from the
-      // cloud backend; otherwise fall back to the local desktop ledger.
       const billingMePath = cloud.state.authenticated ? '/api/store/me' : '/api/billing/me';
       try {
         const [me, pricingRes] = await Promise.all([
@@ -182,15 +139,11 @@ const PricingPage: React.FC = () => {
         setBalance(me);
         setPrices(pricingRes.prices ?? []);
       } catch (e) {
-        // Distinguish the two failures so the cards still render even if one
-        // endpoint is unavailable.
         console.error('[pricing] load failed', e);
         setError(t('pricing.errors.loadFailed'));
         setModelsError(t('pricing.errors.modelsFailed'));
       }
-      // Cloud-synced store plans (admin console). Independent of the above; on
-      // any failure we fall back to the built-in catalog so the page is never
-      // blank.
+      // 云端档位：只作为「下单用的 plan_id」来源，不参与展示。
       try {
         const store = await httpRequest<StorePlansResponse>('GET', '/api/store/plans');
         if (store && store.success && Array.isArray(store.plans) && store.plans.length > 0) {
@@ -199,7 +152,7 @@ const PricingPage: React.FC = () => {
           setStorePlans(null);
         }
       } catch (e) {
-        console.warn('[pricing] store plans unavailable, using fallback catalog', e);
+        console.warn('[pricing] store plans unavailable', e);
         setStorePlans(null);
       } finally {
         setLoading(false);
@@ -212,7 +165,6 @@ const PricingPage: React.FC = () => {
     void load();
   }, [load]);
 
-  // Clean up polling on unmount.
   useEffect(() => {
     return () => {
       if (pollTimerRef.current) {
@@ -221,25 +173,42 @@ const PricingPage: React.FC = () => {
     };
   }, []);
 
-  const displayPlans = useMemo(() => toDisplayPlans(storePlans), [storePlans]);
-  const syncedFromCloud = storePlans !== null;
+  /**
+   * 云端档位 → 下单 plan_id 的映射表。
+   *
+   * 匹配口径：`backend_plan` 优先，其次 `plan_id`。两边都对不上时该档位没有
+   * 云端配置，下单会退回使用档位自身 id（后端会给出明确报错，比静默失败好）。
+   */
+  const cloudPlanIdByTier = useMemo(() => {
+    const map = new Map<PlanId, string>();
+    if (!storePlans) return map;
+    for (const sp of storePlans) {
+      const key = (sp.backend_plan || sp.plan_id || '').trim();
+      const tier = findTier(key);
+      if (tier && !map.has(tier.id)) {
+        map.set(tier.id, sp.plan_id);
+      }
+    }
+    if (storePlans) {
+      console.log(
+        '[pricing] cloud plan mapping=%o (store plans=%o)',
+        Object.fromEntries(map),
+        storePlans.map((p) => `${p.plan_id}/${p.backend_plan}`)
+      );
+    }
+    return map;
+  }, [storePlans]);
 
-  // `balance.plan` is the active `backend_plan` string from the cloud/local
-  // ledger. Use it as-is; do NOT fall back to 'free' when missing, because an
-  // empty/missing plan must not accidentally mark every card as current.
+  const matrixSpans = useMemo(() => computeMatrixSpans(PLAN_FEATURE_ROWS), []);
+
+  /** `balance.plan` 存的是 `backend_plan`；用它判断哪张卡是「当前档位」。 */
   const currentPlan = balance?.plan || null;
 
-  // Diagnostic logging so we can verify which plan the backend reports and
-  // which cards are being rendered, without needing a screenshot of devtools.
   useEffect(() => {
-    if (displayPlans.length > 0) {
-      console.log('[pricing] currentPlan=%s, plans=%o', currentPlan, displayPlans.map((d) => ({
-        id: d.id,
-        backendPlan: d.backendPlan,
-        tierKey: d.tierKey,
-      })));
+    if (PLAN_TIERS.length > 0) {
+      console.log('[pricing] currentPlan=%s tiers=%o', currentPlan, PLAN_TIERS.map((x) => x.id));
     }
-  }, [currentPlan, displayPlans]);
+  }, [currentPlan]);
 
   const faqItems = useMemo(
     () =>
@@ -263,8 +232,6 @@ const PricingPage: React.FC = () => {
     setQrOrder(null);
     setQrStatus(null);
     setQrStatusText('');
-    // Optionally cancel an unpaid order so it doesn't sit in `created`.
-    // Cloud-authenticated purchases live in the cloud backend; otherwise local.
     if (qrOrder && qrStatus !== 'paid') {
       const base = cloud.state.authenticated ? '/api/store' : '/api/billing';
       httpRequest('POST', `${base}/order/${encodeURIComponent(qrOrder.reqsn)}/cancel`).catch(() => {});
@@ -275,7 +242,6 @@ const PricingPage: React.FC = () => {
     async (reqsn: string): Promise<boolean> => {
       try {
         const base = cloud.state.authenticated ? '/api/store' : '/api/billing';
-        // `httpRequest` unwraps the envelope; `res` is the `OrderStatusResponse`.
         const res = await httpRequest<OrderStatusResponse>(
           'GET',
           `${base}/order/${encodeURIComponent(reqsn)}`
@@ -286,15 +252,13 @@ const PricingPage: React.FC = () => {
           setQrStatus('paid');
           setQrStatusText('支付成功，套餐已开通！');
           stopPolling();
-          void load({ silent: true }); // refresh balance / plan without flashing a loading overlay
+          void load({ silent: true });
           Message.success('支付成功，套餐已开通');
           return true;
         }
         if (status === 'failed' || status === 'cancelled') {
-          // Do NOT treat a transient failed/cancelled as final: Allinpay may
-          // report 3088/3999 briefly before the async notify settles the order
-          // to paid. Keep polling until the global timeout so the UI catches
-          // the real paid state.
+          // 不把瞬时 failed/cancelled 当终态：Allinpay 可能先回 3088/3999，
+          // 异步 notify 落定后才转 paid，继续轮询到全局超时。
           setQrStatus('pending');
           setQrStatusText('支付结果确认中，请稍候…');
           return false;
@@ -334,8 +298,6 @@ const PricingPage: React.FC = () => {
     stopPolling();
     const done = await queryOrderOnce(qrOrder.reqsn);
     if (!done) {
-      // Restart the polling window from now so the user gets a fresh timeout
-      // after explicitly asking for a refresh.
       pollStartRef.current = Date.now();
       pollTimerRef.current = setTimeout(() => {
         void pollOrderStatus(qrOrder.reqsn);
@@ -344,30 +306,22 @@ const PricingPage: React.FC = () => {
   }, [qrOrder, queryOrderOnce, pollOrderStatus, stopPolling]);
 
   const handleSubscribe = useCallback(
-    async (planId: string) => {
+    async (tierId: PlanId) => {
       if (!cloud.state.authenticated) {
         await cloud.login();
         return;
       }
-      setSubscribingPlanId(planId);
+      // 云端配了对应档位就用云端的 plan_id，否则退回档位 id 让后端明确报错。
+      const planId = cloudPlanIdByTier.get(tierId) ?? tierId;
+      setSubscribingPlanId(tierId);
       setQrStatus('pending');
       setQrStatusText('正在创建订单…');
       try {
-        // Cloud-authenticated purchases are handled by the cloud backend,
-        // which owns the plan catalog and payment gateway configuration.
-        // `httpRequest` already strips the `{ success, data }` envelope and
-        // returns the inner `SubscribeResponse`, so `res` is the order payload
-        // directly — there is no `.success`/`.data` wrapper to unwrap here.
         const res = await httpRequest<SubscribeResponse>('POST', '/api/store/subscribe', {
           plan_id: planId,
-          period: 'monthly',
+          period: cycle,
         } as SubscribeRequest);
         if (!res || !res.reqsn) {
-          // `httpRequest` normally strips the `{ success, data }` envelope and
-          // returns the inner payload. The only way we land here is either a
-          // genuine backend failure or an error envelope returned inside a 200
-          // (no `data` wrapper) — in both cases surface the real message
-          // instead of swallowing it as a generic "创建订单失败".
           const backendMsg =
             (typeof res?.error === 'string' && res.error) ||
             (typeof res?.message === 'string' && res.message) ||
@@ -393,7 +347,7 @@ const PricingPage: React.FC = () => {
         setSubscribingPlanId(null);
       }
     },
-    [cloud.state.authenticated, cloud.login, pollOrderStatus]
+    [cloud.state.authenticated, cloud.login, pollOrderStatus, cycle, cloudPlanIdByTier]
   );
 
   const currentQrString = qrOrder ? qrOrder.payinfo[qrChannel] || '' : '';
@@ -412,7 +366,10 @@ const PricingPage: React.FC = () => {
           {cloud.state.authenticated ? (
             <div className='pricing-cloud-user'>
               <span className='pricing-cloud-name'>
-                {cloud.state.user?.name || cloud.state.user?.username || cloud.state.user?.email || '云端账号'}
+                {cloud.state.user?.name ||
+                  cloud.state.user?.username ||
+                  cloud.state.user?.email ||
+                  '云端账号'}
               </span>
               <button type='button' className='pricing-text-btn' onClick={() => void cloud.logout()}>
                 退出云端
@@ -441,23 +398,83 @@ const PricingPage: React.FC = () => {
           </div>
         )}
 
-        <section className='pricing-cards'>
-          {displayPlans.map((dp) => {
-            // `BillingBalance.plan` stores the active subscription's
-            // `backend_plan`, so match against that first; also accept the cloud
-            // `plan_id` as a fallback for older/local ledgers.
-            // Only mark a card as current when the ledger reports a concrete
-            // plan and it matches either the cloud plan_id or backend_plan.
-            const isCurrent =
-              !!currentPlan && (currentPlan === dp.backendPlan || currentPlan === dp.id);
-            const price = dp.priceMonthly;
-            const priceSuffix = dp.isFree ? t('pricing.forever') : t('pricing.perMonth');
-            const quotaText = dp.fromCloud
-              ? t('pricing.creditsQuota', { count: dp.credits })
-              : t(`pricing.quota.${dp.quotaKey}`);
+        {/* ---- 1. 端侧算力盒子 ---- */}
+        <section className='pricing-hardware'>
+          <div className='pricing-hardware-head'>
+            <div className='pricing-hardware-intro'>
+              <h2 className='pricing-hardware-title'>{t('pricing.hardware.title')}</h2>
+              <p className='pricing-hardware-subtitle'>{t('pricing.hardware.subtitle')}</p>
+            </div>
+            <p className='pricing-hardware-market'>{t('pricing.hardware.marketNote')}</p>
+          </div>
 
-            const isSubscribingThis = subscribingPlanId === dp.id;
+          <div className='pricing-hardware-specs'>
+            {[
+              'cpu',
+              'gpu',
+              'vram',
+              'tops',
+              'ram',
+              'storage',
+            ].map((specId) => (
+              <div key={specId} className='pricing-hardware-spec'>
+                <span className='pricing-hardware-spec-label'>
+                  {t(`pricing.hardware.spec.${specId}.label`)}
+                </span>
+                <span className='pricing-hardware-spec-value'>
+                  {t(`pricing.hardware.spec.${specId}.value`)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className='pricing-hardware-deposit'>
+            <div className='pricing-hardware-deposit-title'>
+              {t('pricing.hardware.deposit.title', {
+                amount: HARDWARE_DEPOSIT_CNY.toLocaleString('zh-CN'),
+              })}
+            </div>
+            <ul className='pricing-hardware-deposit-list'>
+              <li>{t('pricing.hardware.deposit.line1')}</li>
+              <li>{t('pricing.hardware.deposit.line2')}</li>
+            </ul>
+          </div>
+        </section>
+
+        {/* ---- 2. 计费周期切换 ---- */}
+        <div className='pricing-cycle'>
+          <div className='pricing-segmented' role='group' aria-label='billing cycle'>
+            <button
+              type='button'
+              className={`pricing-seg-btn${cycle === 'monthly' ? ' pricing-seg-btn-active' : ''}`}
+              aria-pressed={cycle === 'monthly'}
+              onClick={() => setCycle('monthly')}
+            >
+              {t('pricing.monthly')}
+            </button>
+            <button
+              type='button'
+              className={`pricing-seg-btn${cycle === 'yearly' ? ' pricing-seg-btn-active' : ''}`}
+              aria-pressed={cycle === 'yearly'}
+              onClick={() => setCycle('yearly')}
+            >
+              {t('pricing.yearly')}
+            </button>
+          </div>
+        </div>
+
+        {/* ---- 3. 五档价格卡 ---- */}
+        <section className='pricing-cards'>
+          {PLAN_TIERS.map((tier) => {
+            const isCurrent = !!currentPlan && currentPlan === tier.id;
+            const isSubscribingThis = subscribingPlanId === tier.id;
             const isAnySubscribing = subscribingPlanId !== null;
+            const showYearly = cycle === 'yearly';
+            const price = showYearly ? tier.priceYearly : tier.priceMonthly;
+            const periodSuffix = showYearly ? t('pricing.perYear') : t('pricing.perMonth');
+            const saving = yearlySaving(tier);
+            const perMonthEq = yearlyPerMonth(tier);
+
             let ctaLabel: string;
             let ctaDisabled = false;
             let onCta: () => void;
@@ -465,44 +482,43 @@ const PricingPage: React.FC = () => {
               ctaLabel = t('pricing.currentPlan');
               ctaDisabled = true;
               onCta = () => {};
-            } else if (dp.isFree) {
-              ctaLabel = t('pricing.getStarted');
-              onCta = () => navigate('/guid');
             } else {
-              ctaLabel = t('pricing.upgrade');
-              onCta = () => void handleSubscribe(dp.id);
+              ctaLabel = t('pricing.cta.subscribe');
+              onCta = () => void handleSubscribe(tier.id);
             }
 
             return (
               <div
-                key={dp.id}
-                className={`pricing-card${dp.recommended ? ' pricing-card-featured' : ''}`}
-                style={dp.recommended ? { borderColor: BRAND.primary } : undefined}
+                key={tier.id}
+                className={`pricing-card${tier.allIncluded ? ' pricing-card-featured' : ''}`}
+                style={tier.allIncluded ? { borderColor: BRAND.primary } : undefined}
               >
-                {dp.recommended && <span className='pricing-recommended'>{t('pricing.recommended')}</span>}
-                <div className='pricing-tier-name'>{dp.name || t(`pricing.tier.${dp.tierKey}`)}</div>
+                {tier.allIncluded && (
+                  <span className='pricing-recommended'>{t('pricing.badge.allIncluded')}</span>
+                )}
+                <div className='pricing-tier-name'>{t(`pricing.plan.${tier.id}.name`)}</div>
+                <p className='pricing-tier-tagline'>{t(`pricing.plan.${tier.id}.tagline`)}</p>
                 <div className='pricing-price-row'>
                   <span className='pricing-currency'>¥</span>
-                  <span className='pricing-price'>{price}</span>
-                  <span className='pricing-period'>{priceSuffix}</span>
+                  <span className='pricing-price'>{price.toLocaleString('zh-CN')}</span>
+                  <span className='pricing-period'>{periodSuffix}</span>
                 </div>
-                <div className='pricing-quota'>{quotaText}</div>
-                {dp.featureKeys.length > 0 && (
-                  <ul className='pricing-features'>
-                    {dp.featureKeys.map((key, i) => (
-                      <li key={i} className='pricing-feature'>
-                        <span className='pricing-check' aria-hidden>
-                          ✓
-                        </span>
-                        <span>{dp.featureIsRaw ? key : t(`pricing.feature.${key}`)}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {showYearly ? (
+                  <div className='pricing-yearly-note'>
+                    {t('pricing.yearlyPerMonthEq', { price: perMonthEq.toLocaleString('zh-CN') })}
+                    <span className='pricing-yearly-save'>
+                      {t('pricing.yearlySave', { amount: saving.toLocaleString('zh-CN') })}
+                    </span>
+                  </div>
+                ) : (
+                  <div className='pricing-yearly-note pricing-yearly-note-muted'>
+                    {t('pricing.perYear')} ¥{tier.priceYearly.toLocaleString('zh-CN')} ·{' '}
+                    {t('pricing.yearlySave', { amount: saving.toLocaleString('zh-CN') })}
+                  </div>
                 )}
-                {dp.fromCloud && dp.description && <div className='pricing-desc'>{dp.description}</div>}
                 <button
                   type='button'
-                  className={`pricing-cta${dp.recommended ? ' pricing-cta-primary' : ''}`}
+                  className={`pricing-cta${tier.allIncluded ? ' pricing-cta-primary' : ''}`}
                   disabled={ctaDisabled || isAnySubscribing}
                   onClick={onCta}
                 >
@@ -513,12 +529,80 @@ const PricingPage: React.FC = () => {
           })}
         </section>
 
-        {syncedFromCloud && <p className='pricing-sync-note'>{t('pricing.syncedFromCloud')}</p>}
+        {/* ---- 4. 功能对比矩阵 ---- */}
+        <section className='pricing-matrix'>
+          <h2 className='pricing-section-title'>{t('pricing.matrix.title')}</h2>
+          <div className='pricing-matrix-table-wrap'>
+            <table className='pricing-matrix-table'>
+              <thead>
+                <tr>
+                  <th className='pricing-matrix-th-group'>{t('pricing.matrix.col.group')}</th>
+                  <th className='pricing-matrix-th-feature'>{t('pricing.matrix.col.feature')}</th>
+                  <th className='pricing-matrix-th-detail'>{t('pricing.matrix.col.detail')}</th>
+                  {PLAN_TIERS.map((tier) => (
+                    <th key={tier.id} className='pricing-matrix-th-plan'>
+                      <span className='pricing-matrix-plan-name'>
+                        {t(`pricing.plan.${tier.id}.short`)}
+                      </span>
+                      <span className='pricing-matrix-plan-price'>
+                        {cycle === 'yearly'
+                          ? `¥${tier.priceYearly.toLocaleString('zh-CN')}${t('pricing.perYear')}`
+                          : `¥${tier.priceMonthly.toLocaleString('zh-CN')}${t('pricing.perMonth')}`}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PLAN_FEATURE_ROWS.map((row, i) => {
+                  const span = matrixSpans[i];
+                  return (
+                    <tr key={row.id}>
+                      {span.groupSpan > 0 && (
+                        <td className='pricing-matrix-group' rowSpan={span.groupSpan}>
+                          {t(`pricing.matrix.group.${row.group}`)}
+                        </td>
+                      )}
+                      {span.featureSpan > 0 && (
+                        <td className='pricing-matrix-feature' rowSpan={span.featureSpan}>
+                          {t(`pricing.matrix.feature.${row.feature}`)}
+                        </td>
+                      )}
+                      <td className='pricing-matrix-detail'>
+                        <ul className='pricing-matrix-detail-list'>
+                          {Array.from({ length: row.detailCount }, (_, n) => (
+                            <li
+                              key={n}
+                              className={
+                                row.headline && n === 0 ? 'pricing-matrix-detail-head' : undefined
+                              }
+                            >
+                              {t(`pricing.matrix.${row.id}.d${n + 1}`)}
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                      {PLAN_TIERS.map((tier) => (
+                        <td key={tier.id} className='pricing-matrix-cell'>
+                          <FeatureMark state={row.values[tier.id]} />
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className='pricing-matrix-note'>{t('pricing.matrix.note')}</p>
+        </section>
 
+        {/* ---- 5. 模型按量计费 ---- */}
         <section className='pricing-models'>
           <h2 className='pricing-section-title'>{t('pricing.models.title')}</h2>
           {modelsError && <div className='pricing-error'>{modelsError}</div>}
-          {!modelsError && prices.length === 0 && <div className='pricing-empty'>{t('pricing.models.empty')}</div>}
+          {!modelsError && prices.length === 0 && (
+            <div className='pricing-empty'>{t('pricing.models.empty')}</div>
+          )}
           {!modelsError && prices.length > 0 && (
             <div className='pricing-models-table-wrap'>
               <table className='pricing-models-table'>
@@ -605,9 +689,7 @@ const PricingPage: React.FC = () => {
                 <span style={{ color: 'var(--color-text-3)' }}>暂无该渠道二维码</span>
               )}
             </div>
-            {currentQrString && (
-              <div className='pricing-qr-string'>{currentQrString}</div>
-            )}
+            {currentQrString && <div className='pricing-qr-string'>{currentQrString}</div>}
             {qrStatus && (
               <div
                 className={`pricing-qr-status ${
@@ -622,11 +704,7 @@ const PricingPage: React.FC = () => {
               </div>
             )}
             {qrStatus !== 'paid' && (
-              <button
-                type='button'
-                className='pricing-qr-refresh'
-                onClick={refreshPaymentStatus}
-              >
+              <button type='button' className='pricing-qr-refresh' onClick={refreshPaymentStatus}>
                 我已支付，刷新状态
               </button>
             )}

@@ -1,42 +1,13 @@
 {
   "menuEntry": "Plans & Pricing",
-  "title": "Choose the plan that fits you",
-  "subtitle": "Free to download, one-click install. Personal, team, or enterprise — there's a tier for everyone. Credits are billed by actual token usage; pay only for what you use.",
+  "title": "Choose your GeekClaw office-box plan",
+  "subtitle": "An edge AI box plus a digital workforce. Pick the tier that fits your team — from a general AI workstation to a full trade sales + operations stack. Credits settle on real token usage, so you only pay for what you use.",
   "monthly": "Monthly",
   "yearly": "Yearly",
-  "yearlySave": "Save 25%",
+  "yearlySave": "Save ¥{{amount}} a year",
   "perMonth": "/ mo",
   "perYear": "/ yr",
-  "forever": "/ forever",
   "currentPlan": "Current plan",
-  "upgrade": "Upgrade",
-  "getStarted": "Get started",
-  "tier": {
-    "free": "Free",
-    "pro": "Pro",
-    "team": "Team"
-  },
-  "recommended": "Recommended",
-  "creditsQuota": "Includes {{count}} credits",
-  "syncedFromCloud": "Plan data synced live from the GeekClaw admin console",
-  "quota": {
-    "free": "500 credits / mo · personal use",
-    "pro": "2,990 credits / mo · high-speed quota",
-    "team": "8,679 credits / mo · team credit pool"
-  },
-  "feature": {
-    "free1": "Basic LLM model calls",
-    "free2": "Expert avatars / collaborative office",
-    "free3": "Team Agent basic capabilities",
-    "pro1": "All Free features",
-    "pro2": "Advanced image / video models",
-    "pro3": "Priority compute & longer context",
-    "pro4": "Recorded tutorials + online Q&A",
-    "team1": "All Pro features",
-    "team2": "Multi-seat team workspace",
-    "team3": "Shared knowledge base + credit pool",
-    "team4": "Usage leaderboard / member management"
-  },
   "models": {
     "title": "Pay-as-you-go models (credits / 1K tokens)",
     "empty": "No model pricing yet. Ask an admin to configure it.",
@@ -44,17 +15,180 @@
   },
   "faq": {
     "title": "Frequently asked questions",
-    "q1": "What's the difference between Free and paid?",
-    "a1": "Free includes basic models and expert-avatar features for light personal use. Paid tiers (Pro / Team) unlock advanced image / video models, priority compute, longer context, and higher credit quotas.",
+    "q1": "What is the difference between the plans?",
+    "a1": "All five tiers include the full \"AI General Agents\" capability set. Higher tiers stack industry agents on top: Domestic GEO adds domestic GEO marketing; Trade Sales adds the trade sales workbench; Trade Operations adds the operations workbench plus the international GEO system; Trade Flagship unlocks both trade workbenches in full. Every tier includes the edge AI box deposit policy.",
     "q2": "How are credits deducted?",
     "a2": "Each conversation deducts credits based on actual input / output tokens (priced per 1K tokens). You only pay for what you use; if your balance hits zero, new conversations are blocked.",
-    "q3": "How do I upgrade to Pro / Team?",
-    "a3": "Click the tier's Upgrade button, sign in to your GeekClaw cloud account, then scan the WeChat or Alipay QR code to complete the purchase. The plan and credits are applied immediately after payment.",
-    "q4": "Are team credits shared?",
-    "a4": "Team provides a separate team credit pool shared by all members, independent from personal credits. Removed members revert to their personal quota."
+    "q3": "How do I subscribe or upgrade?",
+    "a3": "Click \"Subscribe\" on the tier you want and sign in to your GeekClaw cloud account to get a WeChat / Alipay QR code. The plan activates as soon as payment succeeds; upgrades are pro-rated against the remaining term.",
+    "q4": "Do I have to buy the edge box? How does the deposit work?",
+    "a4": "The edge box is the local compute prerequisite and is provided against a ¥10,000 deposit — it is not sold separately. After three years of partnership the box is yours, and the deposit can be offset against service fees or refunded."
   },
   "errors": {
     "loadFailed": "Failed to load plan info",
     "modelsFailed": "Failed to load model pricing"
+  },
+  "plan": {
+    "basic": {
+      "name": "GeekClaw AI Employee Basic",
+      "tagline": "The entry tier that gets your AI workforce running",
+      "short": "AI Employee Basic"
+    },
+    "geo": {
+      "name": "GeekClaw Domestic GEO",
+      "tagline": "AI GEO content and media matrix for the China market",
+      "short": "Domestic GEO"
+    },
+    "trade-biz": {
+      "name": "GeekClaw Trade Sales",
+      "tagline": "Trade lead-gen and closing: sales team, skills and the GeekLink expert system",
+      "short": "Trade Sales"
+    },
+    "trade-ops": {
+      "name": "GeekClaw Trade Operations",
+      "tagline": "Trade ops and growth: ops team, skills and the OrbitAI international GEO system",
+      "short": "Trade Operations"
+    },
+    "trade-flagship": {
+      "name": "GeekClaw Trade Flagship",
+      "tagline": "Both sales and ops systems unlocked — the only tier covering every capability",
+      "short": "Trade Flagship"
+    }
+  },
+  "badge": {
+    "allIncluded": "All features"
+  },
+  "yearlyPerMonthEq": "≈ ¥{{price}} / mo",
+  "cta": {
+    "subscribe": "Subscribe"
+  },
+  "hardware": {
+    "title": "Edge AI Box",
+    "subtitle": "Every tier runs on the same edge AI box — compute stays local, your data never leaves the machine.",
+    "marketNote": "High-spec unit; market price over ¥20,000 (a comparable NVIDIA build runs over ¥80,000)",
+    "deposit": {
+      "title": "Deposit ¥{{amount}} per box",
+      "line1": "After 3 years of partnership the box becomes yours",
+      "line2": "The deposit can be offset against service fees or refunded"
+    },
+    "spec": {
+      "cpu": {
+        "label": "CPU",
+        "value": "Core i5-13420H 8C/12T, 4.6GHz"
+      },
+      "gpu": {
+        "label": "GPU",
+        "value": "Arc Pro B50, 16 Xe-cores"
+      },
+      "vram": {
+        "label": "VRAM",
+        "value": "16GB GDDR6"
+      },
+      "tops": {
+        "label": "AI compute (INT8)",
+        "value": "170 TOPS"
+      },
+      "ram": {
+        "label": "Memory",
+        "value": "32GB LPDDR4X"
+      },
+      "storage": {
+        "label": "Storage",
+        "value": "1TB"
+      }
+    }
+  },
+  "matrix": {
+    "title": "Compare plans",
+    "note": "√ means the feature or service is included; — means it is not; “In development” means it is being built.",
+    "col": {
+      "group": "Capability",
+      "feature": "Feature",
+      "detail": "Details"
+    },
+    "state": {
+      "dev": "In development",
+      "no": "—"
+    },
+    "group": {
+      "ai-general": "AI General Agents",
+      "ai-trade": "AI Trade Agents",
+      "ai-crossborder": "AI Cross-border Agents",
+      "ai-marketing": "AI Marketing Agents"
+    },
+    "feature": {
+      "basicSetup": "Core setup",
+      "b2bOps": "B2B Trade Operations Workbench",
+      "b2bSales": "B2B Trade Sales Workbench",
+      "a2a": "A2A Cross-border Commerce",
+      "opc": "OPC Distribution Workbench",
+      "aiArt": "AI Creative Workbench",
+      "domesticGeo": "Domestic GEO"
+    },
+    "general": {
+      "d1": "AI main session with collaborator models",
+      "d2": "Digital-employee and expert-avatar library (clone your top sellers, build a dedicated avatar team)",
+      "d3": "Integrated skill library",
+      "d4": "Integrated MCP",
+      "d5": "Integrated plugin library",
+      "d6": "Browser",
+      "d7": "Remote host",
+      "d8": "AI customer service",
+      "d9": "Selectable global multi-agent engines"
+    },
+    "opsTeam": {
+      "d1": "Trade operations digital-employee team"
+    },
+    "opsSkill": {
+      "d1": "Trade-ops dedicated skills"
+    },
+    "opsOrbit": {
+      "d1": "OrbitAI international GEO marketing system",
+      "d2": "3.1 Multilingual AI GEO website",
+      "d3": "3.2 AI SEO backlink matrix publishing",
+      "d4": "3.3 AI GEO multi-channel publishing (owned + open media)",
+      "d5": "3.4 AI enterprise knowledge base",
+      "d6": "3.5 AI keyword distillation",
+      "d7": "3.6 Batch GEO structured articles from customer profiles",
+      "d8": "3.7 Inquiry management",
+      "d9": "3.8 SEO and GEO reporting"
+    },
+    "bizTeam": {
+      "d1": "Trade sales digital-employee team"
+    },
+    "bizSkill": {
+      "d1": "Trade-sales dedicated skills"
+    },
+    "bizGeeklink": {
+      "d1": "GeekLink professional trade system",
+      "d2": "3.1 GeekLink trade expert team",
+      "d3": "3.2 AI Agent prospecting and precision opportunity development",
+      "d4": "3.3 AI email outreach (personalised at scale)",
+      "d5": "3.4 AI WhatsApp outreach (personalised at scale)",
+      "d6": "3.5 AI CRM and order management",
+      "d7": "3.6 AI enterprise brain"
+    },
+    "crossborderA2a": {
+      "d1": "A2A cross-border commerce website",
+      "d2": "A2A cross-border commerce platform"
+    },
+    "crossborderOpc": {
+      "d1": "OPC and global creator commerce"
+    },
+    "crossborderArt": {
+      "d1": "AI video and image creation (consumes credits)"
+    },
+    "marketingGeo": {
+      "d1": "AI enterprise knowledge base",
+      "d2": "AI asset library",
+      "d3": "AI GEO website network",
+      "d4": "GEO B2B alliance site network",
+      "d5": "Keyword distillation",
+      "d6": "AI structured GEO content creation",
+      "d7": "AI structured video and illustrated content (consumes credits)",
+      "d8": "Authoritative media publishing (paid)",
+      "d9": "Public media publishing (free)",
+      "d10": "Owned media matrix publishing (free)"
+    }
   }
 }

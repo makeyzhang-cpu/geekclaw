@@ -1,7 +1,22 @@
 // 经济闭环前端类型 —— 对齐后端 nomifun-api-types 的计费 DTO。
 // 后端 /api/billing/* 与 /api/auth/users/:id/plan 返回的结构。
 
-export type PlanTier = 'free' | 'pro' | 'team';
+/**
+ * 用户套餐标识（`users.plan`）。
+ *
+ * `'free'` 是「无付费订阅」哨兵值——每个新用户都从它开始，它**不是**可售档位；
+ * 其余为《GeekClawAI办公盒子各版本服务表》的五个可售档位（真源见
+ * `ui/src/renderer/pages/pricing/planCatalog.ts`），`'pro' | 'team'` 为存量兼容。
+ */
+export type PlanTier =
+  | 'free'
+  | 'basic'
+  | 'geo'
+  | 'trade-biz'
+  | 'trade-ops'
+  | 'trade-flagship'
+  | 'pro'
+  | 'team';
 
 /** 单条积分账本记录（credit_transactions 表）。 */
 export interface CreditTransactionInfo {

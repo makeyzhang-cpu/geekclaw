@@ -264,9 +264,17 @@ const BillingPage: React.FC = () => {
               <label>
                 {t('billing.admin.setPlan')}
                 <select value={plan} onChange={(e) => setPlan(e.target.value)}>
+                  {/* free = 「无付费订阅」哨兵值，不是可售档位，单独保留在首位 */}
                   <option value='free'>free</option>
-                  <option value='pro'>pro</option>
-                  <option value='team'>team</option>
+                  {/* 可售档位与《GeekClawAI办公盒子各版本服务表》一致，见 pages/pricing/planCatalog.ts */}
+                  <option value='basic'>basic · AI数字员工基础版</option>
+                  <option value='geo'>geo · 国内GEO版</option>
+                  <option value='trade-biz'>trade-biz · 外贸业务版</option>
+                  <option value='trade-ops'>trade-ops · 外贸运营版</option>
+                  <option value='trade-flagship'>trade-flagship · 外贸旗舰版</option>
+                  {/* 存量用户可能仍停留在旧档位，保留以便回退 */}
+                  <option value='pro'>pro（旧）</option>
+                  <option value='team'>team（旧）</option>
                 </select>
               </label>
               <button type='button' className='billing-btn' onClick={handleSetPlan}>

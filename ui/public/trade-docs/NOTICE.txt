@@ -1,0 +1,32 @@
+NOTICE — 外贸单证工具箱（第三方开源组件归属声明）
+
+本目录中的外贸单证页面（19 种国际贸易单证 + 4 项实用工具）基于以下开源项目二次开发：
+
+    原项目：TradeKit
+    仓库  ：https://github.com/trdeep/tradekit
+    许可  ：MIT License
+
+二次开发内容：品牌替换（TradeKit → GeekDoc）、移除第三方访问统计脚本、
+移除原站点 SEO 标签与站内推广位、适配 GeekClaw 内嵌运行环境。
+除上述改动外，页面结构与业务逻辑保持原样。
+
+------------------------------------------------------------------------------
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

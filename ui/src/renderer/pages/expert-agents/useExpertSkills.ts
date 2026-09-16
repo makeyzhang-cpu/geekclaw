@@ -16,13 +16,34 @@ function cloneDefaults(): ExpertSkill[] {
   return JSON.parse(JSON.stringify(defaultSkills)) as ExpertSkill[];
 }
 
+/**
+ * 把内置技能库里「用户本地还没有的」补进来。
+ *
+ * 只做追加、不覆盖：本地已存在的同 id 条目原样保留，所以用户在技能库里改过的
+ * 名称 / 描述 / 提示词不会被版本更新冲掉（要拿回出厂内容可用「恢复默认」）。
+ * 没有这一步，老用户的 localStorage 一旦有数据，就永远看不到新版本内置的技能
+ * （与 useExpertIdentities 的 mergeWithDefaults 对应；那边是内置项以默认值覆盖，
+ *  这里刻意更保守，避免升级时吃掉用户对内置技能的编辑）。
+ */
+function mergeWithDefaults(saved: ExpertSkill[]): ExpertSkill[] {
+  const defaults = cloneDefaults();
+  const savedIds = new Set(saved.map((s) => s.id));
+  const merged = saved.slice();
+  for (const d of defaults) {
+    if (!savedIds.has(d.id)) {
+      merged.push(d);
+    }
+  }
+  return merged;
+}
+
 function load(): ExpertSkill[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as ExpertSkill[];
+        return mergeWithDefaults(parsed as ExpertSkill[]);
       }
     }
   } catch {
@@ -50,7 +71,7 @@ export interface UseExpertSkillsResult {
   upsertSkill: (item: ExpertSkill) => void;
   /** 删除指定 id 的技能 */
   removeSkill: (id: string) => void;
-  /** 恢复为内置 21 个默认技能 */
+  /** 恢复为内置 28 个默认技能 */
   resetSkills: () => void;
   /** 从 JSON 数组导入技能（merge：按 id 更新/追加；replace：完全替换） */
   importSkills: (items: ExpertSkill[], mode?: 'merge' | 'replace') => number;

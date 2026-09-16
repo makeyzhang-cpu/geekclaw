@@ -22,3 +22,5 @@ export { default as SiderUserManagementEntry } from './SiderUserManagementEntry'
 export { default as SiderWorkCommunityEntry } from './SiderWorkCommunityEntry';
 export { default as SiderForeignTradeEntry } from './SiderForeignTradeEntry';
 export { default as SiderOpcEntry } from './SiderOpcEntry';
+export { default as SiderTradeFollowUpEntry } from './SiderTradeFollowUpEntry';
+export { default as SiderTradeKnowledgeEntry } from './SiderTradeKnowledgeEntry';
