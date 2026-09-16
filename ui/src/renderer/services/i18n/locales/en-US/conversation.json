@@ -274,6 +274,10 @@
         "title": "Tool schema was rejected by the provider",
         "body": "The provider rejected a tool definition in this request. Update the agent or disable the incompatible tool, then retry."
       },
+      "USER_LLM_PROVIDER_MALFORMED_TOOL_CALL": {
+        "title": "Model provider returned a malformed tool call",
+        "body": "An upstream tool call was missing required fields (typically a dropped field on an aggregating relay). GeekClaw already re-ran the same model once; if it still fails, retry later or switch providers."
+      },
       "USER_LLM_PROVIDER_CONTEXT_TOO_LARGE": {
         "title": "Context is too large for the model",
         "body": "The request exceeds the model context limit. Reduce message content, referenced files, or conversation history, then retry."

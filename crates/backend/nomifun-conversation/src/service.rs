@@ -8855,6 +8855,9 @@ impl ConversationService {
             let mut failover_switches_done: u32 = 0;
             // 本轮已做过的"剔图重跑"次数(bounded=1,防死循环)。
             let mut image_strip_retries_done: u32 = 0;
+            // 本轮已做过的"畸形工具调用原样重跑"次数(bounded=1,防死循环)。
+            // 聚合中转偶发丢 function.name;同模型原样重发通常命中正常上游通道。
+            let mut malformed_tool_call_retries_done: u32 = 0;
             // Phase 3 (review #2): models already switched to this turn. Passed
             // to the picker so it advances MONOTONICALLY — never re-tries a
             // candidate it already failed over to (no queue thrash).
@@ -8951,22 +8954,26 @@ impl ConversationService {
                     }
                 }
 
-                // 为 geekclaw 轮安装 pre-response 错误抑制器:既隐藏"将被换模型重试"的
-                // provider fault(在切换上限内),也隐藏"将被同模型剔图重试"的
-                // image-unsupported 400(每轮一次)。被吞的错误进 outcome.suppressed_error,
-                // 若两种重试都未触发,则下方原样 re-surface。
+                // 为 geekclaw 轮安装 pre-response 错误抑制器:隐藏"将被换模型重试"的
+                // provider fault(在切换上限内)、"将被同模型剔图重试"的 image-unsupported
+                // 400(每轮一次),以及"将被同模型原样重跑"的畸形工具调用(每轮一次)。
+                // 被吞的错误进 outcome.suppressed_error;若三种重试都未触发,则下方原样 re-surface。
                 if agent.agent_type() == AgentType::GeekClaw {
                     let failover_within_bound = failover_config.as_ref().is_some_and(|c| {
                         failover_switches_done < c.max_switches.min(c.queue.len() as u32)
                     });
                     let image_retry_available = image_strip_retries_done == 0;
-                    if failover_within_bound || image_retry_available {
+                    let malformed_retry_available = malformed_tool_call_retries_done == 0;
+                    if failover_within_bound || image_retry_available || malformed_retry_available {
                         relay = relay.with_failover_suppressor(Arc::new(move |code| {
                             (failover_within_bound
                                 && crate::model_failover::is_provider_fault(code))
                                 || (image_retry_available
                                     && code
                                         == nomifun_api_types::AgentErrorCode::UserLlmProviderImageUnsupported)
+                                || (malformed_retry_available
+                                    && code
+                                        == nomifun_api_types::AgentErrorCode::UserLlmProviderMalformedToolCall)
                         }));
                     }
                 }
@@ -9170,6 +9177,34 @@ impl ConversationService {
                         ));
                         continue;
                     }
+                }
+
+                // 畸形工具调用重跑:上游聚合网关偶发丢掉 `function.name`(典型于把 Claude
+                // 挂在 OpenAI 兼容中转上的链路),协议层为保证"绝不猜名执行",会把整轮拒收。
+                // 但 runtime 与模型都没坏,坏的是**这一轮**的上游响应 —— 同模型原样重发一次
+                // 通常命中正常上游通道。每轮只重跑一次(bounded=1);耗尽后落到下方 re-surface,
+                // 把错误连同重试按钮交给用户,绝不静默吞掉。
+                if malformed_tool_call_retries_done == 0
+                    && agent.agent_type() == AgentType::GeekClaw
+                    && outcome.terminal.is_error()
+                    && !outcome.emitted_response
+                    && outcome.terminal.code()
+                        == Some(nomifun_api_types::AgentErrorCode::UserLlmProviderMalformedToolCall)
+                {
+                    malformed_tool_call_retries_done += 1;
+                    info!(
+                        conversation_id = %conv_id,
+                        "Provider returned a malformed tool call; re-running the same model once"
+                    );
+                    let resend_msg_id = Self::mint_msg_id();
+                    pending_send = Some((
+                        SendMessageData {
+                            msg_id: resend_msg_id.clone(),
+                            ..resend_payload
+                        },
+                        resend_msg_id,
+                    ));
+                    continue;
                 }
 
                 if turn_token.is_cancelled() {

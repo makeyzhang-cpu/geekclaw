@@ -1344,6 +1344,28 @@ fn normalize_finish_reason(reason: &str) -> Result<&'static str, String> {
     }
 }
 
+/// Cap for a raw SSE frame retained in provider logs. Forensics only: a frame
+/// that dropped `function.name` is identifiable within a few hundred bytes, so
+/// never log unbounded provider payloads.
+const TOOL_CALL_RAW_FRAME_LOG_LIMIT: usize = 640;
+
+/// Char-safe truncation for log payloads.
+///
+/// A raw SSE frame is arbitrary UTF-8; slicing by byte offset can split a
+/// multi-byte character and panic. Only ever cut on a char boundary.
+fn truncate_for_log(input: &str, limit: usize) -> String {
+    if input.len() <= limit {
+        return input.to_owned();
+    }
+    let end = input
+        .char_indices()
+        .take_while(|(idx, _)| *idx < limit)
+        .last()
+        .map(|(idx, ch)| idx + ch.len_utf8())
+        .unwrap_or(0);
+    format!("{}…(+{} bytes)", &input[..end], input.len() - end)
+}
+
 fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
     if state.fatal_error {
         return Vec::new();
@@ -1624,6 +1646,23 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> V
                 // validator enforce the executable contract.
                 Some(arguments) => Some(arguments.to_string()),
             };
+
+            // 取证:部分 OpenAI 兼容聚合网关会在**首个**工具调用帧里丢掉
+            // `function.name`(只给 id/arguments,甚至都给)。收尾时
+            // parse_tool_call_arguments 会拒收整轮,但那时原始帧已经拿不到了。
+            // 因此在**首次**见到该 index 且该帧没有 name 时,把原始 SSE 数据记进日志,
+            // 便于下次复现直接从日志抓到网关坏帧(只在首次记录,不逐帧刷屏)。
+            let first_sighting = state.tool_calls.len() <= index;
+            if first_sighting && name.is_none() {
+                tracing::warn!(
+                    target: "geekclaw_providers",
+                    tool_call_index = index,
+                    has_id = id.is_some(),
+                    has_arguments = arguments.is_some(),
+                    raw_frame = %truncate_for_log(data, TOOL_CALL_RAW_FRAME_LOG_LIMIT),
+                    "OpenAI-compatible provider opened a tool call without a function name; captured the raw SSE frame"
+                );
+            }
 
             if let Some(existing) = state.tool_calls.get(index) {
                 if let Some(id) = id.as_deref()

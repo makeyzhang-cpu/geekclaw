@@ -455,7 +455,10 @@ mod tests {
     }
 
     #[test]
-    fn image_unsupported_is_not_provider_fault() {
+    fn same_model_reruns_are_not_provider_faults() {
+        // 这两类都走"同模型就地重跑"(剔图重发 / 畸形工具调用原样重发):模型与 runtime
+        // 本身没坏,只是这一轮的响应有问题 —— 绝不应触发换模型(更重的代价,且会掩盖真因)。
         assert!(!is_provider_fault(AgentErrorCode::UserLlmProviderImageUnsupported));
+        assert!(!is_provider_fault(AgentErrorCode::UserLlmProviderMalformedToolCall));
     }
 }

@@ -43,6 +43,12 @@ pub enum AgentErrorCode {
     /// 模型不支持图片输入(收到 image_url 类 400)。会话服务据此剔图重跑,
     /// 故意 **不** 计入 is_provider_fault(不触发换模型)。
     UserLlmProviderImageUnsupported,
+    /// 上游(OpenAI 兼容聚合网关)返回了**畸形工具调用**:流里丢了
+    /// `function.name`(往往连 call id 也没有)。这是聚合中转的**瞬时**协议缺陷
+    /// ——同一请求稍后重发通常命中正常上游通道并正常完成。
+    /// 会话服务据此**同模型原样重跑一次**(见 nomifun-conversation 发送环);
+    /// 故意 **不** 计入 is_provider_fault:模型本身没坏,换模型是更重的代价。
+    UserLlmProviderMalformedToolCall,
     UserLlmProviderInvalidToolSchema,
     UserLlmProviderContextTooLarge,
     UserLlmProviderRateLimited,

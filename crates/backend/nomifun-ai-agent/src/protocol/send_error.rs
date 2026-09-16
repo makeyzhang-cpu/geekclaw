@@ -713,20 +713,27 @@ fn classify_provider_api(lower: &str) -> Option<ClassifiedError> {
         ));
     }
     if lower.contains("missing function name") && lower.contains("openai-compatible provider") {
-        // A dropped tool-call name in the SSE stream means the OpenAI-compatible
-        // gateway did not forward the `function.name` field — a malformed
-        // payload, not a transient blip. The model's reply is otherwise
-        // untrustworthy (id/arguments may also be incomplete), so retrying the
-        // same prompt typically reproduces the same bad delta. Classify as
-        // InvalidRequest (not retryable) and surface the SendFeedback target
-        // so the user gets a clear "switch model / switch gateway" message
-        // instead of a misleading Retry button.
+        // A dropped `function.name` in the SSE stream means the OpenAI-compatible
+        // gateway never forwarded it. In practice this is a **transient** defect of
+        // aggregating relays (a Claude model served through an OpenAI-compatible
+        // relay, and similar): the very same prompt re-sent a moment later lands on
+        // a healthy upstream channel and completes normally.
+        //
+        // The reply is still untrustworthy (id/arguments may also be incomplete), so
+        // a function name is NEVER guessed here — guessing would turn a malformed
+        // call into an executable one. But one automatic same-model re-run is cheap,
+        // while unbounded retry is not.
+        //
+        // The conversation send loop consumes UserLlmProviderMalformedToolCall and
+        // re-runs the SAME model/runtime once (see nomifun-conversation service.rs).
+        // retryable=true keeps a manual Retry button available if that single
+        // automatic re-run also fails.
         return Some(provider_error(
             "The model provider returned a malformed tool call (missing function name)",
-            AgentErrorCode::UserLlmProviderInvalidRequest,
-            false,
-            AgentErrorResolutionKind::SendFeedback,
-            Some(AgentErrorResolutionTarget::Feedback),
+            AgentErrorCode::UserLlmProviderMalformedToolCall,
+            true,
+            AgentErrorResolutionKind::Retry,
+            None,
         ));
     }
     if contains_any(
@@ -1048,20 +1055,22 @@ mod tests {
     }
 
     #[test]
-    fn classifies_missing_function_name_as_invalid_request_not_retryable() {
-        // A dropped `function.name` in the SSE stream is a malformed payload,
-        // not a transient blip — retrying the same prompt typically reproduces
-        // the same bad delta. Surface as InvalidRequest (no Retry button) and
-        // route the user to SendFeedback so the chat UI explains the model /
-        // gateway issue instead of offering a misleading retry.
+    fn classifies_missing_function_name_as_recoverable_malformed_tool_call() {
+        // A dropped `function.name` is a malformed upstream payload, so the name is
+        // never guessed. It is, however, **transient** on aggregating relays: the
+        // conversation send loop re-runs the SAME model once before surfacing the
+        // error, and retryable=true keeps a manual Retry button after that.
         let detail = "GeekClaw agent error: API error: OpenAI-compatible provider returned a tool call with a missing function name (call `call_123`)";
         let err = AgentSendError::from_app_error(AppError::BadGateway(detail.into()));
-        assert_eq!(err.code(), Some(AgentErrorCode::UserLlmProviderInvalidRequest));
+        assert_eq!(
+            err.code(),
+            Some(AgentErrorCode::UserLlmProviderMalformedToolCall)
+        );
         assert_eq!(err.ownership(), Some(AgentErrorOwnership::UserLlmProvider));
-        assert_eq!(err.stream_error().retryable, Some(false));
+        assert_eq!(err.stream_error().retryable, Some(true));
         assert_eq!(
             err.stream_error().resolution.as_ref().map(|value| value.kind),
-            Some(AgentErrorResolutionKind::SendFeedback)
+            Some(AgentErrorResolutionKind::Retry)
         );
     }
 
