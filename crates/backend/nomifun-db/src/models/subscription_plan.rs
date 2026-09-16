@@ -19,6 +19,11 @@ pub struct SubscriptionPlan {
     pub backend_plan: String,
     /// Monthly price in 分 (1 CNY = 100 分).
     pub price_fen: i64,
+    /// Optional per-plan yearly price in 分. `0` = not configured → fall back to
+    /// the global `period_multiplier` (monthly × 9). The service table's yearly
+    /// discounts are NOT uniform (9.4% ~ 17.2%), so any plan that must bill an
+    /// exact yearly figure has to set this explicitly.
+    pub price_year_fen: i64,
     /// Credits granted per billing period.
     pub credits: i64,
     /// Marketing copy shown under the plan.
@@ -34,11 +39,13 @@ pub struct SubscriptionPlan {
 
 impl SubscriptionPlan {
     /// Build a new plan row from admin input, stamping timestamps.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         plan_id: String,
         name: String,
         backend_plan: String,
         price_fen: i64,
+        price_year_fen: i64,
         credits: i64,
         description: String,
         sort_order: i64,
@@ -51,6 +58,7 @@ impl SubscriptionPlan {
             name,
             backend_plan,
             price_fen,
+            price_year_fen,
             credits,
             description,
             sort_order,

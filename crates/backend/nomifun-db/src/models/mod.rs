@@ -12,6 +12,7 @@ mod conversation_artifact;
 mod cron_job;
 mod customer_service;
 mod cron_job_run;
+mod hardware_deposit;
 mod idmm_intervention;
 mod knowledge;
 mod mcp_server;
@@ -69,8 +70,7 @@ pub use customer_service::{
 };
 pub use idmm_intervention::{
     IdmmActionReservationRow, IdmmInterventionRow, NewIdmmInterventionRow,
-};
-pub use knowledge::{
+};pub use knowledge::{
     CreateKnowledgeTagParams, KnowledgeBaseRow, KnowledgeBindingRow, KnowledgeTagRow,
     UpdateKnowledgeTagParams,
 };
@@ -95,6 +95,10 @@ pub use terminal_session::TerminalSessionRow;
 pub use terminal_turn::TerminalTurnAdmissionRow;
 pub use user::{Invitation, User};
 pub use billing::{CreditTransaction, ModelPricing};
+pub use hardware_deposit::{
+    HARDWARE_DEPOSIT_STATUS_CREATED, HARDWARE_DEPOSIT_STATUS_PAID,
+    HARDWARE_DEPOSIT_STATUS_SHIPPED, HardwareDeposit, HardwareDepositAdminRow,
+};
 pub use order::Order;
 pub use subscription_plan::SubscriptionPlan;
 pub use webhook::WebhookRow;

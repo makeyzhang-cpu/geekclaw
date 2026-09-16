@@ -52,6 +52,13 @@ linker = "rust-lld.exe"
 # `tauri build`, CI — so the failure cannot regress on a machine that forgets it.
 [env]
 RUST_MIN_STACK = "134217728"
+[target.x86_64-pc-windows-msvc.env]
+# 以下变量是 **MSVC 专用**，必须挂在 target 段下，绝不能裸放在 [env]。
+# 2026-09-16：它们曾裸放在 [env] 里，于是被 cargo 注入到 **Linux 云端构建**，
+# 而 GCC 不认 MSVC 风格的 -WX-，导致云端 cargo build -p nomifun-web 直接失败：
+#   cc: error: unrecognized command-line option '-WX-'
+#   error: failed to run custom build command for `libsqlite3-sys v0.30.1`
+# 跨平台安全的变量（RUST_MIN_STACK）仍留在上面的 [env]。
 # 2026-08-10 关键修复：aws-lc-sys / zstd-sys / lzma-sys 等 cc-rs 类 C 依赖在 MSVC 下
 # 编译失败的根因 = INCLUDE/LIB 没传到 cl.exe 子进程（shell export 不被 cargo-tauri 继承，
 # 且 cc-rs 的 VS 自动探测在本环境失败）。用 config.toml [env] 由 cargo 强制注入到所有

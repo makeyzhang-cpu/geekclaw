@@ -73,8 +73,6 @@
 <script>
 var DT='cost_estimation',DT_META=DOC_META[DT],lang=getLang(),dark=isDark(),previewLang='en',data=null,showClearConfirm=false;
 function init(){applyTheme();var s=loadDocData(DT);data=s?s:getDefaultDoc(DT);renderAll();}
-  injectSpaButton();
-  injectBottomCta();
   injectPageFaq();
 function renderAll(){renderTopBar();renderHeader();renderTabs();renderForm();renderPreview();renderHistory();renderClearModal();}
 function renderTopBar(){var tr=I18N[lang];document.documentElement.lang=lang;document.getElementById('back-icon').innerHTML=svg('ArrowLeft',16);document.getElementById('back-text').textContent=tr.backHome;document.getElementById('lang-icon').innerHTML=svg('Languages',16);document.getElementById('lang-label').textContent=lang==='zh'?'EN':'中文';document.getElementById('theme-icon').innerHTML=svg(dark?'Sun':'Moon',16);document.getElementById('theme-label').textContent=dark?'Light':'Dark';}
@@ -98,8 +96,8 @@ function renderForm(){
   var h='',esc2=esc;
   h+='<div class="section-card"><h3>'+fieldBlock(isZh?'项目信息':'Project Info','')+'</h3>';
   h+='<div class="field-grid" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));">';
-  h+=labelInput2(isZh?'项目参考':'Project Ref',d.projectRef,'projectRef','');
-  h+=labelInputDate2(isZh?'编制日期':'Preparation Date',d.preparationDate,'preparationDate');
+  h+=labelInput(isZh?'项目参考':'Project Ref',d.projectRef,'projectRef','');
+  h+=labelInputDate(isZh?'编制日期':'Preparation Date',d.preparationDate,'preparationDate');
   h+=labelInput(isZh?'编制人':'Prepared By',d.preparedBy,'preparedBy','');
   h+=labelInput(isZh?'公司名称':'Company Name',d.companyName,'companyName','');
   h+=labelInput(isZh?'公司地址':'Company Address',d.companyAddress,'companyAddress','');
@@ -113,7 +111,7 @@ function renderForm(){
   h+=labelInput(isZh?'产品名称':'Product Name',d.productName,'productName','');
   h+=labelInput(isZh?'产品规格':'Product Spec',d.productSpec,'productSpec','');
   h+=labelSelect2(isZh?'币种':'Currency',d.currency,'currency',CURRENCIES.map(function(c){return[c,c+' - '+CURRENCY_NAMES[c]];}));
-  h+=labelInputDate2(isZh?'有效期至':'Validity Period',d.validityPeriod,'validityPeriod');
+  h+=labelInputDate(isZh?'有效期至':'Validity Period',d.validityPeriod,'validityPeriod');
   h+='</div></div>';
   h+='<div class="section-card"><h3>'+fieldBlock(isZh?'成本明细':'Cost Items','')+'</h3>';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
@@ -157,7 +155,7 @@ function renderForm(){
   h+='<div class="field-grid" style="grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));margin-top:12px;">';
   h+=labelInput(isZh?'签名姓名':'Signature Name',d.signatureName,'signatureName','');
   h+=labelInput(isZh?'职务':'Title',d.signatureTitle,'signatureTitle','');
-  h+=labelInputDate2(isZh?'日期':'Date',d.signatureDate,'signatureDate');
+  h+=labelInputDate(isZh?'日期':'Date',d.signatureDate,'signatureDate');
   h+='</div></div>';
   document.getElementById('form-container').innerHTML=h;
 }
@@ -220,8 +218,6 @@ document.getElementById('clear-title').textContent=tr.clearTitle;document.getEle
 document.getElementById('btn-cancel-clear').textContent=tr.cancel;document.getElementById('btn-confirm-clear').textContent=tr.clear;}else m.classList.add('hidden');}
 document.getElementById('lang-btn').onclick=function(){lang=lang==='zh'?'en':'zh';setLang(lang);renderAll();};
 document.getElementById('theme-btn').onclick=function(){dark=!dark;setTheme(dark);applyTheme();renderAll();};
-  injectSpaButton();
-  injectBottomCta();
   injectPageFaq();
 document.getElementById('btn-cancel-clear').onclick=function(){showClearConfirm=false;renderClearModal();};
 document.getElementById('btn-confirm-clear').onclick=function(){data=getDefaultDoc(DT);saveDocData(DT,data);showClearConfirm=false;renderClearModal();renderForm();renderPreview();};

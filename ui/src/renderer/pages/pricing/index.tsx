@@ -42,8 +42,7 @@ import {
   yearlySaving,
   type FeatureState,
   type PlanId,
-} from './planCatalog';
-import packageInfo from '../../../../package.json';
+} from './planCatalog';import packageInfo from '../../../../package.json';
 import './index.css';
 
 /** A plan row as returned by the cloud storefront (`GET /api/store/plans`). */
@@ -52,6 +51,8 @@ interface StorePlan {
   name: string;
   backend_plan: string;
   price_fen: number;
+  /** Per-plan yearly price in 分; `0`/absent = the cloud uses its shared multiplier. */
+  price_year_fen?: number;
   credits: number;
   description: string;
   sort_order: number;
@@ -65,9 +66,53 @@ interface StorePlansResponse {
 type BillingCycle = 'monthly' | 'yearly';
 type QrChannel = 'wechat' | 'alipay';
 
+/**
+ * Translate the UI's billing cycle into the value the cloud backend understands.
+ *
+ * The cloud (`period_multiplier` in `crates/backend/nomifun-auth/src/routes.rs`)
+ * only recognises `monthly` / `quarterly` / `annual`; **anything else is silently
+ * coerced to `monthly`**. Our switch says `yearly`, so it MUST be translated here —
+ * sending `yearly` verbatim would create an order for a single month's price.
+ */
+function toBackendPeriod(cycle: BillingCycle): 'monthly' | 'annual' {
+  return cycle === 'yearly' ? 'annual' : 'monthly';
+}
+
 interface QrOrder {
   reqsn: string;
   amountFen: number;
+  plan: string;
+  period: string;
+  payinfo: Record<string, string>;
+  /**
+   * 订单类型。
+   *
+   * `plan` = 套餐订阅，扫码付款后闭环结束；
+   * `hardware` = 硬件押金（端侧算力盒子），付款成功后**还要继续收集收货地址**，
+   * 否则后台无从发货 —— 这是 2026-09-16 用户反馈的核心闭环缺口。
+   */
+  kind: 'plan' | 'hardware';
+}
+
+/** 我的押金单（`GET /api/store/hardware/deposits` 的一行）。 */
+interface HardwareDepositRow {
+  reqsn: string;
+  deposit_fen: number;
+  region: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  detail_address: string | null;
+  remark: string | null;
+  /** `created`（待支付）| `paid`（已支付待填地址）| `shipped`（已发货）。 */
+  status: string;
+  shipped_at: number | null;
+  created_at: number;
+}
+
+/** 后端硬件押金下单接口的响应（与套餐下单同构，便于复用扫码弹窗）。 */
+interface HardwareDepositOrderResponse {
+  reqsn: string;
+  amount_fen: number;
   plan: string;
   period: string;
   payinfo: Record<string, string>;
@@ -123,6 +168,45 @@ const PricingPage: React.FC = () => {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
 
+  // ---- 硬件押金（端侧算力盒子）状态 ----
+  /** 我的押金单（按下单时间倒序），用于回显「是否已提交收货地址」。 */
+  const [deposits, setDeposits] = useState<HardwareDepositRow[]>([]);
+  const [depositSubmitting, setDepositSubmitting] = useState(false);
+  /** 非空时打开「填写 / 修改收货地址」弹窗。 */
+  const [addressFor, setAddressFor] = useState<string | null>(null);
+  const [addrName, setAddrName] = useState('');
+  const [addrPhone, setAddrPhone] = useState('');
+  const [addrRegion, setAddrRegion] = useState('');
+  const [addrDetail, setAddrDetail] = useState('');
+  const [addrRemark, setAddrRemark] = useState('');
+  const [addrSubmitting, setAddrSubmitting] = useState(false);
+  /**
+   * 当前扫码弹窗里的订单类型。
+   *
+   * `queryOrderOnce` 只拿到 `reqsn`，但付款成功后的文案与后续动作（套餐=结束 /
+   * 押金=继续收地址）必须区分，所以用 ref 记住类型而不是把 qrOrder 塞进依赖。
+   */
+  const qrOrderKindRef = useRef<'plan' | 'hardware'>('plan');
+
+  const loadDeposits = useCallback(async () => {
+    if (!cloud.state.authenticated) {
+      setDeposits([]);
+      return;
+    }
+    try {
+      const res = await httpRequest<HardwareDepositRow[] | { deposits?: HardwareDepositRow[] }>(
+        'GET',
+        '/api/store/hardware/deposits'
+      );
+      const rows = Array.isArray(res) ? res : (res?.deposits ?? []);
+      setDeposits(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      // 云端还没部署押金接口时不影响定价页其余部分，静默降级为空列表。
+      console.warn('[pricing] hardware deposits unavailable', e);
+      setDeposits([]);
+    }
+  }, [cloud.state.authenticated]);
+
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!opts?.silent) {
@@ -166,6 +250,10 @@ const PricingPage: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
+    void loadDeposits();
+  }, [loadDeposits]);
+
+  useEffect(() => {
     return () => {
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
@@ -200,6 +288,23 @@ const PricingPage: React.FC = () => {
   }, [storePlans]);
 
   const matrixSpans = useMemo(() => computeMatrixSpans(PLAN_FEATURE_ROWS), []);
+
+  /**
+   * 功能对比表在窄窗口下会横向溢出（5 个档位列放不下）。
+   * 桌面端 webview 的滚动条是自动隐藏的，用户会直接判定「少了一栏」，
+   * 所以一旦真的溢出就显式给一条提示。
+   */
+  const matrixWrapRef = useRef<HTMLDivElement | null>(null);
+  const [matrixScrollable, setMatrixScrollable] = useState(false);
+  useEffect(() => {
+    const el = matrixWrapRef.current;
+    if (!el) return;
+    const measure = () => setMatrixScrollable(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   /** `balance.plan` 存的是 `backend_plan`；用它判断哪张卡是「当前档位」。 */
   const currentPlan = balance?.plan || null;
@@ -249,11 +354,19 @@ const PricingPage: React.FC = () => {
         if (!res || !res.reqsn) return false;
         const status = res.status;
         if (status === 'paid') {
+          const isDeposit = qrOrderKindRef.current === 'hardware';
           setQrStatus('paid');
-          setQrStatusText('支付成功，套餐已开通！');
+          setQrStatusText(
+            isDeposit
+              ? t('pricing.hardware.deposit.paidTip')
+              : '支付成功，套餐已开通！'
+          );
           stopPolling();
           void load({ silent: true });
-          Message.success('支付成功，套餐已开通');
+          void loadDeposits();
+          Message.success(
+            isDeposit ? t('pricing.hardware.deposit.paidTip') : '支付成功，套餐已开通'
+          );
           return true;
         }
         if (status === 'failed' || status === 'cancelled') {
@@ -271,7 +384,7 @@ const PricingPage: React.FC = () => {
         return false;
       }
     },
-    [load, stopPolling, cloud.state.authenticated]
+    [load, loadDeposits, stopPolling, cloud.state.authenticated, t]
   );
 
   const pollOrderStatus = useCallback(
@@ -313,13 +426,14 @@ const PricingPage: React.FC = () => {
       }
       // 云端配了对应档位就用云端的 plan_id，否则退回档位 id 让后端明确报错。
       const planId = cloudPlanIdByTier.get(tierId) ?? tierId;
+      qrOrderKindRef.current = 'plan';
       setSubscribingPlanId(tierId);
       setQrStatus('pending');
       setQrStatusText('正在创建订单…');
       try {
         const res = await httpRequest<SubscribeResponse>('POST', '/api/store/subscribe', {
           plan_id: planId,
-          period: cycle,
+          period: toBackendPeriod(cycle),
         } as SubscribeRequest);
         if (!res || !res.reqsn) {
           const backendMsg =
@@ -329,7 +443,7 @@ const PricingPage: React.FC = () => {
           throw new Error(backendMsg || '创建订单失败');
         }
         const { reqsn, amount_fen, plan, period, payinfo } = res;
-        setQrOrder({ reqsn, amountFen: amount_fen, plan, period, payinfo });
+        setQrOrder({ reqsn, amountFen: amount_fen, plan, period, payinfo, kind: 'plan' });
         setQrChannel(payinfo.wechat ? 'wechat' : 'alipay');
         pollStartRef.current = Date.now();
         void pollOrderStatus(reqsn);
@@ -349,6 +463,147 @@ const PricingPage: React.FC = () => {
     },
     [cloud.state.authenticated, cloud.login, pollOrderStatus, cycle, cloudPlanIdByTier]
   );
+
+  /**
+   * 支付硬件押金（端侧算力盒子 ¥10,000/台）。
+   *
+   * 与套餐下单唯一的区别：金额由**服务端常量**决定（不接受客户端传值），并且
+   * 付款成功后还差一步「提交收货地址」——没有地址后台就发不了货。
+   */
+  const handleDepositPay = useCallback(async () => {
+    if (!cloud.state.authenticated) {
+      await cloud.login();
+      return;
+    }
+    if (depositSubmitting) return;
+    qrOrderKindRef.current = 'hardware';
+    setDepositSubmitting(true);
+    setQrStatus('pending');
+    setQrStatusText('正在创建押金订单…');
+    try {
+      const res = await httpRequest<HardwareDepositOrderResponse>(
+        'POST',
+        '/api/store/hardware/deposit'
+      );
+      if (!res || !res.reqsn) {
+        throw new Error(t('pricing.hardware.deposit.payFailed'));
+      }
+      setQrOrder({
+        reqsn: res.reqsn,
+        amountFen: res.amount_fen,
+        plan: res.plan,
+        period: res.period,
+        payinfo: res.payinfo ?? {},
+        kind: 'hardware',
+      });
+      setQrChannel(res.payinfo?.wechat ? 'wechat' : 'alipay');
+      pollStartRef.current = Date.now();
+      void pollOrderStatus(res.reqsn);
+    } catch (e) {
+      console.error('[pricing] hardware deposit failed', e);
+      const errorMessage = isBackendHttpError(e)
+        ? e.backendMessage || e.message
+        : e instanceof Error
+          ? e.message
+          : t('pricing.hardware.deposit.payFailed');
+      setQrStatus('failed');
+      setQrStatusText(errorMessage);
+      Message.error(errorMessage);
+    } finally {
+      setDepositSubmitting(false);
+    }
+  }, [cloud.state.authenticated, cloud.login, depositSubmitting, pollOrderStatus, t]);
+
+  /** 打开「填写 / 修改收货地址」弹窗，已填过的地址自动回填。 */
+  const openAddressForm = useCallback(
+    (reqsn: string) => {
+      const existing = deposits.find((d) => d.reqsn === reqsn);
+      setAddrName(existing?.receiver_name ?? '');
+      setAddrPhone(existing?.receiver_phone ?? '');
+      setAddrRegion(existing?.region ?? '');
+      setAddrDetail(existing?.detail_address ?? '');
+      setAddrRemark(existing?.remark ?? '');
+      setAddressFor(reqsn);
+    },
+    [deposits]
+  );
+
+  /** 提交收货地址（服务端会校验「已付款」与「未发货」两道门槛）。 */
+  const submitAddress = useCallback(async () => {
+    if (!addressFor || addrSubmitting) return;
+    const name = addrName.trim();
+    const phone = addrPhone.trim();
+    const detail = addrDetail.trim();
+    const digits = phone.replace(/\D/g, '');
+    if (!name) {
+      Message.error(t('pricing.hardware.deposit.errName'));
+      return;
+    }
+    if (digits.length < 6 || !/^[0-9+\-() ]+$/.test(phone)) {
+      Message.error(t('pricing.hardware.deposit.errPhone'));
+      return;
+    }
+    if (!detail) {
+      Message.error(t('pricing.hardware.deposit.errDetail'));
+      return;
+    }
+    setAddrSubmitting(true);
+    try {
+      await httpRequest(
+        'POST',
+        `/api/store/hardware/deposit/${encodeURIComponent(addressFor)}/address`,
+        {
+          receiver_name: name,
+          receiver_phone: phone,
+          region: addrRegion.trim(),
+          detail_address: detail,
+          remark: addrRemark.trim(),
+        }
+      );
+      Message.success(t('pricing.hardware.deposit.submitted'));
+      setAddressFor(null);
+      void loadDeposits();
+    } catch (e) {
+      console.error('[pricing] submit address failed', e);
+      const msg = isBackendHttpError(e)
+        ? e.backendMessage || e.message
+        : e instanceof Error
+          ? e.message
+          : t('pricing.hardware.deposit.addressFailed');
+      Message.error(msg);
+    } finally {
+      setAddrSubmitting(false);
+    }
+  }, [
+    addressFor,
+    addrSubmitting,
+    addrName,
+    addrPhone,
+    addrRegion,
+    addrDetail,
+    addrRemark,
+    loadDeposits,
+    t,
+  ]);
+
+  /**
+   * 押金付完后从扫码弹窗进入地址表单：先关掉扫码弹窗（已付款不会触发取消），
+   * 再打开地址弹窗。
+   */
+  const goToAddressForm = useCallback(() => {
+    const reqsn = qrOrder?.reqsn;
+    closeQr();
+    if (reqsn) {
+      openAddressForm(reqsn);
+    }
+  }, [qrOrder, closeQr, openAddressForm]);
+
+  /** 最近一张押金单，用于硬件区回显「押金已支付 / 地址已提交 / 已发货」。 */
+  const latestDeposit = deposits.length > 0 ? deposits[0] : null;
+
+  /** 该押金单是否已发货 —— 已发货则地址只读（服务端同样会拒绝写入）。 */
+  const addressShipped =
+    !!addressFor && deposits.some((d) => d.reqsn === addressFor && d.status === 'shipped');
 
   const currentQrString = qrOrder ? qrOrder.payinfo[qrChannel] || '' : '';
 
@@ -429,15 +684,75 @@ const PricingPage: React.FC = () => {
           </div>
 
           <div className='pricing-hardware-deposit'>
-            <div className='pricing-hardware-deposit-title'>
-              {t('pricing.hardware.deposit.title', {
-                amount: HARDWARE_DEPOSIT_CNY.toLocaleString('zh-CN'),
-              })}
+            <div className='pricing-hardware-deposit-main'>
+              <div className='pricing-hardware-deposit-title'>
+                {t('pricing.hardware.deposit.title', {
+                  amount: HARDWARE_DEPOSIT_CNY.toLocaleString('zh-CN'),
+                })}
+              </div>
+              <ul className='pricing-hardware-deposit-list'>
+                <li>{t('pricing.hardware.deposit.line1')}</li>
+                <li>{t('pricing.hardware.deposit.line2')}</li>
+              </ul>
+              <p className='pricing-hardware-deposit-hint'>
+                {t('pricing.hardware.deposit.payHint')}
+              </p>
+              {latestDeposit && (
+                <p className='pricing-hardware-deposit-status'>
+                  <span className='pricing-hardware-deposit-status-label'>
+                    {t('pricing.hardware.deposit.myOrder')}
+                  </span>
+                  <code>{latestDeposit.reqsn}</code>
+                  <span
+                    className={`pricing-hardware-deposit-pill pricing-hardware-deposit-pill-${
+                      latestDeposit.status === 'shipped'
+                        ? 'shipped'
+                        : latestDeposit.status === 'paid'
+                          ? latestDeposit.receiver_name
+                            ? 'addressed'
+                            : 'paid'
+                          : 'created'
+                    }`}
+                  >
+                    {latestDeposit.status === 'shipped'
+                      ? t('pricing.hardware.deposit.statusShipped')
+                      : latestDeposit.status === 'paid'
+                        ? latestDeposit.receiver_name
+                          ? t('pricing.hardware.deposit.statusAddressed')
+                          : t('pricing.hardware.deposit.statusPaid')
+                        : t('pricing.hardware.deposit.statusCreated')}
+                  </span>
+                </p>
+              )}
             </div>
-            <ul className='pricing-hardware-deposit-list'>
-              <li>{t('pricing.hardware.deposit.line1')}</li>
-              <li>{t('pricing.hardware.deposit.line2')}</li>
-            </ul>
+            <div className='pricing-hardware-deposit-actions'>
+              <button
+                type='button'
+                className='pricing-deposit-cta'
+                disabled={depositSubmitting}
+                onClick={() => void handleDepositPay()}
+              >
+                {depositSubmitting
+                  ? t('pricing.hardware.deposit.payCtaBusy')
+                  : t('pricing.hardware.deposit.payCta', {
+                      amount: HARDWARE_DEPOSIT_CNY.toLocaleString('zh-CN'),
+                    })}
+              </button>
+              {latestDeposit && latestDeposit.status !== 'created' && (
+                <button
+                  type='button'
+                  className='pricing-deposit-addr-btn'
+                  disabled={latestDeposit.status === 'shipped'}
+                  onClick={() => openAddressForm(latestDeposit.reqsn)}
+                >
+                  {latestDeposit.status === 'shipped'
+                    ? t('pricing.hardware.deposit.statusShipped')
+                    : latestDeposit.receiver_name
+                      ? t('pricing.hardware.deposit.editAddress')
+                      : t('pricing.hardware.deposit.fillAddress')}
+                </button>
+              )}
+            </div>
           </div>
         </section>
 
@@ -532,7 +847,7 @@ const PricingPage: React.FC = () => {
         {/* ---- 4. 功能对比矩阵 ---- */}
         <section className='pricing-matrix'>
           <h2 className='pricing-section-title'>{t('pricing.matrix.title')}</h2>
-          <div className='pricing-matrix-table-wrap'>
+          <div className='pricing-matrix-table-wrap' ref={matrixWrapRef}>
             <table className='pricing-matrix-table'>
               <thead>
                 <tr>
@@ -593,6 +908,9 @@ const PricingPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {matrixScrollable && (
+            <p className='pricing-matrix-scroll-hint'>{t('pricing.matrix.scrollHint')}</p>
+          )}
           <p className='pricing-matrix-note'>{t('pricing.matrix.note')}</p>
         </section>
 
@@ -708,9 +1026,109 @@ const PricingPage: React.FC = () => {
                 我已支付，刷新状态
               </button>
             )}
-            <button type='button' className='pricing-qr-close' onClick={closeQr}>
-              {qrStatus === 'paid' ? '完成' : '关闭'}
-            </button>
+            {qrStatus === 'paid' && qrOrder.kind === 'hardware' ? (
+              // 押金付完还差一步收货地址：不走「完成」而是直接进地址表单，
+              // 否则用户会以为流程结束，后台却拿不到地址、发不了货。
+              <button
+                type='button'
+                className='pricing-qr-close pricing-qr-continue'
+                onClick={goToAddressForm}
+              >
+                {t('pricing.hardware.deposit.goAddress')}
+              </button>
+            ) : (
+              <button type='button' className='pricing-qr-close' onClick={closeQr}>
+                {qrStatus === 'paid' ? '完成' : '关闭'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 硬件押金：收货地址表单（支付成功后打开；已发货则只读） */}
+      {addressFor && (
+        <div className='pricing-qr-overlay' onClick={() => setAddressFor(null)}>
+          <div className='pricing-qr-card' onClick={(e) => e.stopPropagation()}>
+            <h2 className='pricing-qr-title'>{t('pricing.hardware.deposit.addressTitle')}</h2>
+            <p className='pricing-qr-subtitle'>
+              {t('pricing.hardware.deposit.addressSubtitle')}
+              <br />
+              {t('pricing.hardware.deposit.myOrder')} <code>{addressFor}</code>
+            </p>
+            {addressShipped ? (
+              <p className='pricing-address-locked'>
+                {t('pricing.hardware.deposit.addressLocked')}
+              </p>
+            ) : (
+              <div className='pricing-address-form'>
+                <label className='pricing-address-field'>
+                  <span>{t('pricing.hardware.deposit.fieldName')}</span>
+                  <input
+                    value={addrName}
+                    maxLength={40}
+                    onChange={(e) => setAddrName(e.target.value)}
+                    placeholder={t('pricing.hardware.deposit.fieldNamePlaceholder')}
+                  />
+                </label>
+                <label className='pricing-address-field'>
+                  <span>{t('pricing.hardware.deposit.fieldPhone')}</span>
+                  <input
+                    value={addrPhone}
+                    maxLength={24}
+                    onChange={(e) => setAddrPhone(e.target.value)}
+                    placeholder={t('pricing.hardware.deposit.fieldPhonePlaceholder')}
+                  />
+                </label>
+                <label className='pricing-address-field'>
+                  <span>{t('pricing.hardware.deposit.fieldRegion')}</span>
+                  <input
+                    value={addrRegion}
+                    maxLength={60}
+                    onChange={(e) => setAddrRegion(e.target.value)}
+                    placeholder={t('pricing.hardware.deposit.fieldRegionPlaceholder')}
+                  />
+                </label>
+                <label className='pricing-address-field pricing-address-field-wide'>
+                  <span>{t('pricing.hardware.deposit.fieldDetail')}</span>
+                  <input
+                    value={addrDetail}
+                    maxLength={200}
+                    onChange={(e) => setAddrDetail(e.target.value)}
+                    placeholder={t('pricing.hardware.deposit.fieldDetailPlaceholder')}
+                  />
+                </label>
+                <label className='pricing-address-field pricing-address-field-wide'>
+                  <span>{t('pricing.hardware.deposit.fieldRemark')}</span>
+                  <input
+                    value={addrRemark}
+                    maxLength={200}
+                    onChange={(e) => setAddrRemark(e.target.value)}
+                    placeholder={t('pricing.hardware.deposit.fieldRemarkPlaceholder')}
+                  />
+                </label>
+              </div>
+            )}
+            <div className='pricing-address-actions'>
+              <button
+                type='button'
+                className='pricing-text-btn'
+                onClick={() => setAddressFor(null)}
+              >
+                {t('pricing.hardware.deposit.close')}
+              </button>
+              {!addressShipped && (
+                <button
+                  type='button'
+                  className='pricing-qr-close pricing-qr-continue'
+                  disabled={addrSubmitting}
+                  onClick={() => void submitAddress()}
+                >
+                  {addrSubmitting
+                    ? t('pricing.hardware.deposit.submitting')
+                    : t('pricing.hardware.deposit.submit')}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

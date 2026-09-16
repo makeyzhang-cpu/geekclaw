@@ -7,7 +7,9 @@ NOTICE — 外贸单证工具箱（第三方开源组件归属声明）
     许可  ：MIT License
 
 二次开发内容：品牌替换（TradeKit → GeekDoc）、移除第三方访问统计脚本、
-移除原站点 SEO 标签与站内推广位、适配 GeekClaw 内嵌运行环境。
+移除原站点 SEO 标签与站内推广位、适配 GeekClaw 内嵌运行环境、
+修复上游 `cost-estimation.html` 中 `labelInput2` / `labelInputDate2` 未定义的笔误
+（详见 `scripts/vendor-trade-docs.py` 的 UPSTREAM_FIXES）。
 除上述改动外，页面结构与业务逻辑保持原样。
 
 ------------------------------------------------------------------------------

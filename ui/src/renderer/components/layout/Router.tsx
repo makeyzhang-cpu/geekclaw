@@ -28,6 +28,7 @@ const TradeFollowUpPage = React.lazy(() => import('@renderer/pages/foreign-trade
 const TradeKnowledgePage = React.lazy(() => import('@renderer/pages/trade-knowledge'));
 const A2AEcommercePage = React.lazy(() => import('@renderer/pages/a2a-ecommerce'));
 const OpcDistPage = React.lazy(() => import('@renderer/pages/opc-dist'));
+const FactorySupplyPage = React.lazy(() => import('@renderer/pages/factory-supply'));
 const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage/TaskDetailPage'));
 const ComingSoon = React.lazy(() => import('@renderer/components/ComingSoon'));
 const WorkshopHomePage = React.lazy(() => import('@renderer/pages/workshop/WorkshopHomePage'));
@@ -277,6 +278,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/trade-knowledge' element={withRouteFallback(TradeKnowledgePage)} />
           {/* A2A 跨境电商 — 与「AI 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 nexsalehub */}
           <Route path='/a2a-ecommerce' element={withRouteFallback(A2AEcommercePage)} />
+          {/* 跨境工厂供货撮合平台 — 工厂货源与跨境卖家的 AI 撮合入口 */}
+          <Route path='/factory-supply' element={withRouteFallback(FactorySupplyPage)} />
           {/* OPC 分销工作台 — One Person Company 全球分销协作 */}
           <Route path='/opc-dist' element={withRouteFallback(OpcDistPage)} />
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />

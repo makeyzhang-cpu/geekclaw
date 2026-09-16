@@ -29,7 +29,10 @@ use nomifun_common::{AppError, now_ms};
 use nomifun_common::constants::SESSION_MAX_AGE_SECONDS;
 use nomifun_db::{
     DbError, ICloudProviderRepository, IExpertRepository, IProviderRepository, IUserRepository,
-    models::{ModelPricing, Order, SubscriptionPlan, User},
+    models::{
+        HARDWARE_DEPOSIT_STATUS_CREATED, HARDWARE_DEPOSIT_STATUS_SHIPPED, HardwareDeposit,
+        HardwareDepositAdminRow, ModelPricing, Order, SubscriptionPlan, User,
+    },
 };
 
 use crate::allinpay::{
@@ -200,6 +203,15 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         .route("/api/store/subscribe", post(store_subscribe_proxy_handler))
         .route("/api/store/order/{reqsn}", get(store_order_status_proxy_handler))
         .route("/api/store/order/{reqsn}/cancel", post(store_order_cancel_proxy_handler))
+        // 硬件押金（端侧算力盒子）——桌面端持有云端 JWT，转发到云端
+        // `/api/billing/hardware/*`，因此押金单与收货地址的**真源在云端**，
+        // 管理后台（www.geekclaw.ai/admin）可直接按地址发货。
+        .route("/api/store/hardware/deposit", post(store_hardware_deposit_proxy_handler))
+        .route("/api/store/hardware/deposits", get(store_hardware_deposits_proxy_handler))
+        .route(
+            "/api/store/hardware/deposit/{reqsn}/address",
+            post(store_hardware_deposit_address_proxy_handler),
+        )
         // A2A 跨境电商独立站：开通授权状态以云端管理后台为准（本地 trust 代理，
         // 带云端 JWT 转发）。云端未授权时前端显示开通引导，不开通不可用。
         .route("/api/store/a2a/storefront/status", get(store_a2a_storefront_status_proxy_handler))
@@ -248,12 +260,27 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         .route("/api/billing/order/{reqsn}/cancel", post(cancel_order_handler))
         // Consumer self-service purchase (open registration; 通联支付 planned).
         .route("/api/billing/subscribe", post(subscribe_handler))
+        // Consumer hardware deposit (端侧算力盒子「押金 ¥10,000/台」):
+        // 下单 → 扫码支付 → 提交收货地址。金额由服务端常量决定，地址落在
+        // `hardware_deposits` 表，供管理后台按地址发货。
+        .route("/api/billing/hardware/deposit", post(hardware_deposit_order_handler))
+        .route("/api/billing/hardware/deposits", get(my_hardware_deposits_handler))
+        .route(
+            "/api/billing/hardware/deposit/{reqsn}/address",
+            post(hardware_deposit_address_handler),
+        )
         // Admin console: payment config + subscription plans (admin-gated inside).
         .route("/api/admin/payment-config", get(get_payment_config_handler).put(put_payment_config_handler))
         .route("/api/admin/voice-config", get(get_voice_config_handler).put(put_voice_config_handler))
         .route("/api/admin/plans", get(list_admin_plans_handler).post(create_plan_handler))
         .route("/api/admin/plans/{plan_id}", put(update_plan_handler).delete(delete_plan_handler))
         .route("/api/admin/orders", get(list_admin_orders_handler))
+        // Admin console: 硬件押金发货台（按收货地址发货）。
+        .route("/api/admin/hardware-deposits", get(list_admin_hardware_deposits_handler))
+        .route(
+            "/api/admin/hardware-deposits/{reqsn}/ship",
+            post(ship_admin_hardware_deposit_handler),
+        )
         // Admin console: cloud-managed model provider catalog (admin-gated).
         // Members consume the synced copy via /api/store/cloud-providers below.
         .route("/api/admin/cloud-providers", get(list_admin_cloud_providers_handler).post(create_admin_cloud_provider_handler))
@@ -2045,11 +2072,33 @@ async fn subscribe_handler(
             AppError::BadRequest("支付网关尚未配置，暂时无法购买。请联系管理员。".to_string())
         })?;
 
+    // `yearly` is accepted as an alias for `annual`: the desktop UI names its
+    // billing cycle "yearly", and an unrecognised value here used to be silently
+    // coerced to `monthly` — i.e. a yearly purchase created an order for a
+    // single month's price.
     let period = match req.period.trim() {
-        "quarterly" | "annual" => req.period.trim().to_owned(),
-        _ => "monthly".to_owned(),
+        "quarterly" => "quarterly".to_owned(),
+        "annual" | "yearly" => "annual".to_owned(),
+        other => {
+            if !other.is_empty() && other != "monthly" {
+                tracing::warn!(
+                    plan_id = %plan_id,
+                    period = %other,
+                    "未知的计费周期，按 monthly 处理"
+                );
+            }
+            "monthly".to_owned()
+        }
     };
-    let amount_fen = (entry.price_fen as f64 * period_multiplier(&period)).round() as i64;
+    // A plan may carry an explicit yearly price: the service table's yearly
+    // discounts are NOT uniform across tiers, so a shared multiplier cannot
+    // reproduce them. `0` means "not configured" and falls back to the
+    // multiplier (which keeps the legacy monthly/yearly/pro rows unchanged).
+    let amount_fen = if period == "annual" && entry.price_year_fen > 0 {
+        entry.price_year_fen
+    } else {
+        (entry.price_fen as f64 * period_multiplier(&period)).round() as i64
+    };
     if amount_fen <= 0 {
         return Err(AppError::BadRequest("订单金额无效".to_string()));
     }
@@ -2257,10 +2306,17 @@ async fn cancel_order_handler(
 // ---------------------------------------------------------------------------
 
 /// Mark an order paid (idempotent on the `created → paid` transition) and, when
-/// that transition happens, grant the plan + credit bundle exactly once.
+/// that transition happens, apply the grant exactly once.
 ///
 /// Shared by both the async notify callback and the polling closed-loop
 /// fallback so the two paths can never diverge on the grant logic.
+///
+/// Two kinds of order flow through here:
+///   * **套餐订阅**（`order.plan` 是档位）→ 激活套餐 + 赠送算力；
+///   * **硬件押金**（`order.plan == PLAN_HARDWARE_DEPOSIT`）→ 只把履约行标记为已付款。
+///     押金**不是**套餐：`set_plan` 会把用户已经在用的档位覆盖成
+///     `hardware_deposit`（`users.plan` 直接被写坏），`add_credits` 又会平白送出
+///     算力。所以这里必须分流，绝不能让它走套餐分支。
 async fn finalize_paid_order(
     state: &AuthRouterState,
     order: &Order,
@@ -2272,23 +2328,41 @@ async fn finalize_paid_order(
         .await
         .map_err(|e| AppError::Internal(format!("标记订单失败: {e}")))?;
     if newly_paid {
-        state
-            .user_repo
-            .set_plan(&order.user_id, &order.plan)
-            .await
-            .map_err(|e| AppError::Internal(format!("激活套餐失败: {e}")))?;
-        state
-            .user_repo
-            .add_credits(
-                &order.user_id,
-                order.credits,
-                "purchase",
-                Some("billing"),
-                Some(&order.reqsn),
-                Some("GeekClaw 套餐购买"),
-            )
-            .await
-            .map_err(|e| AppError::Internal(format!("发放算力失败: {e}")))?;
+        if order.plan == PLAN_HARDWARE_DEPOSIT {
+            // 押金单：把履约行置为 `paid`，等买家提交收货地址后由后台发货。
+            // 失败只记日志、不阻断回调 —— 订单本身已经落定为 paid，后台列表会用
+            // `orders.status` 兜底显示「已付款」，不至于让收银宝无限重试。
+            match state
+                .user_repo
+                .mark_hardware_deposit_paid(&order.reqsn)
+                .await
+            {
+                Ok(true) => tracing::info!("押金单 {} 已标记付款成功，等待买家提交收货地址", order.reqsn),
+                Ok(false) => tracing::warn!(
+                    "押金单 {} 付款已确认，但履约行不在 created 状态（可能已处理过）",
+                    order.reqsn
+                ),
+                Err(e) => tracing::error!("押金单 {} 标记付款失败: {e}", order.reqsn),
+            }
+        } else {
+            state
+                .user_repo
+                .set_plan(&order.user_id, &order.plan)
+                .await
+                .map_err(|e| AppError::Internal(format!("激活套餐失败: {e}")))?;
+            state
+                .user_repo
+                .add_credits(
+                    &order.user_id,
+                    order.credits,
+                    "purchase",
+                    Some("billing"),
+                    Some(&order.reqsn),
+                    Some("GeekClaw 套餐购买"),
+                )
+                .await
+                .map_err(|e| AppError::Internal(format!("发放算力失败: {e}")))?;
+        }
     }
     Ok(newly_paid)
 }
@@ -2405,6 +2479,423 @@ async fn allinpay_notify_handler(
 }
 
 // ---------------------------------------------------------------------------
+// 硬件押金（端侧算力盒子）：下单 → 扫码支付 → 提交收货地址 → 后台发货
+//
+// 架构约定（2026-09-16 用户需求）：
+//   「押金10,000元/台」原先只是一段静态说明，用户要求可以直接点击支付押金、
+//   支付完成后提交收货地址，并且地址要直接同步到管理后台供发货。因此：
+//   - **支付流水复用 `orders`**（`plan` / `period` 都写 `'hardware_deposit'`），
+//     收银宝的「异步通知 / 主动查单 / 取消订单」三条既有链路一行都不用改；
+//   - **收货地址与发货状态落在独立的 `hardware_deposits` 表**（迁移 045），以
+//     `reqsn` 关联 —— 地址是支付完成后才写的，必须能与支付订单解耦地后置更新；
+//   - 桌面端经本地 trust 代理 `/api/store/hardware/*` 转发云端
+//     `/api/billing/hardware/*`，所以**真源在云端**；管理后台
+//     （www.geekclaw.ai/admin）直接读云端库即可按地址发货。
+// ---------------------------------------------------------------------------
+
+/// `orders.plan` / `orders.period` 上的押金哨兵值。
+///
+/// **刻意不放进 `set_plan_handler` 的档位白名单** —— 它不是可售套餐。
+/// `finalize_paid_order` 靠它分流，避免把用户正在用的真实档位覆盖掉。
+pub(crate) const PLAN_HARDWARE_DEPOSIT: &str = "hardware_deposit";
+
+/// 押金金额（分）= ¥10,000 / 台。
+///
+/// ⚠️ 必须与前端 `ui/src/renderer/pages/pricing/planCatalog.ts` 里的
+/// `HARDWARE_DEPOSIT_CNY` 保持一致。**金额以服务端为准**：下单接口不接受客户端
+/// 传入的金额，否则前端一改就能用 1 分钱下单。
+const HARDWARE_DEPOSIT_FEN: i64 = 10_000 * 100;
+
+/// `POST /api/billing/hardware/deposit` 的响应。
+///
+/// 与套餐下单同构（`SubscribeResponse` 的形状），这样桌面端可以复用同一个扫码
+/// 支付弹窗与轮询逻辑。
+#[derive(Debug, Serialize)]
+pub struct HardwareDepositOrderResponse {
+    pub reqsn: String,
+    pub amount_fen: i64,
+    /// 固定为 `hardware_deposit`，前端据此区分「押金单」与「套餐单」。
+    pub plan: String,
+    pub period: String,
+    /// 收银宝收银台二维码内容：`wechat`（W01）/ `alipay`（A01）。
+    pub payinfo: HashMap<String, String>,
+}
+
+/// `POST /api/billing/hardware/deposit/{reqsn}/address` 的请求体。
+#[derive(Debug, Deserialize)]
+pub struct HardwareDepositAddressRequest {
+    /// 收货人姓名。
+    pub receiver_name: String,
+    /// 收货人手机号（支持 `+86` / 空格 / 短横线，服务端只校验「有效数字 6~20 位」）。
+    pub receiver_phone: String,
+    /// 省 / 市 / 区，用户手填。
+    #[serde(default)]
+    pub region: String,
+    /// 详细地址。
+    pub detail_address: String,
+    /// 备注（开票抬头、期望上门时间等），可空。
+    #[serde(default)]
+    pub remark: String,
+}
+
+/// 收货信息的长度上限（字符数）。中文字符按 1 计，避免按字节截断。
+const RECEIVER_NAME_MAX: usize = 40;
+const RECEIVER_REGION_MAX: usize = 60;
+const RECEIVER_ADDRESS_MAX: usize = 200;
+const RECEIVER_REMARK_MAX: usize = 200;
+
+/// 手机号校验：允许 `+`、空格、短横线与括号，但**有效数字必须是 6~20 位**。
+/// 不放行纯符号（`+` 之类）以及超长输入。
+fn normalize_receiver_phone(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let digits = trimmed.chars().filter(|c| c.is_ascii_digit()).count();
+    if !(6..=20).contains(&digits) {
+        return None;
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '+' | '-' | ' ' | '(' | ')'))
+    {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+/// 取一段文本并做「非空 + 长度上限」校验，返回规范化后的值。
+fn validated_text(raw: &str, field: &str, max: usize, required: bool) -> Result<String, AppError> {
+    let value = raw.trim();
+    if required && value.is_empty() {
+        return Err(AppError::BadRequest(format!("{field}不能为空")));
+    }
+    if value.chars().count() > max {
+        return Err(AppError::BadRequest(format!(
+            "{field}过长（最多 {max} 个字符）"
+        )));
+    }
+    Ok(value.to_owned())
+}
+
+/// POST /api/billing/hardware/deposit — 创建一张押金单并返回收银台二维码。
+///
+/// 金额由服务端常量决定，客户端无需（也不能）传；押金单一旦创建就同时落下
+/// `orders`（支付流水）与 `hardware_deposits`（履约）两行，`reqsn` 相同。
+async fn hardware_deposit_order_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Result<Json<ApiResponse<HardwareDepositOrderResponse>>, AppError> {
+    // 与套餐下单同口径：没有配置支付网关就绝不下单，绝不凭空「开通」。
+    let cfg = resolve_allinpay_config(&*state.user_repo)
+        .await
+        .ok_or_else(|| {
+            AppError::BadRequest("支付网关尚未配置，暂时无法支付押金。请联系管理员。".to_string())
+        })?;
+
+    let uid = current_user.id.as_str().to_owned();
+    let reqsn = gen_reqsn();
+    let amount_fen = HARDWARE_DEPOSIT_FEN;
+
+    // 微信 + 支付宝双通道，至少一个成功；只有一个成功也照常放行。
+    let mut payinfo: HashMap<String, String> = HashMap::new();
+    for (channel, paytype) in [("wechat", PAYTYPE_WECHAT), ("alipay", PAYTYPE_ALIPAY)] {
+        match create_unified_order(&cfg, &reqsn, amount_fen, "GeekClaw 硬件押金", paytype).await {
+            Ok(result) => {
+                payinfo.insert(channel.to_owned(), result.payinfo);
+            }
+            Err(e) => tracing::warn!("押金下单（收款宝 {channel}）失败: {e}"),
+        }
+    }
+    if payinfo.is_empty() {
+        return Err(AppError::BadRequest(
+            "收银宝下单失败，请稍后重试或联系管理员。".to_string(),
+        ));
+    }
+
+    // 先落支付流水（`credits = 0`：押金不送算力）。
+    let qr_json = serde_json::to_string(&payinfo).unwrap_or_default();
+    let order = Order {
+        id: 0,
+        user_id: uid.clone(),
+        plan: PLAN_HARDWARE_DEPOSIT.to_owned(),
+        period: PLAN_HARDWARE_DEPOSIT.to_owned(),
+        amount_fen,
+        credits: 0,
+        status: "created".into(),
+        reqsn: reqsn.clone(),
+        trxid: None,
+        qr_payinfo: Some(qr_json),
+        created_at: 0,
+        paid_at: None,
+    };
+    state
+        .user_repo
+        .create_order(&order)
+        .await
+        .map_err(|e| AppError::Internal(format!("创建押金订单失败: {e}")))?;
+
+    // 再落履约行。这一步失败要**回收**刚建的订单，否则会留下一张永远无法发货、
+    // 但用户扫码就能付钱的孤儿单。
+    let deposit = HardwareDeposit {
+        id: 0,
+        user_id: uid,
+        deposit_fen: amount_fen,
+        reqsn: reqsn.clone(),
+        region: None,
+        receiver_name: None,
+        receiver_phone: None,
+        detail_address: None,
+        remark: None,
+        status: HARDWARE_DEPOSIT_STATUS_CREATED.to_owned(),
+        shipped_at: None,
+        created_at: 0,
+        updated_at: 0,
+    };
+    if let Err(e) = state.user_repo.create_hardware_deposit(&deposit).await {
+        let _ = state
+            .user_repo
+            .mark_order_failed(&reqsn, "押金履约记录创建失败")
+            .await;
+        return Err(AppError::Internal(format!("创建押金履约记录失败: {e}")));
+    }
+
+    Ok(Json(ApiResponse::with_message(
+        HardwareDepositOrderResponse {
+            reqsn,
+            amount_fen,
+            plan: PLAN_HARDWARE_DEPOSIT.to_owned(),
+            period: PLAN_HARDWARE_DEPOSIT.to_owned(),
+            payinfo,
+        },
+        "请使用微信或支付宝扫码完成押金支付".to_string(),
+    )))
+}
+
+/// POST /api/billing/hardware/deposit/{reqsn}/address — 买家提交 / 更新收货地址。
+///
+/// 只有**已付款**的押金单可以提交（否则退化成「先排队发货再付款」）；
+/// 已发货的单拒绝修改，避免后台已按旧地址发出的货与页面数据打架。
+async fn hardware_deposit_address_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(reqsn): Path<String>,
+    body: Result<Json<HardwareDepositAddressRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<HardwareDeposit>>, AppError> {
+    let Json(req) = body.map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let receiver_name = validated_text(&req.receiver_name, "收货人姓名", RECEIVER_NAME_MAX, true)?;
+    let region = validated_text(&req.region, "收货地区", RECEIVER_REGION_MAX, false)?;
+    let detail_address = validated_text(
+        &req.detail_address,
+        "详细地址",
+        RECEIVER_ADDRESS_MAX,
+        true,
+    )?;
+    let remark = validated_text(&req.remark, "备注", RECEIVER_REMARK_MAX, false)?;
+    let receiver_phone = normalize_receiver_phone(&req.receiver_phone)
+        .ok_or_else(|| AppError::BadRequest("请填写有效的收货人手机号".to_string()))?;
+
+    let deposit = state
+        .user_repo
+        .get_hardware_deposit_by_reqsn(&reqsn)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金单失败: {e}")))?
+        .ok_or_else(|| AppError::NotFound("押金单不存在".into()))?;
+
+    // 只能给本人的单填地址（管理员可代办，便于客服电话里代填）。
+    if deposit.user_id != current_user.id.as_str() && current_user.role != "admin" {
+        return Err(AppError::Forbidden("无权操作该押金单".into()));
+    }
+    if deposit.status == HARDWARE_DEPOSIT_STATUS_SHIPPED {
+        return Err(AppError::BadRequest(
+            "该押金单已发货，收货地址不可再修改；如需变更请联系客服。".to_string(),
+        ));
+    }
+
+    // 以 `orders.status` 为准判断是否真的付过款（履约行的 status 在支付回调里才置 paid）。
+    let order = state
+        .user_repo
+        .get_order_by_reqsn(&reqsn)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金订单失败: {e}")))?;
+    match order.as_ref().map(|o| o.status.as_str()) {
+        Some("paid") => {}
+        _ => {
+            return Err(AppError::BadRequest(
+                "押金尚未支付成功，请先完成支付再提交收货地址。".to_string(),
+            ))
+        }
+    }
+
+    let written = state
+        .user_repo
+        .set_hardware_deposit_address(
+            &reqsn,
+            &region,
+            &receiver_name,
+            &receiver_phone,
+            &detail_address,
+            &remark,
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("保存收货地址失败: {e}")))?;
+    if !written {
+        return Err(AppError::BadRequest(
+            "该押金单已发货，收货地址不可再修改。".to_string(),
+        ));
+    }
+
+    let updated = state
+        .user_repo
+        .get_hardware_deposit_by_reqsn(&reqsn)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金单失败: {e}")))?
+        .ok_or_else(|| AppError::NotFound("押金单不存在".into()))?;
+
+    Ok(Json(ApiResponse::with_message(
+        updated,
+        "收货地址已提交，我们将尽快安排发货".to_string(),
+    )))
+}
+
+/// GET /api/billing/hardware/deposits — 买家自己的押金单列表。
+///
+/// 定价页进入时拉一次：已提交地址的单直接显示「已提交」，避免用户重复填写。
+async fn my_hardware_deposits_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Result<Json<ApiResponse<Vec<HardwareDeposit>>>, AppError> {
+    let rows = state
+        .user_repo
+        .list_hardware_deposits_by_user(current_user.id.as_str())
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金单失败: {e}")))?;
+    Ok(Json(ApiResponse::ok(rows)))
+}
+
+/// 后台发货台的一行（HTTP 视图）。
+#[derive(Debug, Serialize)]
+pub struct AdminHardwareDepositView {
+    pub reqsn: String,
+    pub user_id: String,
+    pub username: Option<String>,
+    pub deposit_fen: i64,
+    pub region: Option<String>,
+    pub receiver_name: Option<String>,
+    pub receiver_phone: Option<String>,
+    pub detail_address: Option<String>,
+    pub remark: Option<String>,
+    /// 履约状态：`created` | `paid` | `shipped`。
+    pub status: String,
+    /// 关联支付订单状态：`created` | `paid` | `failed`（付款真源）。
+    pub order_status: Option<String>,
+    pub trxid: Option<String>,
+    pub paid_at: Option<i64>,
+    pub shipped_at: Option<i64>,
+    pub created_at: i64,
+}
+
+impl From<HardwareDepositAdminRow> for AdminHardwareDepositView {
+    fn from(row: HardwareDepositAdminRow) -> Self {
+        let d = row.deposit;
+        Self {
+            reqsn: d.reqsn,
+            user_id: d.user_id,
+            username: row.username,
+            deposit_fen: d.deposit_fen,
+            region: d.region,
+            receiver_name: d.receiver_name,
+            receiver_phone: d.receiver_phone,
+            detail_address: d.detail_address,
+            remark: d.remark,
+            status: d.status,
+            order_status: row.order_status,
+            trxid: row.trxid,
+            paid_at: row.paid_at,
+            shipped_at: d.shipped_at,
+            created_at: d.created_at,
+        }
+    }
+}
+
+/// Response for `GET /api/admin/hardware-deposits`.
+#[derive(Debug, Serialize)]
+pub struct AdminHardwareDepositsResponse {
+    pub success: bool,
+    pub deposits: Vec<AdminHardwareDepositView>,
+}
+
+/// GET /api/admin/hardware-deposits — 后台发货台列表（管理员）。
+async fn list_admin_hardware_deposits_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Result<Json<AdminHardwareDepositsResponse>, AppError> {
+    ensure_admin(&current_user)?;
+    let rows = state
+        .user_repo
+        .list_hardware_deposits()
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金单失败: {e}")))?;
+    Ok(Json(AdminHardwareDepositsResponse {
+        success: true,
+        deposits: rows.into_iter().map(AdminHardwareDepositView::from).collect(),
+    }))
+}
+
+/// POST /api/admin/hardware-deposits/{reqsn}/ship — 标记已发货（管理员）。
+///
+/// 前置条件：押金已支付 **且** 买家已提交收货地址。两个条件都满足才允许发货，
+/// 否则后台会出现「已发货但没有收货人」的死单。
+async fn ship_admin_hardware_deposit_handler(
+    State(state): State<AuthRouterState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(reqsn): Path<String>,
+) -> Result<Json<ApiResponse<AdminHardwareDepositView>>, AppError> {
+    ensure_admin(&current_user)?;
+
+    let deposit = state
+        .user_repo
+        .get_hardware_deposit_by_reqsn(&reqsn)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金单失败: {e}")))?
+        .ok_or_else(|| AppError::NotFound("押金单不存在".into()))?;
+
+    if deposit.status == HARDWARE_DEPOSIT_STATUS_SHIPPED {
+        return Err(AppError::BadRequest("该押金单已发货，无需重复操作".to_string()));
+    }
+    if deposit.receiver_name.is_none()
+        || deposit.receiver_phone.is_none()
+        || deposit.detail_address.is_none()
+    {
+        return Err(AppError::BadRequest(
+            "该押金单尚未收到收货地址，请等待买家提交后再发货".to_string(),
+        ));
+    }
+
+    let shipped = state
+        .user_repo
+        .mark_hardware_deposit_shipped(&reqsn)
+        .await
+        .map_err(|e| AppError::Internal(format!("更新发货状态失败: {e}")))?;
+    if !shipped {
+        return Err(AppError::BadRequest(
+            "该押金单尚未付款成功，不能发货".to_string(),
+        ));
+    }
+
+    let row = state
+        .user_repo
+        .list_hardware_deposits()
+        .await
+        .map_err(|e| AppError::Internal(format!("查询押金单失败: {e}")))?
+        .into_iter()
+        .find(|r| r.deposit.reqsn == reqsn)
+        .map(AdminHardwareDepositView::from)
+        .ok_or_else(|| AppError::NotFound("押金单不存在".into()))?;
+
+    tracing::info!("押金单 {} 已由后台标记发货", reqsn);
+    Ok(Json(ApiResponse::with_message(row, "已标记发货")))
+}
+
+// ---------------------------------------------------------------------------
 // 会员套餐（后台可管理）+ 支付配置（后台可配置）+ 公开套餐列表
 //
 // 套餐是真源：营销站 /api/plans、桌面端、subscribe 下单全部读 subscription_plans
@@ -2418,6 +2909,7 @@ pub struct PublicPlan {
     pub name: String,
     pub backend_plan: String,
     pub price_fen: i64,
+    pub price_year_fen: i64,
     pub credits: i64,
     pub description: String,
     pub sort_order: i64,
@@ -2446,6 +2938,7 @@ async fn public_plans_handler(
             name: p.name,
             backend_plan: p.backend_plan,
             price_fen: p.price_fen,
+            price_year_fen: p.price_year_fen,
             credits: p.credits,
             description: p.description,
             sort_order: p.sort_order,
@@ -2470,6 +2963,10 @@ struct CloudPlan {
     name: String,
     backend_plan: String,
     price_fen: i64,
+    /// Per-plan yearly price in 分 (`0` = the cloud falls back to its own
+    /// shared period multiplier). Relayed through to the desktop pricing page.
+    #[serde(default)]
+    price_year_fen: i64,
     #[serde(default)]
     credits: i64,
     #[serde(default)]
@@ -2518,6 +3015,7 @@ async fn store_plans_proxy_handler() -> Result<Json<PublicPlansResponse>, AppErr
             name: p.name,
             backend_plan: p.backend_plan,
             price_fen: p.price_fen,
+            price_year_fen: p.price_year_fen,
             credits: p.credits,
             description: p.description,
             sort_order: p.sort_order,
@@ -2676,6 +3174,43 @@ async fn store_order_cancel_proxy_handler(
 
 async fn store_billing_me_proxy_handler(State(state): State<AuthRouterState>) -> Result<Response, AppError> {
     forward_cloud_billing(&state, reqwest::Method::GET, "me", None).await
+}
+
+// ---------------------------------------------------------------------------
+// 硬件押金（端侧算力盒子）云端代理 —— 桌面端 shell only
+//
+// 复用 `forward_cloud_billing`：它拼的是 `{GEEKCLAW_STORE_API_BASE}/api/billing/{path}`，
+// 所以这里的 `path` 直接写云端路由的后半段（`hardware/deposit` 等）。
+// 桌面端 webview 无法直连云端（无 CORS），必须服务端带云端 JWT 转发。
+// ---------------------------------------------------------------------------
+
+/// POST /api/store/hardware/deposit — 代理「创建押金单 + 取收银台二维码」。
+async fn store_hardware_deposit_proxy_handler(
+    State(state): State<AuthRouterState>,
+) -> Result<Response, AppError> {
+    forward_cloud_billing(&state, reqwest::Method::POST, "hardware/deposit", None).await
+}
+
+/// GET /api/store/hardware/deposits — 代理「我的押金单」（回显地址提交状态）。
+async fn store_hardware_deposits_proxy_handler(
+    State(state): State<AuthRouterState>,
+) -> Result<Response, AppError> {
+    forward_cloud_billing(&state, reqwest::Method::GET, "hardware/deposits", None).await
+}
+
+/// POST /api/store/hardware/deposit/{reqsn}/address — 代理「提交收货地址」。
+async fn store_hardware_deposit_address_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Path(reqsn): Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Response, AppError> {
+    forward_cloud_billing(
+        &state,
+        reqwest::Method::POST,
+        &format!("hardware/deposit/{reqsn}/address"),
+        Some(payload),
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -2958,6 +3493,7 @@ pub struct AdminPlanView {
     pub name: String,
     pub backend_plan: String,
     pub price_fen: i64,
+    pub price_year_fen: i64,
     pub credits: i64,
     pub description: String,
     pub sort_order: i64,
@@ -2974,6 +3510,7 @@ impl AdminPlanView {
             name: p.name,
             backend_plan: p.backend_plan,
             price_fen: p.price_fen,
+            price_year_fen: p.price_year_fen,
             credits: p.credits,
             description: p.description,
             sort_order: p.sort_order,
@@ -3058,6 +3595,11 @@ pub struct UpsertPlanRequest {
     #[serde(default = "default_backend_plan")]
     pub backend_plan: String,
     pub price_fen: i64,
+    /// Optional per-plan yearly price in 分. `0` = not configured → fall back to
+    /// the shared `period_multiplier`. The service table's yearly discounts are
+    /// not uniform across tiers, so exact yearly figures must be set here.
+    #[serde(default)]
+    pub price_year_fen: i64,
     #[serde(default)]
     pub credits: i64,
     #[serde(default)]
@@ -3109,6 +3651,16 @@ async fn create_plan_handler(
     if req.price_fen <= 0 {
         return Err(AppError::BadRequest("price_fen 必须大于 0".into()));
     }
+    if req.price_year_fen < 0 {
+        return Err(AppError::BadRequest("price_year_fen 不能为负数".into()));
+    }
+    // A yearly price below the monthly price is always a data-entry mistake, and
+    // it would silently under-charge on the annual period. Reject it up front.
+    if req.price_year_fen > 0 && req.price_year_fen < req.price_fen {
+        return Err(AppError::BadRequest(
+            "price_year_fen 不能低于 price_fen（年价低于月价属于误配）".into(),
+        ));
+    }
     if state
         .user_repo
         .get_subscription_plan_by_plan_id(&plan_id)
@@ -3124,6 +3676,7 @@ async fn create_plan_handler(
         name,
         req.backend_plan.trim().to_owned(),
         req.price_fen,
+        req.price_year_fen,
         req.credits,
         req.description.trim().to_owned(),
         req.sort_order,
@@ -3154,13 +3707,27 @@ async fn update_plan_handler(
         .await
         .map_err(|e| AppError::Internal(format!("查询套餐失败: {e}")))?
         .ok_or_else(|| AppError::NotFound("套餐不存在".into()))?;
+    // Same merge rule as `price_fen`: a non-positive value keeps the stored one,
+    // so a partial update can never wipe a configured yearly price by omission.
+    let effective_price = if req.price_fen > 0 { req.price_fen } else { existing.price_fen };
+    let effective_price_year = if req.price_year_fen > 0 {
+        req.price_year_fen
+    } else {
+        existing.price_year_fen
+    };
+    if effective_price_year > 0 && effective_price_year < effective_price {
+        return Err(AppError::BadRequest(
+            "price_year_fen 不能低于 price_fen（年价低于月价属于误配）".into(),
+        ));
+    }
     let now = now_ms();
     let updated = SubscriptionPlan {
         id: existing.id,
         plan_id: plan_id.clone(),
         name: req.name.trim().to_owned(),
         backend_plan: req.backend_plan.trim().to_owned(),
-        price_fen: if req.price_fen > 0 { req.price_fen } else { existing.price_fen },
+        price_fen: effective_price,
+        price_year_fen: effective_price_year,
         credits: req.credits,
         description: req.description.trim().to_owned(),
         sort_order: req.sort_order,

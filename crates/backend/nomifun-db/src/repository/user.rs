@@ -1,5 +1,5 @@
 use crate::error::DbError;
-use crate::models::{Invitation, User};
+use crate::models::{HardwareDeposit, HardwareDepositAdminRow, Invitation, User};
 use nomifun_common::TimestampMs;
 
 /// User data access abstraction.
@@ -304,4 +304,51 @@ pub trait IUserRepository: Send + Sync {
     /// Sums `credit_transactions.amount` for a user filtered by `tx_type`
     /// (e.g. `invite_reward`). Drives the referral "累计获得积分" stat.
     async fn sum_credit_tx_by_type(&self, user_id: &str, tx_type: &str) -> Result<i64, DbError>;
+
+    // ── 硬件押金（端侧算力盒子）履约信息 ──────────────────────────────────
+    //
+    // 支付流水在 `orders` 表（同一 `reqsn`，`plan = 'hardware_deposit'`），
+    // 这里只负责「收货地址 + 发货状态」。详见迁移 045 的说明。
+
+    /// 落一行押金履约记录（`status = 'created'`）。`reqsn` 必须与对应的
+    /// `orders` 行一致且唯一。
+    async fn create_hardware_deposit(
+        &self,
+        deposit: &HardwareDeposit,
+    ) -> Result<HardwareDeposit, DbError>;
+
+    /// 按商户订单号取押金履约记录，不存在返回 `None`。
+    async fn get_hardware_deposit_by_reqsn(
+        &self,
+        reqsn: &str,
+    ) -> Result<Option<HardwareDeposit>, DbError>;
+
+    /// 写入 / 更新收货地址。已发货（`shipped`）的单会被拒绝并返回 `false`，
+    /// 避免后台已按旧地址发出的货与页面数据不一致。
+    async fn set_hardware_deposit_address(
+        &self,
+        reqsn: &str,
+        region: &str,
+        receiver_name: &str,
+        receiver_phone: &str,
+        detail_address: &str,
+        remark: &str,
+    ) -> Result<bool, DbError>;
+
+    /// 支付成功后把履约状态从 `created` 迁移到 `paid`。幂等：
+    /// 只有真正发生 `created → paid` 的那一次返回 `true`。
+    async fn mark_hardware_deposit_paid(&self, reqsn: &str) -> Result<bool, DbError>;
+
+    /// 后台标记已发货（`paid → shipped`）。只有已付款的单可发货，
+    /// 其余状态返回 `false`，由调用方给出明确提示。
+    async fn mark_hardware_deposit_shipped(&self, reqsn: &str) -> Result<bool, DbError>;
+
+    /// 后台发货台列表，按下单时间倒序，附带买家名与关联支付订单状态。
+    async fn list_hardware_deposits(&self) -> Result<Vec<HardwareDepositAdminRow>, DbError>;
+
+    /// 某个买家自己的押金单（用于定价页回显「是否已提交收货地址」）。
+    async fn list_hardware_deposits_by_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<HardwareDeposit>, DbError>;
 }

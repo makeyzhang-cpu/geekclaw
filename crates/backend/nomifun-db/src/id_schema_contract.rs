@@ -99,6 +99,7 @@ pub(crate) const PRODUCT_TABLES: &[&str] = &[
     "credit_transactions",
     "model_pricing",
     "orders",
+    "hardware_deposits",
     "webhooks",
     "subscription_plans",
     "system_kv",
@@ -245,6 +246,9 @@ const NON_REFERENCE_ID_COLUMNS: &[(&str, &str)] = &[
     ("users", "user_id"),
     ("credit_transactions", "user_id"),
     ("orders", "user_id"),
+    // 硬件押金（端侧算力盒子）履约表：`user_id` 与 `orders.user_id` 同口径的
+    // 逻辑外键（不建 FK 约束），`reqsn` 与 `orders.reqsn` 一一对应。
+    ("hardware_deposits", "user_id"),
     ("subscription_plans", "plan_id"),
     ("webhooks", "webhook_id"),
     ("workshop_assets", "asset_id"),

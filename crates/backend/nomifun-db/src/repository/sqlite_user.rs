@@ -6,7 +6,11 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::error::DbError;
-use crate::models::{CreditTransaction, Invitation, ModelPricing, Order, SubscriptionPlan, User};
+use crate::models::{
+    CreditTransaction, HARDWARE_DEPOSIT_STATUS_CREATED, HARDWARE_DEPOSIT_STATUS_PAID,
+    HARDWARE_DEPOSIT_STATUS_SHIPPED, HardwareDeposit, HardwareDepositAdminRow, Invitation,
+    ModelPricing, Order, SubscriptionPlan, User,
+};
 use crate::repository::IUserRepository;
 
 /// True if the sqlx error is a SQLite UNIQUE-constraint violation
@@ -797,13 +801,14 @@ impl IUserRepository for SqliteUserRepository {
         let now = now_ms();
         sqlx::query(
             "INSERT INTO subscription_plans \
-             (plan_id, name, backend_plan, price_fen, credits, description, sort_order, enabled, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (plan_id, name, backend_plan, price_fen, price_year_fen, credits, description, sort_order, enabled, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&plan.plan_id)
         .bind(&plan.name)
         .bind(&plan.backend_plan)
         .bind(plan.price_fen)
+        .bind(plan.price_year_fen)
         .bind(plan.credits)
         .bind(&plan.description)
         .bind(plan.sort_order)
@@ -826,13 +831,14 @@ impl IUserRepository for SqliteUserRepository {
         let now = now_ms();
         let result = sqlx::query(
             "UPDATE subscription_plans SET \
-             name = ?, backend_plan = ?, price_fen = ?, credits = ?, description = ?, \
+             name = ?, backend_plan = ?, price_fen = ?, price_year_fen = ?, credits = ?, description = ?, \
              sort_order = ?, enabled = ?, updated_at = ? \
              WHERE plan_id = ?",
         )
         .bind(&plan.name)
         .bind(&plan.backend_plan)
         .bind(plan.price_fen)
+        .bind(plan.price_year_fen)
         .bind(plan.credits)
         .bind(&plan.description)
         .bind(plan.sort_order)
@@ -945,6 +951,165 @@ impl IUserRepository for SqliteUserRepository {
         )
         .bind(user_id)
         .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(rows)
+    }
+
+    // ── 硬件押金（端侧算力盒子）履约信息 ──────────────────────────────────
+
+    async fn create_hardware_deposit(
+        &self,
+        deposit: &HardwareDeposit,
+    ) -> Result<HardwareDeposit, DbError> {
+        let now = now_ms();
+        let result = sqlx::query(
+            "INSERT INTO hardware_deposits \
+             (user_id, deposit_fen, reqsn, region, receiver_name, receiver_phone, \
+              detail_address, remark, status, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&deposit.user_id)
+        .bind(deposit.deposit_fen)
+        .bind(&deposit.reqsn)
+        .bind(&deposit.region)
+        .bind(&deposit.receiver_name)
+        .bind(&deposit.receiver_phone)
+        .bind(&deposit.detail_address)
+        .bind(&deposit.remark)
+        .bind(HARDWARE_DEPOSIT_STATUS_CREATED)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::Internal("Failed to insert hardware deposit".into()));
+        }
+
+        self.get_hardware_deposit_by_reqsn(&deposit.reqsn)
+            .await?
+            .ok_or_else(|| {
+                DbError::Internal(format!(
+                    "Hardware deposit '{}' not found after insert",
+                    deposit.reqsn
+                ))
+            })
+    }
+
+    async fn get_hardware_deposit_by_reqsn(
+        &self,
+        reqsn: &str,
+    ) -> Result<Option<HardwareDeposit>, DbError> {
+        let row = sqlx::query_as::<_, HardwareDeposit>("SELECT * FROM hardware_deposits WHERE reqsn = ?")
+            .bind(reqsn)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(DbError::Query)?;
+        Ok(row)
+    }
+
+    async fn set_hardware_deposit_address(
+        &self,
+        reqsn: &str,
+        region: &str,
+        receiver_name: &str,
+        receiver_phone: &str,
+        detail_address: &str,
+        remark: &str,
+    ) -> Result<bool, DbError> {
+        // `status != 'shipped'` 保证已发货的单不会被收货地址覆盖 —— 货已经按旧地址
+        // 发出去了，改地址只会让后台数据与实际物流不一致，所以直接拒绝（返回 false）。
+        let result = sqlx::query(
+            "UPDATE hardware_deposits SET region = ?, receiver_name = ?, receiver_phone = ?, \
+             detail_address = ?, remark = ?, updated_at = ? \
+             WHERE reqsn = ? AND status != 'shipped'",
+        )
+        .bind(region)
+        .bind(receiver_name)
+        .bind(receiver_phone)
+        .bind(detail_address)
+        .bind(remark)
+        .bind(now_ms())
+        .bind(reqsn)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn mark_hardware_deposit_paid(&self, reqsn: &str) -> Result<bool, DbError> {
+        // 幂等：只有 `created` 会迁移到 `paid`，重复通知不会再改一次。
+        let result = sqlx::query(
+            "UPDATE hardware_deposits SET status = ?, updated_at = ? \
+             WHERE reqsn = ? AND status = ?",
+        )
+        .bind(HARDWARE_DEPOSIT_STATUS_PAID)
+        .bind(now_ms())
+        .bind(reqsn)
+        .bind(HARDWARE_DEPOSIT_STATUS_CREATED)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn mark_hardware_deposit_shipped(&self, reqsn: &str) -> Result<bool, DbError> {
+        // 只有已付款（`paid`）的单才允许发货；`created` 未付款、`shipped` 已发货
+        // 都返回 false，由调用方给出明确提示。
+        let now = now_ms();
+        let result = sqlx::query(
+            "UPDATE hardware_deposits SET status = ?, shipped_at = ?, updated_at = ? \
+             WHERE reqsn = ? AND status = ?",
+        )
+        .bind(HARDWARE_DEPOSIT_STATUS_SHIPPED)
+        .bind(now)
+        .bind(now)
+        .bind(reqsn)
+        .bind(HARDWARE_DEPOSIT_STATUS_PAID)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_hardware_deposits(&self) -> Result<Vec<HardwareDepositAdminRow>, DbError> {
+        let rows = sqlx::query(
+            "SELECT d.*, u.username, o.status AS order_status, o.amount_fen AS order_amount_fen, \
+             o.trxid AS order_trxid, o.paid_at AS order_paid_at \
+             FROM hardware_deposits d \
+             LEFT JOIN users u ON u.user_id = d.user_id \
+             LEFT JOIN orders o ON o.reqsn = d.reqsn \
+             ORDER BY d.created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let deposit = HardwareDeposit::from_row(&row).map_err(DbError::Query)?;
+            out.push(HardwareDepositAdminRow {
+                deposit,
+                username: row.try_get("username").ok().flatten(),
+                order_status: row.try_get("order_status").ok().flatten(),
+                amount_fen: row.try_get("order_amount_fen").ok().flatten().unwrap_or(0),
+                trxid: row.try_get("order_trxid").ok().flatten(),
+                paid_at: row.try_get("order_paid_at").ok().flatten(),
+            });
+        }
+        Ok(out)
+    }
+
+    async fn list_hardware_deposits_by_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<HardwareDeposit>, DbError> {
+        let rows = sqlx::query_as::<_, HardwareDeposit>(
+            "SELECT * FROM hardware_deposits WHERE user_id = ? ORDER BY created_at DESC, id DESC",
+        )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(DbError::Query)?;
@@ -1322,5 +1487,122 @@ mod tests {
         repo.set_user_active(user.user_id.as_str(), true).await.unwrap();
         let fetched2 = repo.find_by_id(user.user_id.as_str()).await.unwrap().unwrap();
         assert_eq!(fetched2.is_active, 1);
+    }
+
+    /// 硬件押金（端侧算力盒子）履约状态机：created → paid → shipped，
+    /// 每一步都必须是幂等的，且已发货后不能再改收货地址。
+    #[tokio::test]
+    async fn hardware_deposit_lifecycle_is_idempotent_and_ordered() {
+        let (repo, _db) = setup().await;
+        let reqsn = "GC1758000000000_hw0001";
+
+        let created = repo
+            .create_hardware_deposit(&HardwareDeposit {
+                id: 0,
+                user_id: "u-deposit".into(),
+                deposit_fen: 1_000_000,
+                reqsn: reqsn.into(),
+                region: None,
+                receiver_name: None,
+                receiver_phone: None,
+                detail_address: None,
+                remark: None,
+                status: HARDWARE_DEPOSIT_STATUS_CREATED.into(),
+                shipped_at: None,
+                created_at: 0,
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
+        assert_eq!(created.status, HARDWARE_DEPOSIT_STATUS_CREATED);
+        assert_eq!(created.deposit_fen, 1_000_000, "押金金额必须原样落库");
+
+        // 未付款阶段也允许先存地址（后台发货门槛由 routes 层把关），但状态机本身
+        // 不会因此提前变成 paid。
+        assert!(repo
+            .set_hardware_deposit_address(
+                reqsn,
+                "广东省深圳市南山区",
+                "张三",
+                "13800000000",
+                "科技园路 1 号 A 栋 801",
+                "工作日送货",
+            )
+            .await
+            .unwrap());
+
+        // 支付确认：只有第一次是真实迁移，重复通知返回 false（防止重复处理）。
+        assert!(repo.mark_hardware_deposit_paid(reqsn).await.unwrap());
+        assert!(
+            !repo.mark_hardware_deposit_paid(reqsn).await.unwrap(),
+            "重复的支付通知不得再次迁移状态"
+        );
+
+        let paid = repo.get_hardware_deposit_by_reqsn(reqsn).await.unwrap().unwrap();
+        assert_eq!(paid.status, HARDWARE_DEPOSIT_STATUS_PAID);
+        assert_eq!(paid.receiver_name.as_deref(), Some("张三"));
+
+        // 发货：paid → shipped 成功，重复发货失败。
+        assert!(repo.mark_hardware_deposit_shipped(reqsn).await.unwrap());
+        assert!(
+            !repo.mark_hardware_deposit_shipped(reqsn).await.unwrap(),
+            "已发货的单不得重复发货"
+        );
+
+        let shipped = repo.get_hardware_deposit_by_reqsn(reqsn).await.unwrap().unwrap();
+        assert_eq!(shipped.status, HARDWARE_DEPOSIT_STATUS_SHIPPED);
+        assert!(shipped.shipped_at.is_some(), "发货时间必须落库");
+        assert!(
+            !repo
+                .set_hardware_deposit_address(reqsn, "", "李四", "13900000000", "别处", "")
+                .await
+                .unwrap(),
+            "已发货后收货地址必须锁定"
+        );
+
+        // 后台列表：没有对应 users 行时 username 为 NULL，但行本身必须能查出来
+        // （发货台不能因为用户被删就丢掉订单）。
+        let rows = repo.list_hardware_deposits().await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].deposit.reqsn, reqsn);
+        assert!(rows[0].username.is_none());
+        // 没有对应 orders 行时付款真源为空，后台据此显示「待支付」而不是假「已支付」。
+        assert!(rows[0].order_status.is_none());
+
+        let mine = repo.list_hardware_deposits_by_user("u-deposit").await.unwrap();
+        assert_eq!(mine.len(), 1);
+        assert!(repo
+            .list_hardware_deposits_by_user("someone-else")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    /// 未付款（`created`）的押金单不允许直接发货 —— 否则会产生「货发了钱没到」的死单。
+    #[tokio::test]
+    async fn hardware_deposit_cannot_ship_before_payment() {
+        let (repo, _db) = setup().await;
+        let reqsn = "GC1758000000000_hw0002";
+        repo.create_hardware_deposit(&HardwareDeposit {
+            id: 0,
+            user_id: "u-deposit-2".into(),
+            deposit_fen: 1_000_000,
+            reqsn: reqsn.into(),
+            region: None,
+            receiver_name: None,
+            receiver_phone: None,
+            detail_address: None,
+            remark: None,
+            status: HARDWARE_DEPOSIT_STATUS_CREATED.into(),
+            shipped_at: None,
+            created_at: 0,
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
+
+        assert!(!repo.mark_hardware_deposit_shipped(reqsn).await.unwrap());
+        let row = repo.get_hardware_deposit_by_reqsn(reqsn).await.unwrap().unwrap();
+        assert_eq!(row.status, HARDWARE_DEPOSIT_STATUS_CREATED);
     }
 }
