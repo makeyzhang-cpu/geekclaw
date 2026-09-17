@@ -33,6 +33,7 @@ import {
   SiderForeignTradeEntry,
   SiderTradeFollowUpEntry,
   SiderTradeKnowledgeEntry,
+  SiderSocialMatrixEntry,
 } from './SiderNav';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import SiderThemeControl from './SiderThemeControl';
@@ -53,7 +54,8 @@ interface SiderProps {
  * reached via the "会话" entry. The rail holds top-level destinations grouped
  * by small-text section headers (`SiderSectionHeader`):
  *   AI通用智能体 (会话 / 数字员工 / 技能 / 设定 / MCP / 定时任务),
- *   AI出海智能体 (B2B外贸运营工作台 / B2B外贸业务工作台 / B2B外贸跟单工作台 / 外贸人知识库),
+ *   AI出海智能体 (B2B外贸运营工作台 / B2B外贸业务工作台 / B2B外贸跟单工作台 /
+ *                  海外社媒矩阵工作台 / 外贸人知识库),
  *   AI跨境电商智能体 (A2A跨境电商 / OPC分销工作台 / AI创艺工作台),
  *   AI营销智能体 (国内GEO AI营销),
  *   助理能力仓 (AI客服 / 知识库 / 数字资产库 / 系统设置).
@@ -108,6 +110,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleGeoDomesticClick = () => navTo('/geo-domestic');
   const handleForeignTradeClick = () => navTo('/foreign-trade');
   const handleTradeFollowUpClick = () => navTo('/foreign-trade-ops');
+  const handleSocialMatrixClick = () => navTo('/social-matrix');
   const handleTradeKnowledgeClick = () => navTo('/trade-knowledge');
   const handleRequirementsClick = () => navTo('/a2a-ecommerce');
   const handleFactorySupplyClick = () => navTo('/factory-supply');
@@ -232,6 +235,16 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleTradeFollowUpClick}
+            />
+            {/* 海外社媒矩阵工作台 — 一稿多投：内容按平台差异化改写后投放
+                LinkedIn / Facebook / Instagram / YouTube / X / TikTok 账号矩阵，
+                队列与日历排期自动发布，并回收互动指标。 */}
+            <SiderSocialMatrixEntry
+              isMobile={isMobile}
+              isActive={isRouteActive('/social-matrix')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleSocialMatrixClick}
             />
             {/* 外贸人知识库 — 随包内置的外贸业务表格 / 文档模板库：在线查阅 + 直接下载。 */}
             <SiderTradeKnowledgeEntry

@@ -55,6 +55,36 @@ UPSTREAM_FIXES: list[tuple[str, str]] = [
     ('labelInput2(', 'labelInput('),
 ]
 
+# 面向用户的存储说明修正。
+#
+# 这些页面在内嵌进 GeekClaw 后跑在 **Tauri 内置 WebView** 里，用户看到的是
+# 「本机上的一个桌面应用」，不是浏览器。原文案一律说「浏览器」既不准确、
+# 又把实现细节抖给了用户（用户不会关心数据落在 localStorage 还是别处，
+# 只关心「在不在我这台机器上」）。统一改成「本机本地」。
+#
+# 顺序敏感：必须先长后短（含 `browser\'s localStorage` 的那句要排在
+# 通用句之前，否则会被通用句先吃掉一半，留下 `'s localStorage` 残渣）。
+COPY_FIXES: list[tuple[str, str]] = [
+    ('所有数据仅存储在浏览器 localStorage 中', '所有数据仅存储在本机本地中'),
+    ('所有数据仅存储在浏览器本地，不会上传至任何服务器',
+     '所有数据仅存储在本机本地中，不会上传至任何服务器'),
+    ('浏览器存储，不上传', '本机本地存储，不上传'),
+    ("All data is stored in your browser\\'s localStorage and never uploaded to any server.",
+     'All data is stored only on this device and never uploaded to any server.'),
+    ('All data is stored locally in your browser and never uploaded to any server.',
+     'All data is stored only on this device and never uploaded to any server.'),
+    ('Browser storage, no upload', 'On-device storage, no upload'),
+]
+
+# 生成后若仍出现这些片段即判失败 —— 文案回退不该靠人记得，靠门禁拦住。
+STALE_COPY_NEEDLES: tuple[str, ...] = (
+    '浏览器本地',
+    '浏览器存储',
+    '浏览器 localStorage',
+    'in your browser',
+    'browser storage',
+)
+
 NOTICE = """\
 NOTICE — 外贸单证工具箱（第三方开源组件归属声明）
 
@@ -151,6 +181,8 @@ def transform_html(text: str) -> str:
         text = text.replace(a, b)
     for a, b in UPSTREAM_FIXES:
         text = text.replace(a, b)
+    for a, b in COPY_FIXES:
+        text = text.replace(a, b)
     return text
 
 
@@ -160,6 +192,8 @@ def transform_js(text: str) -> str:
     for a, b in PROSE_FIXES:
         text = text.replace(a, b)
     for a, b in UPSTREAM_FIXES:
+        text = text.replace(a, b)
+    for a, b in COPY_FIXES:
         text = text.replace(a, b)
     return text
 
@@ -260,6 +294,7 @@ def main() -> int:
     # —— 合规自检：输出目录里不允许再出现原站点域名或第三方统计 ——
     leaks: list[str] = []
     brand_left: list[str] = []
+    stale_copy: list[str] = []
     for name in sorted(os.listdir(out)):
         path = os.path.join(out, name)
         if not os.path.isfile(path):
@@ -277,6 +312,9 @@ def main() -> int:
             leaks.append(name + ' (analytics)')
         if BRAND_FROM.lower() in probe:
             brand_left.append(name)
+        # 存储说明必须说「本机本地」，不能再说「浏览器」——见 COPY_FIXES。
+        if any(needle in probe for needle in STALE_COPY_NEEDLES):
+            stale_copy.append(name)
 
     print(f'内置 {len(copied)} 个文件 → {out}')
     print(f'  跳过（非运行必需）: {", ".join(skipped) or "无"}')
@@ -286,6 +324,12 @@ def main() -> int:
     if brand_left:
         print(f'  [FAIL] 仍含旧品牌名: {sorted(set(brand_left))}', file=sys.stderr)
         return 1
+    if stale_copy:
+        print(
+            f'  [FAIL] 仍含「浏览器存储」类旧文案（应为「本机本地」）: {sorted(set(stale_copy))}',
+            file=sys.stderr,
+        )
+        return 1
 
     dead = find_dead_calls(out)
     if dead:
@@ -294,7 +338,7 @@ def main() -> int:
             print(f'         {row}', file=sys.stderr)
         return 1
 
-    print('  自检通过：无原站点域名、无第三方统计、无旧品牌名、无未定义函数调用')
+    print('  自检通过：无原站点域名、无第三方统计、无旧品牌名、无未定义函数调用、存储说明均为「本机本地」')
     return 0
 
 

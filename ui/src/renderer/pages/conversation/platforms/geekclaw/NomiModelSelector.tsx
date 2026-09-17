@@ -7,7 +7,7 @@
 import type { IModelSuggestion } from '@/common/config/storage';
 import type { NomiModelSelection } from './useNomiModelSelection';
 import { compositeKey } from '@/common/utils/compositeKey';
-import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
+import { usePreviewContextOptional } from '@/renderer/pages/conversation/Preview';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { iconColors } from '@/renderer/styles/colors';
@@ -25,7 +25,10 @@ const NomiModelSelector: React.FC<{
   className?: string;
 }> = ({ selection, disabled = false, compact: compactProp, className }) => {
   const { t } = useTranslation();
-  const { isOpen: isPreviewOpen } = usePreviewContext();
+  // 非抛错版：会话栏（TeamHero）等**还没有会话行、因此没有 PreviewProvider**
+  // 的表面也要渲染本选择器（开局选模型）。缺 provider 时当作「预览已关」。
+  const preview = usePreviewContextOptional();
+  const isPreviewOpen = preview?.isOpen ?? false;
   const layout = useLayoutContext();
   const compact = compactProp ?? (isPreviewOpen || layout?.isMobile);
   const isMobileHeaderCompact = Boolean(layout?.isMobile);

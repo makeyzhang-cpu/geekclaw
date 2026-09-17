@@ -108,6 +108,14 @@ pub(crate) const PRODUCT_TABLES: &[&str] = &[
     "expert_catalog",
     "user_expert_licenses",
     "sms_verification_codes",
+    // 海外社媒矩阵（迁移 046）
+    "social_publish_configs",
+    "social_accounts",
+    "social_media",
+    "social_posts",
+    "social_post_versions",
+    "social_post_targets",
+    "social_metrics",
 ];
 
 /// Business columns that carry a bare canonical UUIDv7 for every populated row.
@@ -164,6 +172,12 @@ const UUIDV7_BUSINESS_COLUMNS: &[(&str, &str)] = &[
     ("workshop_canvases", "canvas_id"),
     ("expert_catalog", "expert_id"),
     ("user_expert_licenses", "license_id"),
+    // 海外社媒矩阵：各表承载业务身份的规范 UUIDv7 列
+    ("social_accounts", "account_id"),
+    ("social_media", "media_id"),
+    ("social_posts", "post_id"),
+    ("social_post_versions", "version_id"),
+    ("social_post_targets", "target_id"),
 ];
 
 /// Canonical UUIDv7 values owned by a managed side store rather than a
@@ -259,6 +273,15 @@ const NON_REFERENCE_ID_COLUMNS: &[(&str, &str)] = &[
     ("user_expert_licenses", "user_id"),
     ("user_expert_licenses", "expert_id"),
     ("user_expert_licenses", "tx_id"),
+    // 海外社媒矩阵（迁移 046）：各表承载业务身份的规范 UUIDv7 列；其中
+    // `provider_post_id` 是聚合商/平台返回的**不透明远端句柄**，不是本地关系，
+    // 因此豁免外键检查（与 `channel_pairing_codes.platform_user_id` 同类）。
+    ("social_accounts", "account_id"),
+    ("social_media", "media_id"),
+    ("social_posts", "post_id"),
+    ("social_post_versions", "version_id"),
+    ("social_post_targets", "target_id"),
+    ("social_post_targets", "provider_post_id"),
 ];
 
 const PARTIAL_UNIQUE_INDEXES: &[PartialUniqueIndexContract] = &[
@@ -819,6 +842,18 @@ pub(crate) const LOGICAL_REFERENCES: &[LogicalReference] = &[
     text_ref!("preset_user_state", "preset_id" => "presets", "preset_id", false, "idx_preset_user_state_preset_id", Cascade),
     text_ref!("preset_user_state", "preferred_agent_id" => "agent_metadata", "agent_id", true, "idx_preset_user_state_preferred_agent_id", SetNull),
     text_ref!("terminal_scrollback", "terminal_id" => "terminal_sessions", "terminal_id", false, "idx_terminal_scrollback_terminal_id", Cascade),
+    // #177 海外社媒矩阵：内容 → 平台差异化文案 / 逐平台投递目标 / 指标采样。
+    // 帖删则其文案、目标、采样一并级联；但**账号删除时保留历史投递记录**
+    // （`KeepHistory`）—— 已发出去的帖子是审计凭据，不该因账号解绑而消失。
+    text_ref!("social_post_versions", "post_id" => "social_posts", "post_id", false, "idx_social_post_versions_post", Cascade),
+    text_ref!("social_post_targets", "post_id" => "social_posts", "post_id", false, "idx_social_post_targets_post", Cascade),
+    text_ref!("social_post_targets", "account_id" => "social_accounts", "account_id", false, "idx_social_post_targets_account", KeepHistory),
+    text_ref!("social_metrics", "target_id" => "social_post_targets", "target_id", false, "idx_social_metrics_target", Cascade),
+    // 租户隔离：账号 / 媒体 / 内容归属到用户。云端是多租户，缺这一层会让
+    // A 的排期帖投到 B 的账号上。
+    text_ref!("social_accounts", "user_id" => "users", "user_id", false, "idx_social_accounts_user", Cascade),
+    text_ref!("social_media", "user_id" => "users", "user_id", false, "idx_social_media_user", Cascade),
+    text_ref!("social_posts", "user_id" => "users", "user_id", false, "idx_social_posts_user", Cascade),
 ];
 
 /// Stable JSON paths that carry Provider or business identifiers. The SQL for

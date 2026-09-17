@@ -16092,6 +16092,118 @@ fn provider_fault_then_finish_agent(conv_id: &str) -> Arc<ScriptedAgent> {
     )
 }
 
+/// 畸形工具调用的真实形态：**先说一句话，再抛错**。
+///
+/// 上游聚合网关是在**流末尾**才丢 `function.name` 的，模型在这之前通常已经
+/// 输出了一句「好的，我先去看看…」。这正是 2026-09-17 之前修不好的原因
+/// （旧实现要求 `!emitted_response`，于是抑制器与重跑双双失效）。
+fn malformed_tool_call_after_text_agent(conv_id: &str) -> Arc<ScriptedAgent> {
+    Arc::new(
+        ScriptedAgent::new(
+            conv_id,
+            vec![
+                // Turn 1：先吐字（真实失败的样子），再抛畸形工具调用。
+                vec![
+                    AgentStreamEvent::Text(TextEventData {
+                        content: "好的，我先去看看工作目录里有什么。".into(),
+                    }),
+                    AgentStreamEvent::Error(ErrorEventData::legacy(
+                        "API error: OpenAI-compatible provider returned a tool call with a missing function name (call `call_01a0a4c0d3df7900af7be1bddd99333b`)",
+                        Some(AgentErrorCode::UserLlmProviderMalformedToolCall),
+                    )),
+                ],
+                // Turn 2（自动重跑）：这次上游正常，完整回答。
+                vec![
+                    AgentStreamEvent::Text(TextEventData {
+                        content: "重跑后的完整回答".into(),
+                    }),
+                    AgentStreamEvent::Finish(FinishEventData::default()),
+                ],
+            ],
+        )
+        .with_agent_type(AgentType::GeekClaw),
+    )
+}
+
+/// 回归测试：**已经吐过字之后**出现的畸形工具调用，也必须自动重跑。
+///
+/// 覆盖的正是历史盲区 —— 修复前没有任何一条测试碰过「先输出再畸形」这个组合，
+/// 所以 v5.0.62 的重跑写了却从未在真实场景触发过。
+#[tokio::test]
+async fn malformed_tool_call_retries_even_after_text_was_emitted() {
+    // 单 provider + 空 failover 队列：确保本次恢复**只可能来自畸形重跑**，
+    // 不会被换模型路径蒙混过关。
+    let (svc, broadcaster, repo, _provider_repo) =
+        make_failover_service(vec![test_provider(PROVIDER_ID_1, &["m1"])]);
+    let conv_id = seed_nomi_failover_conversation(
+        &repo,
+        pwm(PROVIDER_ID_1, "m1"),
+        json!({ "enabled": true, "queue": [] }),
+    )
+    .await;
+
+    let scripted = malformed_tool_call_after_text_agent(&conv_id);
+    let runtime_registry = Arc::new(PersistentScriptedRuntimeRegistry::new(scripted));
+    let runtime_registry_dyn: Arc<dyn AgentRuntimeRegistry> = runtime_registry.clone();
+
+    send_message_with_test_key(
+        &svc,
+        TEST_USER_1,
+        &conv_id,
+        "malformed-after-text-resend",
+        make_send_req(),
+        &runtime_registry_dyn,
+    )
+    .await
+    .unwrap();
+    wait_for_turn_released(&svc, &conv_id).await;
+
+    // (a) 同模型、同一内容原样重发了一次。
+    let sends = runtime_registry.sent_contents();
+    assert_eq!(
+        sends.len(),
+        2,
+        "expected original send + one resend after the malformed tool call"
+    );
+    assert_eq!(
+        sends[1], "Hello",
+        "the malformed retry must resend the SAME content to the SAME model"
+    );
+
+    // (b) 错误从未上过线 —— 吐过字也必须被抑制，否则用户会看到「半句 + 报错」。
+    let events = broadcaster.take_events();
+    assert!(
+        !events
+            .iter()
+            .any(|evt| evt.name == "message.stream" && evt.data["type"] == "error"),
+        "a recovered post-response malformed call must not broadcast any WS error event"
+    );
+
+    // (c) 库里不留失败痕迹：失败那半句被 hidden，也不是 tips 错误卡片。
+    let messages = repo
+        .get_messages(&conv_id, 1, 50, SortOrder::Asc)
+        .await
+        .unwrap()
+        .items;
+    assert!(
+        !messages.iter().any(|message| message.r#type == "tips"),
+        "a recovered malformed call must not persist an error tips row"
+    );
+    let visible_back_rows: Vec<_> = messages
+        .iter()
+        .filter(|m| m.r#type == "text" && m.position.as_deref() == Some("left"))
+        .filter(|m| !m.hidden)
+        .collect();
+    assert_eq!(
+        visible_back_rows.len(),
+        1,
+        "失败尝试那半句必须被隐藏，用户只该看到重跑后的完整回答：{visible_back_rows:?}"
+    );
+    let content: serde_json::Value =
+        serde_json::from_str(&visible_back_rows[0].content).unwrap();
+    assert_eq!(content["content"], "重跑后的完整回答");
+}
+
 #[tokio::test]
 async fn failover_pre_response_fault_rebuilds_with_next_model_and_resends() {
     let (svc, _broadcaster, repo, provider_repo) =

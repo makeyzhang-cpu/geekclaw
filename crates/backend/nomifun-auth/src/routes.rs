@@ -215,6 +215,35 @@ pub fn auth_routes(state: AuthRouterState) -> Router {
         // A2A 跨境电商独立站：开通授权状态以云端管理后台为准（本地 trust 代理，
         // 带云端 JWT 转发）。云端未授权时前端显示开通引导，不开通不可用。
         .route("/api/store/a2a/storefront/status", get(store_a2a_storefront_status_proxy_handler))
+        // 海外社媒矩阵：引擎常驻云端，桌面端本地 trust 代理转发（带云端 JWT）。
+        // 桌面端因此不持有任何平台密钥，排期帖也由云端按时投递。
+        .route("/api/store/social/matrix", get(store_social_matrix_proxy_handler))
+        .route("/api/store/social/accounts/sync", post(store_social_accounts_sync_proxy_handler))
+        .route(
+            "/api/store/social/accounts/{platform}/connect",
+            post(store_social_connect_proxy_handler),
+        )
+        .route(
+            "/api/store/social/accounts/{account_id}",
+            delete(store_social_disconnect_proxy_handler),
+        )
+        .route("/api/store/social/posts", post(store_social_create_post_proxy_handler))
+        .route(
+            "/api/store/social/posts/{post_id}/publish",
+            post(store_social_publish_proxy_handler),
+        )
+        .route(
+            "/api/store/social/posts/{post_id}/cancel",
+            post(store_social_cancel_proxy_handler),
+        )
+        .route(
+            "/api/store/social/posts/{post_id}",
+            delete(store_social_delete_post_proxy_handler),
+        )
+        .route(
+            "/api/store/social/metrics/refresh",
+            post(store_social_metrics_refresh_proxy_handler),
+        )
         // Cloud-managed model provider sync: desktop shell only. Pulls public
         // cloud providers (with plaintext keys) using the stored cloud JWT and
         // re-encrypts them into the local providers table as `source = 'cloud'`.
@@ -3211,6 +3240,150 @@ async fn store_hardware_deposit_address_proxy_handler(
         Some(payload),
     )
     .await
+}
+
+// ---------------------------------------------------------------------------
+// 海外社媒矩阵云端代理 —— 桌面端 shell only
+//
+// 社媒矩阵的发布引擎常驻云端（排期帖必须在用户关机时也能按时投递，OAuth 回调
+// 也必须是公网固定地址）。桌面端因此**不持有任何平台密钥**：所有调用都经这里
+// 带上已登录的云端 JWT 转发到云端 `/api/social/*`。
+//
+// 与硬件押金（`/api/store/hardware/*` → `/api/billing/hardware/*`）同一套模式，
+// 只是目标前缀不同。
+// ---------------------------------------------------------------------------
+
+async fn forward_cloud_social(
+    state: &AuthRouterState,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<Response, AppError> {
+    let token = cloud_billing_token(state).await?;
+    let url = format!("{}/api/social/{}", cloud_store_base(), path);
+    let client = reqwest::Client::new();
+    let mut req = client
+        .request(method, &url)
+        .header("Authorization", format!("Bearer {token}"))
+        // 投递要打平台接口，链路比账单长，给宽一点。
+        .timeout(Duration::from_secs(60));
+    if let Some(b) = body {
+        req = req.json(&b);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("云端社媒请求失败: {e}")))?;
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(format!("读取云端社媒响应失败: {e}")))?;
+    let mut builder = Response::builder().status(status);
+    if let Some(ct) = headers.get("content-type").and_then(|v| v.to_str().ok()) {
+        builder = builder.header("content-type", ct);
+    }
+    Ok(builder.body(Body::from(bytes)).unwrap())
+}
+
+/// GET /api/store/social/matrix — 矩阵快照（账号 + 内容 + 指标 + 已配置平台）。
+async fn store_social_matrix_proxy_handler(
+    State(state): State<AuthRouterState>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(&state, reqwest::Method::GET, "matrix", None).await
+}
+
+/// POST /api/store/social/accounts/sync — 拉取聚合商侧已授权账号。
+async fn store_social_accounts_sync_proxy_handler(
+    State(state): State<AuthRouterState>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(&state, reqwest::Method::POST, "accounts/sync", None).await
+}
+
+/// POST /api/store/social/accounts/{platform}/connect — 取平台授权入口地址。
+async fn store_social_connect_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Path(platform): Path<String>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(
+        &state,
+        reqwest::Method::POST,
+        &format!("accounts/{platform}/connect"),
+        None,
+    )
+    .await
+}
+
+/// DELETE /api/store/social/accounts/{account_id} — 断开账号。
+async fn store_social_disconnect_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Path(account_id): Path<String>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(
+        &state,
+        reqwest::Method::DELETE,
+        &format!("accounts/{account_id}"),
+        None,
+    )
+    .await
+}
+
+/// POST /api/store/social/posts — 新建内容（立即发布 / 排期 / 存草稿）。
+async fn store_social_create_post_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(&state, reqwest::Method::POST, "posts", Some(payload)).await
+}
+
+/// POST /api/store/social/posts/{post_id}/publish — 立即发布。
+async fn store_social_publish_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Path(post_id): Path<String>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(
+        &state,
+        reqwest::Method::POST,
+        &format!("posts/{post_id}/publish"),
+        None,
+    )
+    .await
+}
+
+/// POST /api/store/social/posts/{post_id}/cancel — 撤销排期（不删除内容）。
+async fn store_social_cancel_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Path(post_id): Path<String>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(
+        &state,
+        reqwest::Method::POST,
+        &format!("posts/{post_id}/cancel"),
+        None,
+    )
+    .await
+}
+
+/// DELETE /api/store/social/posts/{post_id} — 删除内容及其排期。
+async fn store_social_delete_post_proxy_handler(
+    State(state): State<AuthRouterState>,
+    Path(post_id): Path<String>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(
+        &state,
+        reqwest::Method::DELETE,
+        &format!("posts/{post_id}"),
+        None,
+    )
+    .await
+}
+
+/// POST /api/store/social/metrics/refresh — 立即回收一次指标快照。
+async fn store_social_metrics_refresh_proxy_handler(
+    State(state): State<AuthRouterState>,
+) -> Result<Response, AppError> {
+    forward_cloud_social(&state, reqwest::Method::POST, "metrics/refresh", None).await
 }
 
 // ---------------------------------------------------------------------------

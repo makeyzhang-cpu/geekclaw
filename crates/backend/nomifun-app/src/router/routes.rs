@@ -24,6 +24,7 @@ use nomifun_auth::{
 use nomifun_channel::channel_routes;
 use nomifun_companion::{companion_public_routes, companion_routes};
 use crate::expert_market::expert_market_routes;
+use crate::social_matrix::social_matrix_routes;
 use nomifun_customer_service::{cs_widget_public_routes, customer_service_routes};
 use nomifun_workshop::{workshop_public_routes, workshop_routes};
 use nomifun_creation::creation_routes;
@@ -868,6 +869,14 @@ pub fn create_router_with_all_state(
         &instance_owner_state,
     );
 
+    // 海外社媒矩阵（任务 #177）：`/api/social/*`。
+    //
+    // 刻意**不走** `protect_instance_owner` —— 那是「实例所有者」门禁（桌面
+    // 单机场景）。云端是多租户，社媒矩阵是每个用户各自使用的能力，每个
+    // handler 自己按 `CurrentUser.id` 做租户隔离，所以只挂普通认证中间件。
+    let social_authenticated = social_matrix_routes(states.social.clone())
+        .route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
+
     // 客服独立域 (customer-service domain) — roster/bindings/notes/dialogues
     // REST surface. Protected by auth middleware.
     let customer_service_authenticated = protect_instance_owner(
@@ -1146,6 +1155,7 @@ pub fn create_router_with_all_state(
         .merge(preset_authenticated)
         .merge(team_authenticated)
         .merge(expert_market_authenticated)
+        .merge(social_authenticated)
         .merge(co_agent_authenticated)
         .merge(capability_authenticated);
 

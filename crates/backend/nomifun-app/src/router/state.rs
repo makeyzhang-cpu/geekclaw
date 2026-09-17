@@ -114,6 +114,8 @@ pub struct ModuleStates {
     pub team: TeamRouterState,
     /// 专家数字分身市场（GeekClaw 任务 F）。
     pub expert_market: crate::expert_market::ExpertMarketRouterState,
+    /// 海外社媒矩阵（GeekClaw 任务 #177）—— 发布引擎常驻云端。
+    pub social: crate::social_matrix::SocialMatrixRouterState,
 }
 
 fn default_allowed_roots(work_dir: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
@@ -580,6 +582,18 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
     // SLA 超时升级是「无人值守也必须发生」的能力：没有人打开工单页面时，
     // 后台扫描器每 60s 重新评估未完成 SLA 的工单，超时则升级优先级并留痕。
     nomifun_customer_service::spawn_sla_monitor(services.customer_service_service.repo().clone());
+    // 海外社媒矩阵：发布引擎必须常驻 —— 排期帖要能在用户关机时按时投出去。
+    // 引擎按数据库里的实例级配置装配发布驱动（默认聚合 API；未配密钥时退回
+    // 半自动，即「不会误发」的安全状态），调度器随后按 30s 轮询到期内容。
+    let social_engine = crate::social_matrix::SocialEngine::new(
+        services.database.pool().clone(),
+        services.encryption_key,
+    )
+    .await;
+    crate::social_matrix::spawn_social_scheduler(
+        social_engine.clone(),
+        crate::social_matrix::SocialSchedulerConfig::default(),
+    );
     let states = ModuleStates {
         system: build_system_state(services),
         conversation,
@@ -648,6 +662,9 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
             companion_service: services.companion_service.clone(),
             knowledge_service: services.knowledge_service.clone(),
             owner_user_id: services.authoritative_user_id.clone(),
+        },
+        social: crate::social_matrix::SocialMatrixRouterState {
+            engine: social_engine,
         },
     };
 

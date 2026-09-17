@@ -26,6 +26,7 @@ const GeoDomesticPage = React.lazy(() => import('@renderer/pages/geo-domestic'))
 const ForeignTradePage = React.lazy(() => import('@renderer/pages/foreign-trade'));
 const TradeFollowUpPage = React.lazy(() => import('@renderer/pages/foreign-trade-ops'));
 const TradeKnowledgePage = React.lazy(() => import('@renderer/pages/trade-knowledge'));
+const SocialMatrixPage = React.lazy(() => import('@renderer/pages/social-matrix'));
 const A2AEcommercePage = React.lazy(() => import('@renderer/pages/a2a-ecommerce'));
 const OpcDistPage = React.lazy(() => import('@renderer/pages/opc-dist'));
 const FactorySupplyPage = React.lazy(() => import('@renderer/pages/factory-supply'));
@@ -274,6 +275,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/foreign-trade' element={withRouteFallback(ForeignTradePage)} />
           {/* B2B外贸跟单工作台 — 内置单证引擎（19 种外贸单证）+ 订单跟单台账，全离线 */}
           <Route path='/foreign-trade-ops' element={withRouteFallback(TradeFollowUpPage)} />
+          {/* 海外社媒矩阵工作台 — 一稿多投：账号矩阵 + 平台差异化版本 + 排期日历 + 指标 */}
+          <Route path='/social-matrix' element={withRouteFallback(SocialMatrixPage)} />
           {/* 外贸人知识库 — 随包内置的外贸表格/文档模板库：在线查阅 + 直接下载 */}
           <Route path='/trade-knowledge' element={withRouteFallback(TradeKnowledgePage)} />
           {/* A2A 跨境电商 — 与「AI 外贸工作台」同形态：入口卡片 + 应用内 Webview 打开 nexsalehub */}

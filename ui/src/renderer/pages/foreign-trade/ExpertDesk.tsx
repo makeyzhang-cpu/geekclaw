@@ -10,9 +10,15 @@ import { Message } from '@arco-design/web-react';
 import { Globe } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import { uuidv7 } from '@/common/utils';
-import type { TChatConversation } from '@/common/config/storage';
+import type { IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
 import NomiChat from '@renderer/pages/conversation/platforms/geekclaw/NomiChat';
 import { useNomiModelSelection } from '@renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
+import NomiModelSelector from '@renderer/pages/conversation/platforms/geekclaw/NomiModelSelector';
+import {
+  applyConversationModel,
+  useConversationModelSwitcher,
+} from '@renderer/pages/conversation/platforms/geekclaw/useConversationModelSwitcher';
+import { getConversationOrNull } from '@renderer/pages/conversation/utils/conversationCache';
 import { PreviewProvider } from '@renderer/pages/conversation/Preview';
 import PersonAvatar from '@renderer/pages/expert-agents/PersonAvatar';
 import type { ExpertIdentity } from '@renderer/pages/expert-agents/data';
@@ -53,6 +59,12 @@ interface ExpertDeskProps {
   onSelectMember: (id: string) => void;
   /** 成员卡区的小标题（如「本工作台专家」）。 */
   membersTitle?: string;
+  /**
+   * 本页当前会用于新建会话的默认模型（`useExpertConversationLauncher().current_model`）。
+   * 会话栏的模型选择器以它为初值，这样「还没选就已经显示将要用哪个模型」，
+   * 而不是空着让用户以为没配。
+   */
+  defaultModel?: TProviderWithModel;
 }
 
 /**
@@ -80,6 +92,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
   members,
   onSelectMember,
   membersTitle,
+  defaultModel,
 }) => {
   const { t } = useTranslation();
   const resolvedPlatformLabel =
@@ -91,6 +104,52 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
   const [pendingText, setPendingText] = useState<string | null>(null);
 
   const nomi = conversation && conversation.type === 'geekclaw' ? (conversation as NomiConversation) : null;
+
+  /**
+   * 会话行上的**当前**模型。
+   *
+   * `conversation` 是调用方按专家缓存的 `conversation.create` 返回值 —— 中途换过模型
+   * 之后它就是过期数据（发送框会显示一个与真实执行不符的旧模型）。所以进入 chat 相位
+   * 时回读一次真实行作为初值；回读失败就退回缓存值。
+   */
+  const [liveModel, setLiveModel] = useState<TProviderWithModel | undefined>(nomi?.model);
+  useEffect(() => {
+    if (!nomi) {
+      setLiveModel(undefined);
+      return;
+    }
+    setLiveModel(nomi.model);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const fresh = await getConversationOrNull(nomi.id);
+        if (cancelled || !fresh || fresh.type !== 'geekclaw') return;
+        setLiveModel((fresh as NomiConversation).model);
+      } catch {
+        /* 回读失败：保持缓存值，不阻断会话 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [nomi?.id]);
+
+  /** 会话栏（会话尚未建立）里预选的模型；null = 沿用本页默认模型。 */
+  const [draftModel, setDraftModel] = useState<TProviderWithModel | null>(null);
+
+  // chat 相位：发送框里换模型 —— 落到这条会话行上（开局 / 中途随时可换）。
+  const switchConversationModel = useConversationModelSwitcher({ conversationId: nomi?.id });
+
+  // hero 相位：还没有会话行，选择先存在本地，建会话之后立刻写上去（见 handleSend）。
+  const stashDraftModel = useCallback(async (provider: IProvider, modelName: string) => {
+    setDraftModel({ ...provider, use_model: modelName } as TProviderWithModel);
+    return true;
+  }, []);
+
+  const modelSelection = useNomiModelSelection({
+    initialModel: nomi ? liveModel : (defaultModel ?? undefined),
+    onSelectModel: nomi ? switchConversationModel : stashDraftModel,
+  });
 
   // Dispatch the queued first turn only once the conversation exists and
   // NomiChat has mounted, so no leading stream frame is dropped.
@@ -115,11 +174,6 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
     })();
   }, [nomi, pendingText, t]);
 
-  const lockedSelect = useCallback(async () => false, []);
-  const modelSelection = useNomiModelSelection({
-    initialModel: nomi?.model,
-    onSelectModel: lockedSelect,
-  });
   const workspace = nomi?.extra?.workspace ?? '';
 
   const handleSend = useCallback(async () => {
@@ -130,6 +184,12 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
       if (!nomi) {
         const created = await onEnsureConversation();
         if (!created) return;
+        // 会话栏里预选的模型必须在**首条消息之前**落到会话行上，
+        // 否则首条消息会用建会话时的默认模型跑 —— 用户以为选了却没生效。
+        if (draftModel) {
+          await applyConversationModel(created.id, draftModel, draftModel.use_model);
+          setLiveModel(draftModel);
+        }
       }
       setInput('');
       setPendingText(text);
@@ -141,7 +201,7 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
     } finally {
       setSending(false);
     }
-  }, [input, nomi, onEnsureConversation, sending, t]);
+  }, [draftModel, input, nomi, onEnsureConversation, sending, t]);
 
   /** 会话栏快捷入口 —— 两个都是页内行为（多专家弹窗 / 页内技能库）。 */
   const entryChips = useMemo(
@@ -196,7 +256,8 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
             workspace={workspace}
             modelSelection={modelSelection}
             session_mode='yolo'
-            hideModeSelector
+            hidePermissionSelector
+            hideSummonControl
             agent_name={identity.name}
             emptySlot={
               <div className='flex flex-col items-center gap-12px py-40px px-24px text-center'>
@@ -231,6 +292,9 @@ const ExpertDesk: React.FC<ExpertDeskProps> = ({
         onSend={() => void handleSend()}
         sending={sending}
         placeholder={t('common.teamHero.placeholder', { defaultValue: '输入您的问题…' })}
+        // 开局就能选服务商 + 模型（用户 2026-09-17 要求）。这里选的模型会在
+        // 建会话之后、首条消息之前落到会话行上（见 handleSend）。
+        modelSlot={<NomiModelSelector selection={modelSelection} />}
         footer={
           <div className='flex flex-col gap-6px'>
             <p className='m-0 text-13px leading-20px text-t-tertiary'>{identity.description}</p>

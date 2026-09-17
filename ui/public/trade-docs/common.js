@@ -32,8 +32,8 @@ const I18N = {
     docCount: '7 款工具', docCountEn: '7 Tools',
     toolCount: '4 款工具', toolCountEn: '4 Tools',
     certCount: '8 款工具', certCountEn: '8 Tools',
-    footerNote: '所有数据仅存储在浏览器本地，不会上传至任何服务器',
-    footerNoteEn: 'All data is stored locally in your browser and never uploaded to any server.',
+    footerNote: '所有数据仅存储在本机本地中，不会上传至任何服务器',
+    footerNoteEn: 'All data is stored only on this device and never uploaded to any server.',
     featCustoms: '海关清关', featCustomsEn: 'Customs Clearance',
     featCustomsDesc: '单证规范，直接导出', featCustomsDescEn: 'Standard docs, direct export',
     featPdf: 'PDF 导出', featPdfEn: 'PDF Export',
@@ -41,7 +41,7 @@ const I18N = {
     featBilingual: '中英双语', featBilingualEn: 'Bilingual',
     featBilingualDesc: '英文为主，中文辅助', featBilingualDescEn: 'English primary, Chinese assist',
     featLocal: '数据本地', featLocalEn: 'Local Data',
-    featLocalDesc: '浏览器存储，不上传', featLocalDescEn: 'Browser storage, no upload',
+    featLocalDesc: '本机本地存储，不上传', featLocalDescEn: 'On-device storage, no upload',
     backHome: '返回主页', loadSample: '加载示例', clear: '清空',
     preview: '预览 →', backEdit: '← 返回编辑', exportPdf: '导出PDF', generating: '生成中...',
     print: '打印',
@@ -70,8 +70,8 @@ const I18N = {
     docCount: '7 Tools', docCountEn: '7 Tools',
     toolCount: '4 Tools', toolCountEn: '4 Tools',
     certCount: '8 Tools', certCountEn: '8 Tools',
-    footerNote: 'All data is stored locally in your browser and never uploaded to any server.',
-    footerNoteEn: 'All data is stored locally in your browser and never uploaded to any server.',
+    footerNote: 'All data is stored only on this device and never uploaded to any server.',
+    footerNoteEn: 'All data is stored only on this device and never uploaded to any server.',
     featCustoms: 'Customs Clearance', featCustomsEn: 'Customs Clearance',
     featCustomsDesc: 'Standard docs, direct export', featCustomsDescEn: 'Standard docs, direct export',
     featPdf: 'PDF Export', featPdfEn: 'PDF Export',
@@ -79,7 +79,7 @@ const I18N = {
     featBilingual: 'Bilingual', featBilingualEn: 'Bilingual',
     featBilingualDesc: 'English primary, Chinese assist', featBilingualDescEn: 'English primary, Chinese assist',
     featLocal: 'Local Data', featLocalEn: 'Local Data',
-    featLocalDesc: 'Browser storage, no upload', featLocalDescEn: 'Browser storage, no upload',
+    featLocalDesc: 'On-device storage, no upload', featLocalDescEn: 'On-device storage, no upload',
     backHome: 'Home', loadSample: 'Load Sample', clear: 'Clear',
     preview: 'Preview →', backEdit: '← Back to Edit', exportPdf: 'Export PDF', generating: 'Generating...',
     print: 'Print',
@@ -314,12 +314,12 @@ function applyTheme() {
 const FAQ_GENERAL = {
   zh: [
     { q: 'GeekDoc是什么？需要付费吗？', a: 'GeekDoc 单证工具箱是免费、开源的在线外贸单证生成工具，支持19种外贸单证类型。完全免费，无需注册或登录，打开网页即可使用。' },
-    { q: '数据会上传到服务器吗？', a: '所有数据仅存储在浏览器 localStorage 中，不会上传至任何服务器。数据完全本地化，不会被第三方访问。' },
+    { q: '数据会上传到服务器吗？', a: '所有数据仅存储在本机本地中，不会上传至任何服务器。数据完全本地化，不会被第三方访问。' },
     { q: '导出的PDF是什么格式？', a: '导出的PDF为A4横版格式，采用专业的商业单证排版，适合打印和电子传输。' }
   ],
   en: [
     { q: 'What is GeekDoc? Is it free?', a: 'GeekDoc is a free, open-source trade document toolkit supporting 19 document types. No signup or login required — just open the page and start using it.' },
-    { q: 'Is my data uploaded to a server?', a: 'All data is stored in your browser\'s localStorage and never uploaded to any server. Your data stays completely local and cannot be accessed by third parties.' },
+    { q: 'Is my data uploaded to a server?', a: 'All data is stored only on this device and never uploaded to any server. Your data stays completely local and cannot be accessed by third parties.' },
     { q: 'What format is the exported PDF?', a: 'The exported PDF uses A4 landscape format with professional trade document layout, suitable for both printing and electronic transmission.' }
   ]
 };

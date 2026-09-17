@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback } from 'react';
+import React from 'react';
 import type { IProvider, TChatConversation } from '@/common/config/storage';
 import NomiChat from '@/renderer/pages/conversation/platforms/geekclaw/NomiChat';
 import { useNomiModelSelection } from '@/renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
+import { useConversationModelSwitcher } from '@/renderer/pages/conversation/platforms/geekclaw/useConversationModelSwitcher';
 import type { useCompanion } from '../useNomi';
 
 type NomiConversation = Extract<TChatConversation, { type: 'geekclaw' }>;
@@ -20,29 +21,37 @@ interface Props {
 }
 
 /**
- * 数字员工会话的受限聊天主体：复用工作台会话页的完整交互能力
+ * 数字员工会话的聊天主体：复用工作台会话页的完整交互能力
  * （MessageList 富渲染：工具卡/思考流/产物/文件变更/Markdown；NomiSendBox：附件 /
  * 斜杠命令 / 命令队列 / 停止 / 清空上下文；右侧工作区文件树；按需文档预览），
- * 但针对数字员工做两处约束（不污染共享会话页，靠既有 props 开关达成）：
+ * 但对数字员工做两处约束（不污染共享会话页，靠既有 props 开关达成）：
  *
- *  1) 锁定模型：不渲染会话页的 NomiModelSelector；`modelSelection` 锁定到会话行的模型
- *     —— 后端 `patch_companion` 已把会话行模型同步成 `profile.model`（唯一事实源），
- *     `onSelectModel` 空操作禁止 per-conversation 改写。模型配置入口仅保留头部
- *     CompanionModelControl（写 profile.model，全局跟随）。
+ *  1) **模型可换，但写的是员工属性**：发送框的模型选择器与头部
+ *     CompanionModelControl 并存 —— 两者都写 `profile.model`（唯一事实源），
+ *     所以换个地方看得到的是同一个模型。切换时先停掉运行中的 agent，
+ *     再把新模型写进 profile（后端 `patch_companion` 会同步会话行 +
+ *     清空该员工的 IM 渠道会话，使其下轮重建拾取新模型）。
  *  2) 锁定工作路径 + yolo：workspace = 后端固定的员工专属目录；session_mode 固定
- *     'yolo' 且 `hideModeSelector` 隐藏权限选择器
+ *     'yolo' 且 `hidePermissionSelector` 隐藏权限选择器
  *     （员工会话后端强制 yolo 无审批，详见 companion.rs）。
  *
  * 外层标准 ChatLayout、工作区、模型入口和 AgentExecution 投影统一由
  * CompanionChatPanel 持有，保证加载/异常/模型缺失状态也不会丢失执行画布。
  */
 const CompanionConversation: React.FC<Props> = ({ conversation, companion }) => {
-  // 锁定版 modelSelection：current_model = 会话行模型（= profile.model，后端同步保证），
-  // 选择动作空操作（员工模型只经 CompanionModelControl → patchCompanion 修改，全局生效）。
-  const lockedSelect = useCallback(async (_provider: IProvider, _modelName: string) => false, []);
+  const { patchCompanion } = companion;
+
+  // 员工模型是**员工**的属性：发送框里换模型 = 换这位员工的模型，
+  // 与头部 CompanionModelControl 写入同一个 `profile.model`。
+  const onSelectModel = useConversationModelSwitcher({
+    conversationId: conversation.id,
+    onCompanionModelChange: (provider: IProvider, modelName: string) =>
+      patchCompanion({ model: { provider_id: provider.id, model: modelName } }),
+  });
+
   const modelSelection = useNomiModelSelection({
     initialModel: conversation.model,
-    onSelectModel: lockedSelect,
+    onSelectModel,
   });
 
   const workspace = conversation.extra?.workspace ?? '';
@@ -53,7 +62,8 @@ const CompanionConversation: React.FC<Props> = ({ conversation, companion }) => 
       workspace={workspace}
       modelSelection={modelSelection}
       session_mode='yolo'
-      hideModeSelector
+      hidePermissionSelector
+      hideSummonControl
       agent_name={companion.profile?.name}
     />
   );

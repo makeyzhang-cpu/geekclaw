@@ -712,7 +712,14 @@ fn classify_provider_api(lower: &str) -> Option<ClassifiedError> {
             Some(AgentErrorResolutionTarget::Feedback),
         ));
     }
-    if lower.contains("missing function name") && lower.contains("openai-compatible provider") {
+    // 判据刻意**不绑定** `openai-compatible provider` 这个厂商标签。同一个
+    // 「网关丢 function.name」缺陷在 Anthropic 兼容中转、聚合代理上同样会出现，
+    // 只是各自的定位串不同（`anthropic-compatible provider …`）。绑定标签的后果
+    // 是这些链路会落到下面的 `*-compatible provider` 通用分支 → 被当成 gateway
+    // error → 触发**换模型**，而这里真正该做的是同模型原地重跑一次（模型没坏，
+    // 坏的是这一轮的上游响应；对把人格/技能绑死在某个模型上的数字员工，
+    // 换模型尤其不该发生）。故只要求「provider + 缺少函数名」两个特征同时出现。
+    if lower.contains("missing function name") && lower.contains("provider") {
         // A dropped `function.name` in the SSE stream means the OpenAI-compatible
         // gateway never forwarded it. In practice this is a **transient** defect of
         // aggregating relays (a Claude model served through an OpenAI-compatible

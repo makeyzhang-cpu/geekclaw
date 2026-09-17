@@ -1755,6 +1755,19 @@ pub struct StreamRelay {
     /// within-bound up front; pre-response + provider-fault are evaluated here).
     #[allow(clippy::type_complexity)]
     failover_suppressor: Option<Arc<dyn Fn(AgentErrorCode) -> bool + Send + Sync>>,
+    /// 可在**已经有输出之后**仍然抑制的终态判定。
+    ///
+    /// 与 [`Self::failover_suppressor`] 的分工：后者只在 pre-response 生效 ——
+    /// 换模型、剔图这两种恢复一旦已经吐过字就没法干净地重来（硬重来就是重复输出），
+    /// 所以旧实现把抑制条件写成 `!emitted_response`。
+    ///
+    /// 但「上游网关丢 `function.name`」这类畸形工具调用**必然发生在吐过字之后**
+    /// （2026-09-17 取证：四次真实失败全部先输出一句「好的，我先去看看…」再触发）。
+    /// 沿用 pre-response 限制的后果是抑制器一次都不生效，错误卡片当场落库并推给
+    /// 用户 —— 这正是「自动重跑写了却没用」的原因。所以这类码需要单独一条通路：
+    /// 服务端对它的重跑会把本轮半成品抹掉（见 nomifun-conversation service.rs
+    /// 的畸形工具调用重跑分支），因此在这里抑制是安全的。
+    post_response_suppressor: Option<Arc<dyn Fn(AgentErrorCode) -> bool + Send + Sync>>,
     /// Process-wide runtime state, used here only to accumulate this turn's
     /// `TurnCompleted` token usage (`input + output`) into the conversation's
     /// running total so the owning execution attempt can read it after the turn
@@ -1836,6 +1849,7 @@ impl StreamRelay {
             origin: None,
             channel_platform: None,
             failover_suppressor: None,
+            post_response_suppressor: None,
             runtime_state: None,
             cancellation: None,
             derived_message_ids: std::sync::Mutex::new(HashMap::new()),
@@ -1973,6 +1987,20 @@ impl StreamRelay {
         suppressor: Arc<dyn Fn(AgentErrorCode) -> bool + Send + Sync>,
     ) -> Self {
         self.failover_suppressor = Some(suppressor);
+        self
+    }
+
+    /// 声明「这些码即使已经吐过字也能安全抑制」——见
+    /// [`Self::post_response_suppressor`] 字段说明。
+    ///
+    /// 只应由那些**服务端会抹掉半成品后重跑**的码使用。乱用会让错误被静默吞掉：
+    /// 抑制之后终态不再对外发布，只能靠服务端后续把 `suppressed_error` 原样
+    /// re-surface 回来。
+    pub fn with_post_response_suppressor(
+        mut self,
+        suppressor: Arc<dyn Fn(AgentErrorCode) -> bool + Send + Sync>,
+    ) -> Self {
+        self.post_response_suppressor = Some(suppressor);
         self
     }
 
@@ -2330,12 +2358,24 @@ impl StreamRelay {
                             // every continuation/failover resend, so ordinary
                             // intermediate terminals cannot mask cancellation
                             // of a later segment.
-                            let mut suppress_error = !emitted_response
-                                && matches!(event, AgentStreamEvent::Error(_))
-                                && terminal
-                                    .code()
+                            // 抑制判定分两条通路：
+                            //   - pre-response：走 `failover_suppressor`（换模型 / 剔图 /
+                            //     畸形重跑三类共用，它们都能在无输出时干净重来）；
+                            //   - post-response：只认 `post_response_suppressor` 明确
+                            //     声明过的码（目前仅畸形工具调用）——它天生只在吐过字
+                            //     之后出现，沿用 pre-response 限制等于永不抑制。
+                            let terminal_code = terminal.code();
+                            let suppressible = if emitted_response {
+                                terminal_code
+                                    .zip(self.post_response_suppressor.as_ref())
+                                    .is_some_and(|(code, suppressor)| suppressor(code))
+                            } else {
+                                terminal_code
                                     .zip(self.failover_suppressor.as_ref())
-                                    .is_some_and(|(code, suppressor)| suppressor(code));
+                                    .is_some_and(|(code, suppressor)| suppressor(code))
+                            };
+                            let mut suppress_error =
+                                matches!(event, AgentStreamEvent::Error(_)) && suppressible;
                             let mut terminal_claimed = false;
                             if !suppress_error {
                                 terminal_claimed = self

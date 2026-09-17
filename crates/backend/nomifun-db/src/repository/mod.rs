@@ -25,6 +25,7 @@ pub mod remote_agent;
 pub mod requirement;
 mod settings;
 pub mod skill_tag;
+pub mod social;
 pub mod ssh_host;
 pub mod team;
 pub mod team_consensus;

@@ -22,6 +22,9 @@ mod services;
 mod expert_market;
 mod workshop_bridge;
 mod channel_asset_resolver;
+// 海外社媒矩阵（GeekClaw 任务 #177）：发布引擎常驻云端 —— 排期帖必须在
+// 用户关机时也能按时投递，且 OAuth 回调需要公网固定地址。
+mod social_matrix;
 
 // Promoted from the `geekclaw` bin so in-process hosts (Tauri desktop, web)
 // can boot the backend as a library — no spawned binary.

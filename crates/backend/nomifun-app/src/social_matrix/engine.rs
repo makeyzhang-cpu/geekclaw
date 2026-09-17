@@ -1,0 +1,769 @@
+/*
+ * @license
+ * Copyright 2025-2026 GeekClaw (geekclaw.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+//! 海外社媒矩阵 —— 引擎核心。路由层与调度器共用同一份逻辑，避免两处实现漂移。
+//!
+//! 引擎持有**一个装配好的发布驱动**（[`PublishDriver`]）。驱动由数据库里的
+//! 实例级配置决定（聚合 / 官方 / 半自动），配置变更后调 [`SocialEngine::reload_driver`]
+//! 热切换 —— 业务代码与桌面 UI 都不受影响。
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use nomifun_common::{decrypt_string, encrypt_string, now_ms, AppError};
+use nomifun_db::models::{
+    SOCIAL_POST_STATUS_CANCELED, SOCIAL_POST_STATUS_DRAFT, SOCIAL_POST_STATUS_PUBLISHING,
+    SOCIAL_POST_STATUS_SCHEDULED, SOCIAL_TARGET_STATUS_FAILED, SOCIAL_TARGET_STATUS_PENDING,
+    SOCIAL_TARGET_STATUS_SKIPPED, SOCIAL_TARGET_STATUS_SUCCESS,
+};
+use nomifun_db::{
+    CreatePostParams, ISocialRepository, RecordMetricParams, SocialPostRow,
+    SqliteSocialRepository, TargetResultParams, UpdatePostParams, UpsertAccountParams,
+    UpsertPublishConfigParams,
+};
+use sqlx::SqlitePool;
+use tokio::sync::RwLock;
+
+use super::driver::{
+    build_driver, is_supported_platform, DriverKind, LinkInfo, ManualDriver, MetricTarget,
+    PublishDriver, PublishRequest, PublishTarget, SocialError, TargetOutcome, DEFAULT_VENDOR,
+};
+
+/// 引擎共享状态。
+pub struct SocialEngine {
+    pool: SqlitePool,
+    repo: Arc<dyn ISocialRepository>,
+    /// 当前生效的驱动。`RwLock` 让配置热切换不必重启服务。
+    driver: RwLock<Arc<dyn PublishDriver>>,
+    encryption_key: [u8; 32],
+    /// 每用户上次拉取远端账号的时间戳（epoch millis）。
+    ///
+    /// 聚合商模式下「已授权账号」的真源在服务商侧，本地只是缓存；为了让用户
+    /// 在服务商后台连完账号、回到工作台刷新就能看到，矩阵快照会顺带拉一次。
+    /// 但这会打聚合商接口，所以按用户做节流 —— 否则每次刷新页面都是一次外部调用。
+    account_sync_at: std::sync::Mutex<std::collections::HashMap<String, i64>>,
+}
+
+/// 账号自动拉取的最小间隔（同一用户）。
+const ACCOUNT_SYNC_MIN_INTERVAL_MS: i64 = 60_000;
+
+impl SocialEngine {
+    /// 建引擎并按数据库配置装配驱动。
+    pub async fn new(pool: SqlitePool, encryption_key: [u8; 32]) -> Arc<Self> {
+        let repo: Arc<dyn ISocialRepository> =
+            Arc::new(SqliteSocialRepository::new(pool.clone()));
+        let engine = Arc::new(Self {
+            pool,
+            repo,
+            driver: RwLock::new(Arc::new(ManualDriver)),
+            encryption_key,
+            account_sync_at: std::sync::Mutex::new(std::collections::HashMap::new()),
+        });
+        engine.reload_driver().await;
+        engine
+    }
+
+    pub fn repo(&self) -> &Arc<dyn ISocialRepository> {
+        &self.repo
+    }
+
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
+    /// 取当前驱动（克隆 `Arc` 后立即释放读锁，避免跨 `await` 持锁）。
+    pub async fn driver(&self) -> Arc<dyn PublishDriver> {
+        self.driver.read().await.clone()
+    }
+
+    /// 已可真实投递的平台。**空集不是错误**，是「待接入」——界面据此显示引导。
+    pub async fn configured_platforms(&self) -> Vec<String> {
+        let driver = self.driver().await;
+        if !driver.is_ready() {
+            return Vec::new();
+        }
+        driver
+            .configured_platforms()
+            .into_iter()
+            .filter(|p| is_supported_platform(p))
+            .collect()
+    }
+
+    /// 当前驱动的可展示信息（供界面显示「聚合模式 / 半自动」与厂商标识）。
+    pub async fn driver_brief(&self) -> DriverBrief {
+        let driver = self.driver().await;
+        let kind = driver.kind();
+        DriverBrief {
+            kind: driver_kind_id(kind).to_string(),
+            vendor: driver.vendor().map(str::to_string),
+            ready: driver.is_ready(),
+            // 数据流向必须让用户知情：聚合模式下内容与媒体会经服务商服务器转发。
+            // 半自动 / 官方直连没有这一层，如实为 None。
+            data_flow_note: match kind {
+                DriverKind::Aggregator => Some(super::driver::AggregatorDriver::data_flow_note()),
+                _ => None,
+            },
+        }
+    }
+
+    /// 驱动配置的**脱敏**视图（管理台读口）。
+    ///
+    /// 只回报「配了什么、是否已配密钥、现在能发哪些平台」，绝不回传密钥。
+    pub async fn publish_config_view(&self) -> Result<PublishConfigView, AppError> {
+        let cfg = self.repo.get_publish_config().await?;
+        let brief = self.driver_brief().await;
+        Ok(PublishConfigView {
+            driver: cfg
+                .as_ref()
+                .map(|c| c.driver.clone())
+                .unwrap_or_else(|| driver_kind_id(DriverKind::Manual).to_string()),
+            vendor: cfg.as_ref().and_then(|c| c.vendor.clone()),
+            is_active: cfg.as_ref().map(|c| c.is_active).unwrap_or(false),
+            has_api_key: cfg
+                .as_ref()
+                .and_then(|c| c.api_key_encrypted.as_deref())
+                .is_some_and(|k| !k.trim().is_empty()),
+            effective_driver: brief.kind.clone(),
+            ready: brief.ready,
+            configured_platforms: self.configured_platforms().await,
+            vendors: super::driver::VENDORS
+                .iter()
+                .map(|v| VendorOption {
+                    id: v.id,
+                    label: v.label,
+                    console_url: v.console_url,
+                })
+                .collect(),
+            data_flow_note: brief.data_flow_note,
+        })
+    }
+
+    /// 取某平台的授权入口（系统浏览器打开）。
+    pub async fn link_url(&self, platform: &str) -> Result<LinkInfo, AppError> {
+        if !is_supported_platform(platform) {
+            return Err(AppError::BadRequest(format!("不支持的平台：{platform}")));
+        }
+        self.driver().await.link_url(platform).await.map_err(to_app_error)
+    }
+
+    /// 所有平台都还没配密钥（或驱动是半自动）→ 界面显示「待接入」。
+    /// 这是**一等状态而非错误**，所以只返回布尔值。
+    pub async fn is_driver_ready(&self) -> bool {
+        self.driver().await.is_ready()
+    }
+
+    /// 节流版账号拉取：距上次成功拉取不足 [`ACCOUNT_SYNC_MIN_INTERVAL_MS`] 时跳过。
+    ///
+    /// 返回 `None` 表示本轮跳过（未到间隔 / 驱动未就绪）。**任何失败都只记日志**：
+    /// 拉不到远端账号不该让矩阵页面打不开，本地缓存照样能显示。
+    pub async fn maybe_sync_accounts(&self, user_id: &str) -> Option<usize> {
+        if !self.is_driver_ready().await {
+            return None;
+        }
+        let now = now_ms();
+        {
+            let guard = match self.account_sync_at.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if let Some(prev) = guard.get(user_id) {
+                if now.saturating_sub(*prev) < ACCOUNT_SYNC_MIN_INTERVAL_MS {
+                    return None;
+                }
+            }
+        }
+        // 先打时间戳再拉取：即使这次失败也不会在 60s 内反复重试打爆对方接口。
+        {
+            let mut guard = match self.account_sync_at.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            guard.insert(user_id.to_string(), now);
+        }
+        match self.sync_accounts(user_id).await {
+            Ok(n) => Some(n),
+            Err(e) => {
+                tracing::warn!("社交引擎：拉取远端账号失败（沿用本地缓存）：{e}");
+                None
+            }
+        }
+    }
+
+    /// 按数据库配置重新装配驱动。平台密钥缺失时**不是错误** ——
+    /// 驱动会如实上报 `configured_platforms` 为空，界面显示「待接入」。
+    pub async fn reload_driver(&self) {
+        let next = self.load_driver().await;
+        *self.driver.write().await = next;
+    }
+
+    async fn load_driver(&self) -> Arc<dyn PublishDriver> {
+        let cfg = match self.repo.get_publish_config().await {
+            Ok(Some(cfg)) if cfg.is_active => cfg,
+            // 没有配置（或已停用）→ 半自动。这是安全的默认：不会误发任何东西。
+            _ => return Arc::new(ManualDriver),
+        };
+
+        let kind = driver_kind_from_id(&cfg.driver);
+
+        let api_key = cfg
+            .api_key_encrypted
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .and_then(|enc| match decrypt_string(enc, &self.encryption_key) {
+                Ok(plain) => Some(plain),
+                Err(e) => {
+                    // 密钥解不开是运维事故，必须留痕；但仍降级运行而不是让服务挂掉。
+                    tracing::warn!("社交引擎：聚合商 API Key 解密失败（将按未配置处理）：{e}");
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        Arc::from(build_driver(
+            kind,
+            cfg.vendor.as_deref().unwrap_or(DEFAULT_VENDOR),
+            &api_key,
+        ))
+    }
+
+    /// 写入驱动配置并热切换。
+    ///
+    /// `api_key` 语义：`None` = 不动已有密钥；`Some("")` = 清空（退回待接入）；
+    /// `Some(k)` = 设为 k。密钥经 AES-256-GCM 加密后落库，**明文不出服务器**。
+    pub async fn update_publish_config(
+        &self,
+        driver: &str,
+        vendor: Option<&str>,
+        api_key: Option<&str>,
+        is_active: bool,
+    ) -> Result<(), AppError> {
+        let prev = self.repo.get_publish_config().await?;
+        let encrypted = match api_key {
+            None => prev.as_ref().and_then(|p| p.api_key_encrypted.clone()),
+            Some(k) if k.trim().is_empty() => None,
+            Some(k) => Some(encrypt_string(k.trim(), &self.encryption_key)?),
+        };
+
+        self.repo
+            .upsert_publish_config(UpsertPublishConfigParams {
+                driver: driver.to_string(),
+                vendor: vendor.map(str::to_string).or_else(|| {
+                    prev.as_ref().and_then(|p| p.vendor.clone())
+                }),
+                api_key_encrypted: encrypted,
+                base_url: prev.as_ref().and_then(|p| p.base_url.clone()),
+                webhook_secret: prev.as_ref().and_then(|p| p.webhook_secret.clone()),
+                is_active,
+                extra_json: prev.as_ref().and_then(|p| p.extra_json.clone()),
+            })
+            .await?;
+
+        self.reload_driver().await;
+        Ok(())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 账号同步
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// 从当前驱动拉取已授权账号并落库（按「平台 + 远端账号 + 主页」幂等）。
+    ///
+    /// 返回写入行数。聚合商模式下授权在服务商后台完成，这里是唯一的
+    /// 「把远端账号搬进本地」的入口。
+    ///
+    /// **一行 = 一个可投递目标**：聚合商返回的账号若带子账号（FB 主页 /
+    /// LinkedIn 组织），按子账号展开成多行 —— 个人号通常不能经 API 发帖，
+    /// 必须落到主页上（发布时对应 vendor 的 `pageId`）。
+    pub async fn sync_accounts(&self, user_id: &str) -> Result<usize, AppError> {
+        let driver = self.driver().await;
+        let remote = driver.list_accounts().await.map_err(to_app_error)?;
+        if remote.is_empty() {
+            return Ok(0);
+        }
+        let driver_id = driver_kind_id(driver.kind()).to_string();
+        let vendor = driver.vendor().map(str::to_string);
+
+        for acc in remote {
+            // provider_handle 恒为聚合商侧账号 id：发布体的 accountId 用它是硬约定，
+            // 不同主页共用同一个账号 id，靠 parent_handle（pageId）区分。
+            let handle = acc.provider_account_id.clone();
+            if acc.subaccounts.is_empty() {
+                self.upsert_one(
+                    user_id,
+                    &acc.platform,
+                    &driver_id,
+                    vendor.as_deref(),
+                    &handle,
+                    None,
+                    acc.display_name.clone(),
+                    acc.handle.clone(),
+                    acc.avatar_url.clone(),
+                    "profile",
+                )
+                .await?;
+                continue;
+            }
+            for sub in remote_subaccounts_of(&acc) {
+                self.upsert_one(
+                    user_id,
+                    &acc.platform,
+                    &driver_id,
+                    vendor.as_deref(),
+                    &handle,
+                    Some(&sub.0),
+                    Some(sub.1),
+                    acc.handle.clone(),
+                    acc.avatar_url.clone(),
+                    "page",
+                )
+                .await?;
+            }
+        }
+
+        let rows = self.repo.list_accounts(user_id).await?;
+        Ok(rows.len())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_one(
+        &self,
+        user_id: &str,
+        platform: &str,
+        driver_id: &str,
+        vendor: Option<&str>,
+        provider_handle: &str,
+        parent_handle: Option<&str>,
+        display_name: Option<String>,
+        handle: Option<String>,
+        avatar_url: Option<String>,
+        account_type: &str,
+    ) -> Result<(), AppError> {
+        self.repo
+            .upsert_account(UpsertAccountParams {
+                account_id: String::new(),
+                user_id: user_id.to_string(),
+                platform: platform.to_string(),
+                driver: driver_id.to_string(),
+                vendor: vendor.map(str::to_string),
+                provider_handle: Some(provider_handle.to_string()),
+                parent_handle: parent_handle.map(str::to_string),
+                display_name,
+                handle,
+                avatar_url,
+                account_type: account_type.to_string(),
+                token_expires_at: None,
+                meta_json: None,
+            })
+            .await?;
+        Ok(())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 投递
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// 「重新发布」：先把失败/跳过的目标退回 pending，再投递一次。
+    /// 已成功的目标**不动** —— 重发会往平台上投重复内容。
+    pub async fn retry_post(&self, post_id: &str) -> Result<Vec<TargetOutcome>, AppError> {
+        self.repo.reset_targets_for_retry(post_id).await?;
+        self.dispatch_post(post_id).await
+    }
+
+    /// 投递一条内容的所有待发目标。
+    ///
+    /// **逐平台独立结果**：3 个平台成功 2 个失败时，失败的只影响自己那一行，
+    /// 成功的不回滚。整体性故障（密钥无效、驱动未配置）才返回 `Err`。
+    pub async fn dispatch_post(&self, post_id: &str) -> Result<Vec<TargetOutcome>, AppError> {
+        let post = self
+            .repo
+            .get_post(post_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("内容不存在".to_string()))?;
+
+        // 已取消的帖子不能再发 —— 调度器只在 status='scheduled' 时捞，
+        // 但「立即发布」端点可能被用户点了取消之后又点到，这里兜一道。
+        if post.status == SOCIAL_POST_STATUS_CANCELED {
+            return Err(AppError::BadRequest("该内容已取消，不能再发布".to_string()));
+        }
+
+        let targets = self.repo.list_targets(post_id).await?;
+        if targets.is_empty() {
+            return Err(AppError::BadRequest("该内容没有投递目标".to_string()));
+        }
+        // account_id → target_id：结果写回时直接用，不再逐条回查数据库。
+        let target_index: HashMap<&str, &str> = targets
+            .iter()
+            .map(|t| (t.account_id.as_str(), t.target_id.as_str()))
+            .collect();
+
+        let pending: Vec<_> = targets
+            .iter()
+            .filter(|t| t.status == SOCIAL_TARGET_STATUS_PENDING)
+            .collect();
+        if pending.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 先把帖标成「投递中」—— 调度器只捞 `scheduled`，这样本轮不会被重复拾取。
+        let _ = self
+            .repo
+            .update_post(UpdatePostParams {
+                post_id: post_id.to_string(),
+                title: None,
+                status: Some(SOCIAL_POST_STATUS_PUBLISHING.to_string()),
+                scheduled_at: None,
+            })
+            .await;
+
+        let media_urls = self
+            .resolve_media_urls(&post.user_id, post.media_json.as_deref())
+            .await?;
+        let versions = self.repo.list_versions(post_id).await?;
+        let accounts = self.repo.list_accounts(&post.user_id).await?;
+
+        let mut out_targets = Vec::with_capacity(pending.len());
+        for t in &pending {
+            let Some(acc) = accounts.iter().find(|a| a.account_id == t.account_id) else {
+                // 账号已被解绑：如实记为 skipped（不算失败，但也没发出去），
+                // 并说明原因，界面据此提示「该账号已解绑」。
+                self.mark_skipped(&t.target_id, "账号已解绑，本条已跳过").await;
+                continue;
+            };
+
+            let Some(handle) = acc.provider_handle.clone().filter(|h| !h.trim().is_empty()) else {
+                self.mark_skipped(&t.target_id, "账号缺少远端句柄，请重新同步账号")
+                    .await;
+                continue;
+            };
+
+            out_targets.push(PublishTarget {
+                account_id: t.account_id.clone(),
+                platform: t.platform.clone(),
+                provider_handle: handle,
+                parent_handle: acc.parent_handle.clone(),
+                // 平台差异化文案优先；没有改写就用主文案（驱动侧回退）。
+                text: versions
+                    .iter()
+                    .find(|v| v.platform == t.platform)
+                    .map(|v| v.text.clone())
+                    .filter(|s| !s.trim().is_empty()),
+            });
+        }
+
+        if out_targets.is_empty() {
+            self.repo.refresh_post_status(post_id).await?;
+            return Ok(Vec::new());
+        }
+
+        let driver = self.driver().await;
+        // 文案留痕：把这次实际用的文本记进 target，之后改版本不影响已发内容的复盘。
+        // 键用 owned String —— `out_targets` 随后会被 move 进 `PublishRequest`。
+        let text_of: HashMap<String, String> = out_targets
+            .iter()
+            .map(|t| {
+                (
+                    t.account_id.clone(),
+                    t.text.clone().unwrap_or_else(|| post.text.clone()),
+                )
+            })
+            .collect();
+
+        let request = PublishRequest {
+            text: post.text.clone(),
+            media_urls,
+            targets: out_targets,
+        };
+
+        let outcomes = match driver.publish(&request).await {
+            Ok(o) => o,
+            Err(e) => {
+                // 整体性故障（密钥无效 / 驱动未配置）不会走逐目标结果回填，
+                // 目标会一直悬在 `pending`，而帖子已被标成 `publishing` ——
+                // 调度器只捞 `scheduled`，于是这条内容再也发不出去、状态也不对。
+                // 所以这里必须把待发目标落实成 `failed` 并写明原因，让用户看到
+                // 「为什么没发出去」并能点「重新发布」，而不是一条静默卡住的内容。
+                self.fail_pending_targets(post_id, &e.to_string()).await;
+                return Err(to_app_error(e));
+            }
+        };
+
+        // 逐条写回结果。写不回也不能丢 —— 失败原因本身就是要给用户看的东西。
+        for o in &outcomes {
+            let Some(target_id) = target_index.get(o.account_id.as_str()) else {
+                continue;
+            };
+            let status = match o.status {
+                super::driver::OutcomeStatus::Success => SOCIAL_TARGET_STATUS_SUCCESS,
+                super::driver::OutcomeStatus::Failed => SOCIAL_TARGET_STATUS_FAILED,
+                super::driver::OutcomeStatus::Skipped => SOCIAL_TARGET_STATUS_SKIPPED,
+            };
+            let _ = self
+                .repo
+                .mark_target_result(TargetResultParams {
+                    target_id: (*target_id).to_string(),
+                    status: status.to_string(),
+                    provider_post_id: o.provider_post_id.clone(),
+                    permalink: o.permalink.clone(),
+                    error: o.error.clone(),
+                    text_snapshot: text_of.get(o.account_id.as_str()).cloned(),
+                })
+                .await;
+        }
+
+        // 由各目标结果汇总帖级状态（全成功 / 部分成功 / 全失败）。
+        self.repo.refresh_post_status(post_id).await?;
+        Ok(outcomes)
+    }
+
+    /// 整体性故障时把所有待发目标落实成 `failed`（写明原因），再汇总帖级状态。
+    async fn fail_pending_targets(&self, post_id: &str, reason: &str) {
+        let Ok(targets) = self.repo.list_targets(post_id).await else {
+            return;
+        };
+        for t in targets
+            .iter()
+            .filter(|t| t.status == SOCIAL_TARGET_STATUS_PENDING)
+        {
+            let _ = self
+                .repo
+                .mark_target_result(TargetResultParams {
+                    target_id: t.target_id.clone(),
+                    status: SOCIAL_TARGET_STATUS_FAILED.to_string(),
+                    provider_post_id: None,
+                    permalink: None,
+                    error: Some(reason.to_string()),
+                    text_snapshot: None,
+                })
+                .await;
+        }
+        let _ = self.repo.refresh_post_status(post_id).await;
+    }
+
+    async fn mark_skipped(&self, target_id: &str, reason: &str) {        let _ = self
+            .repo
+            .mark_target_result(TargetResultParams {
+                target_id: target_id.to_string(),
+                status: SOCIAL_TARGET_STATUS_SKIPPED.to_string(),
+                provider_post_id: None,
+                permalink: None,
+                error: Some(reason.to_string()),
+                text_snapshot: None,
+            })
+            .await;
+    }
+
+    /// 把 `media_json` 里的 media_id 解析成可投递的 URL。
+    async fn resolve_media_urls(
+        &self,
+        user_id: &str,
+        media_json: Option<&str>,
+    ) -> Result<Vec<String>, AppError> {
+        let Some(raw) = media_json else {
+            return Ok(Vec::new());
+        };
+        let ids: Vec<String> = serde_json::from_str(raw).unwrap_or_default();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let media = self.repo.list_media(user_id, 500).await?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| {
+                media
+                    .iter()
+                    .find(|m| &m.media_id == id)
+                    .map(|m| m.url.clone())
+            })
+            .collect())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 指标回收
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// 回收指标：取已成功投递、且平台侧留了帖子 id 的目标，向驱动拉一次快照。
+    ///
+    /// 写进 `social_metrics` 的每一行都是**采样快照**，读取时取每 target 的最新
+    /// 一行 —— 绝不能 SUM。驱动尚未实现指标端点时返回 0 行，不是错误。
+    pub async fn refresh_metrics(&self, user_id: &str, limit: i64) -> Result<usize, AppError> {
+        let rows = self.repo.list_recent_targets(user_id, limit).await?;
+        let targets: Vec<MetricTarget> = rows
+            .iter()
+            .filter(|r| r.status == SOCIAL_TARGET_STATUS_SUCCESS)
+            .filter_map(|r| {
+                let pid = r.provider_post_id.clone()?;
+                if pid.trim().is_empty() {
+                    return None;
+                }
+                Some(MetricTarget {
+                    account_id: r.account_id.clone(),
+                    platform: r.platform.clone(),
+                    provider_post_id: pid,
+                })
+            })
+            .collect();
+        if targets.is_empty() {
+            return Ok(0);
+        }
+
+        let vendor_samples = self
+            .driver()
+            .await
+            .fetch_metrics(&targets)
+            .await
+            .map_err(to_app_error)?;
+        if vendor_samples.is_empty() {
+            return Ok(0);
+        }
+
+        // (账号, 平台侧帖 id) → (target_id, platform)。
+        // 一条内容可能投到多个账号，同一个 provider_post_id 在不同账号下是不同的 target，
+        // 所以两个维度都要参与定位。
+        let index: HashMap<(&str, &str), (&str, &str)> = rows
+            .iter()
+            .filter_map(|r| {
+                r.provider_post_id.as_deref().map(|p| {
+                    (
+                        (r.account_id.as_str(), p),
+                        (r.target_id.as_str(), r.platform.as_str()),
+                    )
+                })
+            })
+            .collect();
+
+        let mut written = 0usize;
+        for s in vendor_samples {
+            let Some((target_id, platform)) =
+                index.get(&(s.account_id.as_str(), s.provider_post_id.as_str()))
+            else {
+                continue;
+            };
+            self.repo
+                .record_metric(RecordMetricParams {
+                    target_id: (*target_id).to_string(),
+                    platform: (*platform).to_string(),
+                    likes: s.likes.unwrap_or(0),
+                    comments: s.comments.unwrap_or(0),
+                    shares: s.shares.unwrap_or(0),
+                    views: s.views,
+                    impressions: s.impressions,
+                    saves: s.saves,
+                    // 驱动返回的原始响应留档在 vendor 侧；这里不重复序列化。
+                    raw_json: None,
+                })
+                .await?;
+            written += 1;
+        }
+        Ok(written)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 辅助
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// 建内容（含媒体关联与逐平台目标），供路由层调用。
+    pub async fn create_post(&self, params: CreatePostParams) -> Result<SocialPostRow, AppError> {
+        Ok(self.repo.create_post(params).await?)
+    }
+
+    /// 当前时间戳（毫秒），供路由层构造 `createdAt` 之类。
+    pub fn now(&self) -> i64 {
+        now_ms()
+    }
+}
+
+/// 驱动的可展示摘要（给界面显示「聚合模式 / 半自动 + 厂商」）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DriverBrief {
+    /// `aggregator` | `direct` | `manual`
+    pub kind: String,
+    /// 聚合商标识（`blotato` 等）；官方直连与半自动为 `None`。
+    pub vendor: Option<String>,
+    /// 是否已具备工作条件。
+    pub ready: bool,
+    /// 数据流向披露（聚合商模式下内容与媒体会经其服务器转发）。
+    /// 界面应当展示给用户 —— 这不是装饰，是让他知道内容过了谁的手。
+    pub data_flow_note: Option<&'static str>,
+}
+
+/// 驱动配置的**脱敏**视图（供管理台显示与回填）。
+///
+/// 刻意**不返回** `api_key_encrypted`，也不返回密钥明文 —— 只回报「是否已配置」。
+/// 这是实例级最高敏感项：拿到它就等于拿到全部用户的发帖权限，所以连密文都不出服务器。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PublishConfigView {
+    /// 配置里写的驱动：`aggregator` | `direct` | `manual`。
+    pub driver: String,
+    /// 配置里写的聚合商标识（`blotato` 等）。
+    pub vendor: Option<String>,
+    /// 配置是否启用。停用等价于半自动 —— 不会误发任何东西。
+    pub is_active: bool,
+    /// **是否已配置密钥**（只回报布尔，不含密钥本身）。
+    pub has_api_key: bool,
+    /// 当前**实际生效**的驱动。可能与 `driver` 不同：配置停用或密钥缺失时会退回 `manual`。
+    pub effective_driver: String,
+    /// 当前是否具备真实投递能力。
+    pub ready: bool,
+    /// 已可投递的平台。**空集 = 「待接入」**，是一等状态而非错误。
+    pub configured_platforms: Vec<String>,
+    /// 预置聚合商清单（供管理台下拉选型）。
+    pub vendors: Vec<VendorOption>,
+    /// 数据流向披露：聚合模式下内容与媒体会经其服务器转发。
+    pub data_flow_note: Option<&'static str>,
+}
+
+/// 聚合商下拉项。只暴露非敏感字段（端点、鉴权头等留在服务端）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VendorOption {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// 授权/取密钥的后台地址，引导运维去正确的地方领 key。
+    pub console_url: Option<&'static str>,
+}
+
+/// 新建内容的默认状态：无排期 → 草稿；有排期 → 已排期。
+pub fn initial_post_status(scheduled_at: Option<i64>) -> &'static str {
+    if scheduled_at.is_some() {
+        SOCIAL_POST_STATUS_SCHEDULED
+    } else {
+        SOCIAL_POST_STATUS_DRAFT
+    }
+}
+
+fn remote_subaccounts_of(acc: &super::driver::LinkedAccount) -> Vec<(String, String)> {
+    acc.subaccounts
+        .iter()
+        .map(|s| (s.id.clone(), s.name.clone()))
+        .collect()
+}
+
+fn driver_kind_id(kind: DriverKind) -> &'static str {
+    match kind {
+        DriverKind::Aggregator => "aggregator",
+        DriverKind::Direct => "direct",
+        DriverKind::Manual => "manual",
+    }
+}
+
+fn driver_kind_from_id(id: &str) -> DriverKind {
+    match id {
+        "direct" => DriverKind::Direct,
+        "manual" => DriverKind::Manual,
+        _ => DriverKind::Aggregator,
+    }
+}
+
+/// `SocialError` → `AppError`，保留「未配置」与「平台未接入」的语义差别 ——
+/// 前者是运维问题（503 更合适），后者是用户操作问题（400）。
+fn to_app_error(e: SocialError) -> AppError {
+    use SocialError as S;
+    match e {
+        S::PlatformNotConfigured(p) => AppError::BadRequest(format!("该平台尚未接入：{p}")),
+        S::DriverNotConfigured(m) => AppError::BadRequest(format!("发布驱动未配置：{m}")),
+        S::MissingParam(m) => AppError::BadRequest(format!("缺少参数：{m}")),
+        other => AppError::Internal(format!("聚合接口调用失败：{other}")),
+    }
+}

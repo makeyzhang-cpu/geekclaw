@@ -39,8 +39,12 @@ const NomiChat: React.FC<{
   loadedMcpStatuses?: IConversationMcpStatus[];
   agent_name?: string;
   isProcessing?: boolean;
-  /** Hide the permission/agent-mode selector in the send box (locked surfaces). */
-  hideModeSelector?: boolean;
+  /** Hide the provider/model selector. Defaults to visible everywhere. */
+  hideModelSelector?: boolean;
+  /** Hide the permission (agent-mode) selector on backend-fixed surfaces. */
+  hidePermissionSelector?: boolean;
+  /** Hide the「召唤员工」entry (only meaningful on the full work conversation). */
+  hideSummonControl?: boolean;
   /** Conversation collaborator-model control rendered after the main model. */
   collaboratorSelectorNode?: React.ReactNode;
   /** Extra right-side tools used by projected task transcripts. */
@@ -58,7 +62,9 @@ const NomiChat: React.FC<{
   loadedMcpStatuses,
   agent_name,
   isProcessing,
-  hideModeSelector,
+  hideModelSelector,
+  hidePermissionSelector,
+  hideSummonControl,
   collaboratorSelectorNode,
   extraRightTools,
 }) => {
@@ -131,7 +137,9 @@ const NomiChat: React.FC<{
               modelSelection={modelSelection}
               session_mode={session_mode}
               agent_name={agent_name}
-              hideModeSelector={hideModeSelector}
+              hideModelSelector={hideModelSelector}
+              hidePermissionSelector={hidePermissionSelector}
+              hideSummonControl={hideSummonControl}
               collaboratorSelectorNode={collaboratorSelectorNode}
               extraRightTools={extraRightTools}
               dynamicModes={dynamicModes}

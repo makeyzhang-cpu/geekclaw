@@ -94,6 +94,10 @@ fn make_factory_with_summon(
     let skill_paths = Arc::new(nomifun_extension::resolve_skill_paths(tmp.path(), tmp.path()));
     build_agent_factory(AgentFactoryDeps {
         authoritative_user_id: Arc::from(TEST_OWNER_ID),
+        // 模型建议通道（`model_suggestion_sink`）由服务层注入；本集成测试
+        // 只关心 provider/model 装配，两条建议通道都留空。
+        companion_model_sink: None,
+        conversation_model_sink: None,
         cron_sink_factory: None,
         gateway_mcp_config: None,
         open_mcp_config: None,

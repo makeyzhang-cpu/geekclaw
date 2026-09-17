@@ -399,6 +399,7 @@
     "modelProvider": "服务商",
     "modelName": "模型",
     "modelMissing": "请先为该员工配置对话模型",
+    "modelSwitchFailed": "保存员工模型失败，请重试",
     "modelUnset": "未配置模型",
     "modelUnavailableOption": "{{model}}（不可用）",
     "modelNoTextModel": "没有可用于对话的文本模型。图像模型不能作为对话模型，请在「模型管理」中添加一个文本模型。",

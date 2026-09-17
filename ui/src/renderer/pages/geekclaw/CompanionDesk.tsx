@@ -9,13 +9,14 @@ import { useTranslation } from 'react-i18next';
 import { Button, Message, Spin } from '@arco-design/web-react';
 import { ipcBridge } from '@/common';
 import { uuidv7 } from '@/common/utils';
-import type { TChatConversation } from '@/common/config/storage';
+import type { IProvider, TChatConversation } from '@/common/config/storage';
 import type { ConversationId, CompanionId } from '@/common/types/ids';
 import CompanionAvatar from '@renderer/pages/companion/CompanionAvatar';
 import { customFigureMetaOf } from '@renderer/pages/companion/characters/customMeta';
 import type { CompanionMood } from '@renderer/pages/companion/characters';
 import NomiChat from '@renderer/pages/conversation/platforms/geekclaw/NomiChat';
 import { useNomiModelSelection } from '@renderer/pages/conversation/platforms/geekclaw/useNomiModelSelection';
+import { useConversationModelSwitcher } from '@renderer/pages/conversation/platforms/geekclaw/useConversationModelSwitcher';
 import { PreviewProvider } from '@renderer/pages/conversation/Preview';
 import { getConversationOrNull } from '@renderer/pages/conversation/utils/conversationCache';
 import TeamHero from '@renderer/components/collaboration/TeamHero';
@@ -97,7 +98,7 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({
   onSelectCompanion,
 }) => {
   const { t } = useTranslation();
-  const { profile, status } = companion;
+  const { profile, status, patchCompanion } = companion;
   const companionId = profile?.companion_id ?? null;
 
   const [sessionId, setSessionId] = useState<ConversationId | null>(null);
@@ -217,11 +218,21 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({
     })();
   }, [phase, sessionId, pendingText, t]);
 
-  // ── Model selection (locked, mirroring CompanionConversation) ─────────────
-  const lockedSelect = useCallback(async () => false, []);
+  // ── Model selection（发送框内即可换，开局 / 中途都行）─────────────────────
+  // 单人会话：换模型 = 换这位员工的模型（写 profile.model，与头部
+  // CompanionModelControl 同一个事实源）。
+  // 群聊会话：那是圆桌合成的独立会话，**不属于**任何一位员工的属性，
+  // 因此只改该会话行，绝不回写任何 profile（否则会误改某位员工）。
+  const onSelectModel = useConversationModelSwitcher({
+    conversationId: sessionId,
+    onCompanionModelChange: groupName
+      ? undefined
+      : (provider: IProvider, modelName: string) =>
+          patchCompanion({ model: { provider_id: provider.id, model: modelName } }),
+  });
   const modelSelection = useNomiModelSelection({
     initialModel: conversation?.model,
-    onSelectModel: lockedSelect,
+    onSelectModel,
   });
   const workspace = conversation?.extra?.workspace ?? '';
   const modelConfigured = status ? status.model_configured : profile?.model != null;
@@ -372,7 +383,8 @@ const CompanionDesk: React.FC<CompanionDeskProps> = ({
             workspace={workspace}
             modelSelection={modelSelection}
             session_mode='yolo'
-            hideModeSelector
+            hidePermissionSelector
+            hideSummonControl
             agent_name={activeName || undefined}
             emptySlot={
               <div className='flex flex-col items-center gap-12px py-40px px-24px text-center'>

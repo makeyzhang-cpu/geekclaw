@@ -87,6 +87,18 @@ pub use repository::team_consensus::{
 pub use repository::SqliteTeamRepository;
 pub use repository::SqliteTeamConsensusRepository;
 pub use models::{TeamMemberRow, TeamRow};
+
+// 海外社媒矩阵（云端引擎的数据面）—— 账号 / 内容 / 逐平台目标 / 指标采样。
+pub use repository::social::{
+    CreateMediaParams, CreatePostParams, ISocialRepository, RecordMetricParams,
+    SocialOverviewTotals, SqliteSocialRepository, TargetResultParams, UpdatePostParams,
+    UpsertAccountParams, UpsertPublishConfigParams,
+};
+pub use models::{
+    SocialAccountRow, SocialDuePostRow, SocialMediaRow, SocialMetricLatestRow, SocialMetricRow,
+    SocialPostRow, SocialPostTargetDetail, SocialPostTargetRow, SocialPostVersionRow,
+    SocialPublishConfigRow,
+};
 pub use models::{ConsensusMessageRow, ConsensusRunRow};
 pub use repository::{
     AdoptAgentExecutionStepOutputParams, AgentExecutionAttemptRecoveryDisposition,

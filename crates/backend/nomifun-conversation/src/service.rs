@@ -44,7 +44,7 @@ use nomifun_common::{
 use nomifun_db::models::{AgentMetadataRow, ConversationRow, MessageRow};
 use nomifun_db::{
     AgentExecutionTurnAuthority, ConversationFilters, ConversationRowUpdate, CreateAcpSessionParams, IAcpSessionRepository,
-    IAgentMetadataRepository, IConversationRepository, IMcpServerRepository, MessageDayBucket, SaveRuntimeStateParams,
+    IAgentMetadataRepository, IConversationRepository, IMcpServerRepository, MessageDayBucket, MessageRowUpdate, SaveRuntimeStateParams,
     ConversationTurnAdmissionState, RequirementConversationTurnAuthority, SortOrder,
     TurnLifecycleTransition, TurnReceiptCompletion,
 };
@@ -2448,6 +2448,43 @@ impl ConversationService {
     /// (or none of the service at all, via re-export) can use it.
     pub fn mint_msg_id() -> String {
         MessageId::new().into_string()
+    }
+
+    /// 把一次失败尝试的可见痕迹标记为**隐藏**（不是删除 —— 审计与取证仍要能查到）。
+    ///
+    /// 只用于「畸形工具调用」重跑：那一轮已经吐过字，重跑会产出完整的新回答；
+    /// 若不隐藏，用户会看到「标红的半句话 + 完整回答」两截拼在一起。
+    /// 消息在库里以 `message_id == msg_id` 双列同值存储，所以直接按本轮
+    /// 发出去的那个 `msg_id` 定位即可。
+    ///
+    /// 找不到该消息不算错误：本轮可能压根没落库（例如模型一个字都没说）。
+    async fn hide_failed_attempt(
+        &self,
+        conversation_id: &str,
+        msg_id: &str,
+    ) -> Result<(), AppError> {
+        if msg_id.trim().is_empty() {
+            return Ok(());
+        }
+        let result = self
+            .conversation_repo
+            .update_message(
+                msg_id,
+                &MessageRowUpdate {
+                    content: None,
+                    status: None,
+                    hidden: Some(true),
+                },
+            )
+            .await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(nomifun_db::DbError::NotFound(_)) => Ok(()),
+            Err(error) => {
+                debug!(conversation_id = %conversation_id, msg_id = %msg_id, error = %ErrorChain(&error), "hide_failed_attempt could not update the row");
+                Err(AppError::from(error))
+            }
+        }
     }
 
     pub fn conversation_repo(&self) -> &Arc<dyn IConversationRepository> {
@@ -8855,8 +8892,12 @@ impl ConversationService {
             let mut failover_switches_done: u32 = 0;
             // 本轮已做过的"剔图重跑"次数(bounded=1,防死循环)。
             let mut image_strip_retries_done: u32 = 0;
-            // 本轮已做过的"畸形工具调用原样重跑"次数(bounded=1,防死循环)。
+            // 本轮已做过的"畸形工具调用原样重跑"次数(bounded,防死循环)。
             // 聚合中转偶发丢 function.name;同模型原样重发通常命中正常上游通道。
+            //
+            // 上限取 2：一次性缺陷几乎必中(重发即落到正常上游通道)；若连续两次
+            // 都畸形,说明是服务商侧持续故障,再重试只是白等,该把错误如实交出去。
+            const MALFORMED_TOOL_CALL_MAX_RETRIES: u32 = 2;
             let mut malformed_tool_call_retries_done: u32 = 0;
             // Phase 3 (review #2): models already switched to this turn. Passed
             // to the picker so it advances MONOTONICALLY — never re-tries a
@@ -8963,7 +9004,8 @@ impl ConversationService {
                         failover_switches_done < c.max_switches.min(c.queue.len() as u32)
                     });
                     let image_retry_available = image_strip_retries_done == 0;
-                    let malformed_retry_available = malformed_tool_call_retries_done == 0;
+                    let malformed_retry_available =
+                        malformed_tool_call_retries_done < MALFORMED_TOOL_CALL_MAX_RETRIES;
                     if failover_within_bound || image_retry_available || malformed_retry_available {
                         relay = relay.with_failover_suppressor(Arc::new(move |code| {
                             (failover_within_bound
@@ -8974,6 +9016,15 @@ impl ConversationService {
                                 || (malformed_retry_available
                                     && code
                                         == nomifun_api_types::AgentErrorCode::UserLlmProviderMalformedToolCall)
+                        }));
+                    }
+                    // 畸形工具调用**天生发生在吐过字之后**（上游网关在流末尾丢
+                    // function.name），所以光装上面的 suppressor 没用 —— 那条通路
+                    // 只在 pre-response 生效。必须额外声明「这个码 post-response
+                    // 也可抑制」，否则错误卡片会在重跑之前就落库并推给用户。
+                    if malformed_retry_available {
+                        relay = relay.with_post_response_suppressor(Arc::new(|code| {
+                            code == nomifun_api_types::AgentErrorCode::UserLlmProviderMalformedToolCall
                         }));
                     }
                 }
@@ -9184,17 +9235,40 @@ impl ConversationService {
                 // 但 runtime 与模型都没坏,坏的是**这一轮**的上游响应 —— 同模型原样重发一次
                 // 通常命中正常上游通道。每轮只重跑一次(bounded=1);耗尽后落到下方 re-surface,
                 // 把错误连同重试按钮交给用户,绝不静默吞掉。
-                if malformed_tool_call_retries_done == 0
+                if malformed_tool_call_retries_done < MALFORMED_TOOL_CALL_MAX_RETRIES
                     && agent.agent_type() == AgentType::GeekClaw
                     && outcome.terminal.is_error()
-                    && !outcome.emitted_response
                     && outcome.terminal.code()
                         == Some(nomifun_api_types::AgentErrorCode::UserLlmProviderMalformedToolCall)
                 {
                     malformed_tool_call_retries_done += 1;
+                    // 🔴 2026-09-17 关键修复：本失败轮**很可能已经吐过字**。
+                    // 上游网关在流末尾丢掉 function.name，而模型在这之前通常已经
+                    // 说了一句「好的，我先去看看…」。旧实现要求 `!emitted_response`，
+                    // 于是 v5.0.62 写的自动重跑在真实场景里**一次都没触发** ——
+                    // 用户看到的永远是「标红的半句话 + 报错卡片」。
+                    //
+                    // 既然这一轮已经废了（模型想调工具却没调成），把半成品抹掉重来
+                    // 好过留一个死局：隐藏本轮落库的助手消息，重跑产出的完整回答以
+                    // 新消息出现，用户不会看到失败的中间态。
+                    if outcome.emitted_response {
+                        if let Err(hide_error) = service
+                            .hide_failed_attempt(&conv_id, &resend_payload.msg_id)
+                            .await
+                        {
+                            // 隐藏失败不该阻断恢复：宁可留下一截半成品，也要把回答救回来。
+                            warn!(
+                                conversation_id = %conv_id,
+                                error = %ErrorChain(&hide_error),
+                                "failed to hide the malformed attempt; re-running anyway"
+                            );
+                        }
+                    }
                     info!(
                         conversation_id = %conv_id,
-                        "Provider returned a malformed tool call; re-running the same model once"
+                        attempt = malformed_tool_call_retries_done,
+                        emitted = outcome.emitted_response,
+                        "Provider returned a malformed tool call; re-running the same model"
                     );
                     let resend_msg_id = Self::mint_msg_id();
                     pending_send = Some((
@@ -14274,6 +14348,8 @@ mod tests {
             name: "test".into(),
             r#type: agent_type,
             model: None,
+            // 模型建议：本夹具只测类型映射，不涉及建议通道。
+            model_suggestion: None,
             status: ConversationStatus::Pending,
             runtime: None,
             source: None,

@@ -75,6 +75,7 @@ const MarketingOpsPage: React.FC = () => {
     launchToConversation,
     ensurePreset,
     ensureConversation: createConversation,
+    current_model: defaultModel,
   } = useExpertConversationLauncher();
 
   // 归属过滤：只展示营销运营类的身份/技能（其余归 B2B 外贸工作台）。
@@ -388,6 +389,7 @@ const MarketingOpsPage: React.FC = () => {
               identity={selected}
               conversation={sessions[selected.id] ?? null}
               onEnsureConversation={ensureConversation}
+              defaultModel={defaultModel}
               onOpenPlatform={openPlatform}
               platformLabel={platformTitle}
               platformEnterLabel={platformEnterLabel}

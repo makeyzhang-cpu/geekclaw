@@ -25,3 +25,4 @@ export { default as SiderOpcEntry } from './SiderOpcEntry';
 export { default as SiderFactorySupplyEntry } from './SiderFactorySupplyEntry';
 export { default as SiderTradeFollowUpEntry } from './SiderTradeFollowUpEntry';
 export { default as SiderTradeKnowledgeEntry } from './SiderTradeKnowledgeEntry';
+export { default as SiderSocialMatrixEntry } from './SiderSocialMatrixEntry';

@@ -399,6 +399,7 @@
     "modelProvider": "Provider",
     "modelName": "Model",
     "modelMissing": "Configure a chat model for this companion first",
+    "modelSwitchFailed": "Failed to save the companion model. Please try again.",
     "modelUnset": "No model set",
     "modelUnavailableOption": "{{model}} (unavailable)",
     "modelNoTextModel": "No text model available for chat. Image models can't be used as a chat model — add a text model in Model Management.",

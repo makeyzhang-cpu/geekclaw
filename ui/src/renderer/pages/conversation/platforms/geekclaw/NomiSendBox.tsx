@@ -134,11 +134,24 @@ const NomiSendBox: React.FC<{
   dynamicModes: AgentModeOption[];
   turnActivity: NomiMessageRuntime;
   /**
-   * Hide the permission/agent-mode selector (and the mobile action-sheet
-   * model + permission entries). Used by locked surfaces like the desktop
-   * companion chat, which runs in a fixed yolo mode with a locked model.
+   * Hide the provider/model selector. Defaults to **visible** — every
+   * conversation surface must let the user pick a provider + model up front
+   * and change it at any point mid-conversation (会话页 / 数字员工 /
+   * B2B外贸运营工作台 / B2B外贸业务工作台 ...).
    */
-  hideModeSelector?: boolean;
+  hideModelSelector?: boolean;
+  /**
+   * Hide the permission (agent-mode) selector. Locked surfaces (数字员工 /
+   * 专家工作台) run a backend-fixed `yolo` mode with no approval flow, so
+   * rendering a permission switch that cannot take effect is dishonest.
+   */
+  hidePermissionSelector?: boolean;
+  /**
+   * Hide the「召唤员工」entry (pull collaborators into this conversation).
+   * Only meaningful on the full work conversation; embedded desks do not
+   * offer it.
+   */
+  hideSummonControl?: boolean;
   /** Conversation collaborator-model control, rendered after the main model. */
   collaboratorSelectorNode?: React.ReactNode;
   /**
@@ -154,7 +167,9 @@ const NomiSendBox: React.FC<{
   agent_name,
   dynamicModes,
   turnActivity,
-  hideModeSelector,
+  hideModelSelector,
+  hidePermissionSelector,
+  hideSummonControl,
   collaboratorSelectorNode,
   extraRightTools,
 }) => {
@@ -778,9 +793,10 @@ const NomiSendBox: React.FC<{
     const currentModelLabel = modelSelection.current_model?.use_model || t('conversation.welcome.selectModel');
 
     const entries: MobileActionSheetEntry[] = [
-      // Locked surfaces (companion) hide the model + permission entries: model is
-      // pinned to the companion profile and permission is fixed to yolo.
-      ...(hideModeSelector
+      // The model entry is present on **every** surface (locked desks included):
+      // provider + model must be selectable at any point. The permission entry
+      // is the only one a locked surface drops (backend-fixed yolo).
+      ...(hideModelSelector
         ? []
         : [
             {
@@ -795,6 +811,10 @@ const NomiSendBox: React.FC<{
                 emptyText: t('conversation.welcome.selectModel'),
               },
             },
+          ]),
+      ...(hidePermissionSelector
+        ? []
+        : [
             {
               key: 'permission',
               icon: <Shield theme='outline' size='16' />,
@@ -863,7 +883,8 @@ const NomiSendBox: React.FC<{
     dynamicModes,
     handleSheetModeChange,
     handleSheetModelSelect,
-    hideModeSelector,
+    hideModelSelector,
+    hidePermissionSelector,
     isMobile,
     loadedMcpStatuses,
     loadedSkills,
@@ -983,18 +1004,23 @@ const NomiSendBox: React.FC<{
           />
         }
         rightTools={
-          hideModeSelector ? undefined : (
-            <div
-              className='sendbox-responsive-config-group flex flex-1 items-center justify-end gap-2 min-w-0'
-              data-testid='geekclaw-sendbox-config-group'
-            >
-              {hasContextUsage && <ContextUsageRing used={tokenUsage?.context_tokens} max={tokenUsage?.context_window} />}
+          // 每一处会话框都渲染这个配置组 —— 模型选择器是**每一处**的必备项
+          // （用户 2026-09-17 要求：开局与中途都要能换服务商 / 模型）。
+          // 只有权限选择器与召唤入口会被锁定面按下（见各自的 props 说明）。
+          <div
+            className='sendbox-responsive-config-group flex flex-1 items-center justify-end gap-2 min-w-0'
+            data-testid='geekclaw-sendbox-config-group'
+          >
+            {hasContextUsage && <ContextUsageRing used={tokenUsage?.context_tokens} max={tokenUsage?.context_window} />}
+            {!hideModelSelector && (
               <NomiModelSelector selection={modelSelection} className='geekclaw-sendbox-model-btn' />
-              {/* 召唤员工（设计 B5）：仅普通工作会话可见 —— 员工/客服等锁定面
-                  通过 hideModeSelector 隐藏整个配置组，天然不渲染。 */}
-              <SummonControl conversationId={conversation_id} />
-              {collaboratorSelectorNode}
-              {extraRightTools}
+            )}
+            {/* 召唤员工（设计 B5）：只在普通工作会话出现 —— 内嵌工作台不适用
+                （协作者只是同一个会话里的角色，不是「同事」）。 */}
+            {!hideSummonControl && <SummonControl conversationId={conversation_id} />}
+            {collaboratorSelectorNode}
+            {extraRightTools}
+            {!hidePermissionSelector && (
               <AgentModeSelector
                 backend='geekclaw'
                 conversation_id={conversation_id}
@@ -1008,8 +1034,8 @@ const NomiSendBox: React.FC<{
                 beforeRuntimeSync={prepareRuntimeForRead}
                 beforeRuntimeMutation={prepareRuntimeSync}
               />
-            </div>
-          )
+            )}
+          </div>
         }
         prefix={
           <>

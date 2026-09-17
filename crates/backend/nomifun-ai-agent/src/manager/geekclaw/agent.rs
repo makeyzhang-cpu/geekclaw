@@ -4327,7 +4327,8 @@ mod tests {
             None,
             Vec::new(),
             false,
-            None,
+            None, // companion_skill_sink
+            None, // model_suggestion_sink
             Some(stub_summon_wiring()),
             NomiHostWiring::default(),
         )
