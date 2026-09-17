@@ -147,7 +147,7 @@
     "subtitle": "把行业专家雇佣成你的数字员工，即开即用、随取随聊。",
     "tabBuiltin": "专家目录",
     "tabMine": "我的专家",
-    "searchPlaceholder": "搜索专家名称 / 头衔 / 标签",
+    "searchPlaceholder": "搜索专家名称 / 分类 / 简介",
     "categoryPlaceholder": "全部分类",
     "empty": "没有匹配到的专家",
     "mineEmpty": "还没有雇佣任何专家",
@@ -165,7 +165,16 @@
     "hireConfirmTitle": "确认雇佣",
     "confirmHire": "确认雇佣",
     "hireConfirmDesc": "雇佣后将自动为你生成专属数字员工，并注入该专家的人设、技能与模型配置，可在「数字员工」中随时对话。",
-    "newCompanion": "新建数字员工"
+    "newCompanion": "新建数字员工",
+    "boardEntry": "分身专家董事会",
+    "boardTitle": "分身专家董事会",
+    "boardSubtitle": "召集多位顶尖思维者同席会诊 —— 一位主席主持，按议题自动点将，输出结论与行动项。",
+    "boardConvene": "召开董事会",
+    "boardViewPersona": "查看设定",
+    "boardMembers": "董事会成员",
+    "boardTools": "董事会文书",
+    "boardResume": "继续对话",
+    "boardTakeSeat": "邀请入席"
   },
   "levels": {
     "l1": "认识你",

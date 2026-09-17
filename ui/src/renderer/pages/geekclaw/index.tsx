@@ -17,6 +17,7 @@ import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import NomiSelect from '@/renderer/components/base/NomiSelect';
 import CompanionSidebar from './CompanionSidebar';
 import CompanionDesk from './CompanionDesk';
+import BoardPage from './BoardPage';
 import CreateCompanionModal from './CompanionSidebar/CreateCompanionModal';
 import ExpertMarketPage from '@renderer/pages/expert-market';
 import FigureLibraryPage from './FigureLibraryPage';
@@ -88,6 +89,7 @@ const NomiWorkspacePage: React.FC = () => {
   const panePadX = paneWidth === 0 ? 'px-24px' : paneWidth >= 600 ? 'px-40px' : paneWidth >= 420 ? 'px-24px' : 'px-16px';
 
   const figuresActive = searchParams.get('view') === 'figures';
+  const boardActive = searchParams.get('view') === 'board';
   const tabParam = searchParams.get('tab');
   // Desk vs settings: a companion with no `tab` param shows the desk (launchpad);
   // any `tab` value opens the settings workspace on that tab.
@@ -155,6 +157,19 @@ const NomiWorkspacePage: React.FC = () => {
         prev.delete('companion');
         prev.delete('tab');
         prev.delete('view');
+        return prev;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
+
+  const openBoard = useCallback(() => {
+    // 分身专家董事会 lives inside this page as a `?view=board` surface (same
+    // mechanism as 形象库), so convening it never leaves the 数字员工 page.
+    setSearchParams(
+      (prev) => {
+        prev.set('view', 'board');
+        prev.delete('tab');
         return prev;
       },
       { replace: true }
@@ -298,7 +313,13 @@ const NomiWorkspacePage: React.FC = () => {
 
   const ActiveTab = TAB_COMPONENTS[activeTab];
 
-  const workspace = figuresActive ? (
+  const workspace = boardActive ? (
+    <div className='flex-1 min-h-0 overflow-y-auto'>
+      <div className={classNames('mx-auto w-full max-w-1100px box-border pb-32px', panePadX)}>
+        <BoardPage roster={companions} onHired={selectCompanion} />
+      </div>
+    </div>
+  ) : figuresActive ? (
     <>
       {/* 形象库 takes over the workspace rather than opening a route of its own, so
           it needs its own way back — on mobile there is no sidebar to click. */}
@@ -444,7 +465,7 @@ const NomiWorkspacePage: React.FC = () => {
       {/* Landing view: the expert market embedded in the centre stage (设计图
           「点击数字员工进入」) — hire industry experts without leaving the page. */}
       <div className='flex-1 min-h-0 flex flex-col'>
-        <ExpertMarketPage />
+        <ExpertMarketPage roster={companions} onRefreshRoster={refresh} onHired={selectCompanion} />
       </div>
     </>
   );
@@ -465,6 +486,7 @@ const NomiWorkspacePage: React.FC = () => {
               onOpenFigures={openFigures}
               onCreate={() => setCreateOpen(true)}
               onOpenExpertMarket={openExpertMarket}
+              onOpenBoard={openBoard}
               onRequestDelete={requestDelete}
               onReorder={handleReorder}
               resizeHandle={resize.createDragHandle({ className: 'right-0' })}

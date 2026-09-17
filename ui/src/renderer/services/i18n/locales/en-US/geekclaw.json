@@ -147,7 +147,7 @@
     "subtitle": "Hire industry experts as your digital companion — ready to chat on demand.",
     "tabBuiltin": "Expert Directory",
     "tabMine": "My Experts",
-    "searchPlaceholder": "Search name / title / tags",
+    "searchPlaceholder": "Search name / category / bio",
     "categoryPlaceholder": "All categories",
     "empty": "No matching experts",
     "mineEmpty": "No experts hired yet",
@@ -165,7 +165,16 @@
     "hireConfirmTitle": "Confirm Hire",
     "confirmHire": "Confirm Hire",
     "hireConfirmDesc": "Hiring creates a dedicated digital companion and injects this expert's persona, skills and model config. Chat anytime in Companions.",
-    "newCompanion": "New Digital Employee"
+    "newCompanion": "New Digital Employee",
+    "boardEntry": "Expert Board",
+    "boardTitle": "Expert Board",
+    "boardSubtitle": "Convene world-class thinkers for a multi-persona hearing — a chair runs the session, picking the right experts per topic and delivering a verdict with action items.",
+    "boardConvene": "Convene the board",
+    "boardViewPersona": "View persona",
+    "boardMembers": "Board members",
+    "boardTools": "Board documents",
+    "boardResume": "Continue",
+    "boardTakeSeat": "Take a seat"
   },
   "levels": {
     "l1": "Getting to know you",
