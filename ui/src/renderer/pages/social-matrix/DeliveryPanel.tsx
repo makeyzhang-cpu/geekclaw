@@ -113,6 +113,11 @@ const DeliveryPanel: React.FC<DeliveryPanelProps> = ({ deliveredPosts }) => {
                       {summary.failed} 失败
                     </Tag>
                   )}
+                  {summary.queued > 0 && (
+                    <Tag size='small' color='orange'>
+                      {summary.queued} 排队重试
+                    </Tag>
+                  )}
                   {summary.pending > 0 && (
                     <Tag size='small' color='gray'>
                       {summary.pending} 待定
@@ -152,7 +157,11 @@ const DeliveryPanel: React.FC<DeliveryPanelProps> = ({ deliveredPosts }) => {
                     key={`${target.accountId}-${target.targetId ?? index}`}
                     className={classNames(
                       'flex items-start gap-8px box-border rounded-6px px-10px py-8px',
-                      target.status === 'failed' ? 'bg-[#fff1f0]' : 'bg-[var(--color-fill-1)]'
+                      target.status === 'failed'
+                        ? 'bg-[#fff1f0]'
+                        : target.status === 'queued'
+                          ? 'bg-[#fff7e8]'
+                          : 'bg-[var(--color-fill-1)]'
                     )}
                   >
                     <PlatformBadge platform={target.platform} size='sm' />

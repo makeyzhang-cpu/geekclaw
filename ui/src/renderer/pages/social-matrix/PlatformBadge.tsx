@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { Tooltip } from '@arco-design/web-react';
-import { Check, Close, Loading, Plug } from '@icon-park/react';
+import { Check, Close, Loading, Plug, Time } from '@icon-park/react';
 import classNames from 'classnames';
 import { platformSpec } from './platforms';
 import type { SocialPlatform } from './types';
@@ -72,12 +72,15 @@ export const StatusDot: React.FC<{ status: DotStatus; className?: string }> = ({
   />
 );
 
-/** 投递状态图标（成功 / 失败 / 进行中）。 */
-export const DeliveryIcon: React.FC<{ status: 'success' | 'failed' | 'pending' | 'skipped' }> = ({
-  status,
-}) => {
+/** 投递状态图标（成功 / 失败 / 排队中 / 进行中 / 已跳过）。 */
+export const DeliveryIcon: React.FC<{
+  status: 'success' | 'failed' | 'pending' | 'queued' | 'skipped';
+}> = ({ status }) => {
   if (status === 'success') return <Check theme='outline' size={12} fill='#00b42a' />;
   if (status === 'failed') return <Close theme='outline' size={12} fill='#f53f3f' />;
+  // 排队用时钟而不是转圈：转圈意味着「马上就好」，而限流退避可能等上
+  // 几十分钟。用错图标会让用户以为界面卡住了，进而手动重发。
+  if (status === 'queued') return <Time theme='outline' size={12} fill='#ff7d00' />;
   if (status === 'pending') return <Loading theme='outline' size={12} fill='#86909c' />;
   return <Plug theme='outline' size={12} fill='#c9cdd4' />;
 };

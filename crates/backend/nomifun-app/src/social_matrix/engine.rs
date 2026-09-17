@@ -17,7 +17,7 @@ use nomifun_common::{decrypt_string, encrypt_string, now_ms, AppError};
 use nomifun_db::models::{
     SOCIAL_POST_STATUS_CANCELED, SOCIAL_POST_STATUS_DRAFT, SOCIAL_POST_STATUS_PUBLISHING,
     SOCIAL_POST_STATUS_SCHEDULED, SOCIAL_TARGET_STATUS_FAILED, SOCIAL_TARGET_STATUS_PENDING,
-    SOCIAL_TARGET_STATUS_SKIPPED, SOCIAL_TARGET_STATUS_SUCCESS,
+    SOCIAL_TARGET_STATUS_QUEUED, SOCIAL_TARGET_STATUS_SKIPPED, SOCIAL_TARGET_STATUS_SUCCESS,
 };
 use nomifun_db::{
     CreatePostParams, ISocialRepository, RecordMetricParams, SocialPostRow,
@@ -29,7 +29,8 @@ use tokio::sync::RwLock;
 
 use super::driver::{
     build_driver, is_supported_platform, DriverKind, LinkInfo, ManualDriver, MetricTarget,
-    PublishDriver, PublishRequest, PublishTarget, SocialError, TargetOutcome, DEFAULT_VENDOR,
+    OutcomeStatus, PublishDriver, PublishRequest, PublishTarget, SocialError, TargetOutcome,
+    DEFAULT_VENDOR,
 };
 
 /// 引擎共享状态。
@@ -49,6 +50,22 @@ pub struct SocialEngine {
 
 /// 账号自动拉取的最小间隔（同一用户）。
 const ACCOUNT_SYNC_MIN_INTERVAL_MS: i64 = 60_000;
+
+/// 单条内容被限流后最多排队重试多少次，超过就如实转为失败。
+///
+/// 5 次配合下面的退避阶梯约覆盖 1 小时 15 分钟 —— 足够跨过聚合商的
+/// 分钟级 / 小时级限流窗口；再往后就不是「限流」，而是真的发不出去了。
+const MAX_PUBLISH_ATTEMPTS: i64 = 5;
+
+/// 排队重试的退避阶梯（毫秒）：30s → 2min → 10min → 1h。
+///
+/// 聚合商的限流窗口从「每秒几次」到「每天配额」都有，所以阶梯必须跨数量级。
+/// 传入的是**已经尝试过的次数**，超出阶梯长度时沿用最后一档。
+fn retry_backoff_ms(attempts: i64) -> i64 {
+    const STEPS: [i64; 4] = [30_000, 120_000, 600_000, 3_600_000];
+    let idx = (attempts.max(1) as usize - 1).min(STEPS.len() - 1);
+    STEPS[idx]
+}
 
 impl SocialEngine {
     /// 建引擎并按数据库配置装配驱动。
@@ -399,13 +416,23 @@ impl SocialEngine {
             .map(|t| (t.account_id.as_str(), t.target_id.as_str()))
             .collect();
 
+        // `queued` 一并纳入：上一轮被限流的目标还在队列里，这次接着试。
+        // （只看 `pending` 的话，排过队的内容会永远卡在队列里没人再碰。）
         let pending: Vec<_> = targets
             .iter()
-            .filter(|t| t.status == SOCIAL_TARGET_STATUS_PENDING)
+            .filter(|t| {
+                t.status == SOCIAL_TARGET_STATUS_PENDING || t.status == SOCIAL_TARGET_STATUS_QUEUED
+            })
             .collect();
         if pending.is_empty() {
             return Ok(Vec::new());
         }
+
+        // account_id → 本轮之前的已尝试次数：判断排队是否已经该停止。
+        let attempts_of: HashMap<&str, i64> = targets
+            .iter()
+            .map(|t| (t.account_id.as_str(), t.attempts))
+            .collect();
 
         // 先把帖标成「投递中」—— 调度器只捞 `scheduled`，这样本轮不会被重复拾取。
         let _ = self
@@ -479,8 +506,49 @@ impl SocialEngine {
 
         let outcomes = match driver.publish(&request).await {
             Ok(o) => o,
+            Err(e) if e.is_retryable() => {
+                // 可重试的**整体性**故障（服务商限流 / 网络）：整批目标一起进退，
+                // 所以退回排期队列而不是判死。走的是与逐目标排队同一条路径
+                // （目标 → `queued`、`attempts` 自增），确保重试预算只有一套算法
+                // —— 少了自增这一步就会变成无限重试。
+                let next_tried = pending.iter().map(|t| t.attempts).max().unwrap_or(0) + 1;
+                if next_tried < MAX_PUBLISH_ATTEMPTS {
+                    for t in &pending {
+                        let _ = self
+                            .repo
+                            .mark_target_result(TargetResultParams {
+                                target_id: t.target_id.clone(),
+                                status: SOCIAL_TARGET_STATUS_QUEUED.to_string(),
+                                provider_post_id: None,
+                                permalink: None,
+                                error: Some(format!("服务商限流 / 网络异常，已排队稍后重试：{e}")),
+                                text_snapshot: None,
+                            })
+                            .await;
+                    }
+                    let delay = retry_backoff_ms(next_tried);
+                    let _ = self
+                        .repo
+                        .update_post(UpdatePostParams {
+                            post_id: post_id.to_string(),
+                            title: None,
+                            status: Some(SOCIAL_POST_STATUS_SCHEDULED.to_string()),
+                            scheduled_at: Some(now_ms() + delay),
+                        })
+                        .await;
+                    tracing::warn!(
+                        post_id = %post_id,
+                        queued = pending.len(),
+                        retry_in_ms = delay,
+                        "社交引擎：整体性限流，已把该内容退回排期队列稍后重试"
+                    );
+                } else {
+                    self.fail_pending_targets(post_id, &e.to_string()).await;
+                }
+                return Err(to_app_error(e));
+            }
             Err(e) => {
-                // 整体性故障（密钥无效 / 驱动未配置）不会走逐目标结果回填，
+                // 其余整体性故障（密钥无效 / 驱动未配置）不会走逐目标结果回填，
                 // 目标会一直悬在 `pending`，而帖子已被标成 `publishing` ——
                 // 调度器只捞 `scheduled`，于是这条内容再也发不出去、状态也不对。
                 // 所以这里必须把待发目标落实成 `failed` 并写明原因，让用户看到
@@ -491,15 +559,34 @@ impl SocialEngine {
         };
 
         // 逐条写回结果。写不回也不能丢 —— 失败原因本身就是要给用户看的东西。
+        let mut queued_remaining = 0usize;
         for o in &outcomes {
             let Some(target_id) = target_index.get(o.account_id.as_str()) else {
                 continue;
             };
-            let status = match o.status {
-                super::driver::OutcomeStatus::Success => SOCIAL_TARGET_STATUS_SUCCESS,
-                super::driver::OutcomeStatus::Failed => SOCIAL_TARGET_STATUS_FAILED,
-                super::driver::OutcomeStatus::Skipped => SOCIAL_TARGET_STATUS_SKIPPED,
+            let mut status = match o.status {
+                OutcomeStatus::Success => SOCIAL_TARGET_STATUS_SUCCESS,
+                OutcomeStatus::Failed => SOCIAL_TARGET_STATUS_FAILED,
+                OutcomeStatus::Skipped => SOCIAL_TARGET_STATUS_SKIPPED,
+                OutcomeStatus::Queued => SOCIAL_TARGET_STATUS_QUEUED,
             };
+            let mut error = o.error.clone();
+
+            // 排队也要有上限：一直排下去对用户等于「内容永远发不出去、
+            // 界面也不报错」，比一次性失败更糟。超限时如实转为失败并写明次数。
+            if o.status == OutcomeStatus::Queued {
+                let tried = attempts_of.get(o.account_id.as_str()).copied().unwrap_or(0) + 1;
+                if tried >= MAX_PUBLISH_ATTEMPTS {
+                    status = SOCIAL_TARGET_STATUS_FAILED;
+                    error = Some(format!(
+                        "已排队重试 {tried} 次仍未成功，转为失败：{}",
+                        o.error.clone().unwrap_or_default()
+                    ));
+                } else {
+                    queued_remaining += 1;
+                }
+            }
+
             let _ = self
                 .repo
                 .mark_target_result(TargetResultParams {
@@ -507,10 +594,43 @@ impl SocialEngine {
                     status: status.to_string(),
                     provider_post_id: o.provider_post_id.clone(),
                     permalink: o.permalink.clone(),
-                    error: o.error.clone(),
+                    error,
                     text_snapshot: text_of.get(o.account_id.as_str()).cloned(),
                 })
                 .await;
+        }
+
+        // 还有目标在排队 → 把帖子**退回排期队列**（而不是停在「投递中」），
+        // 由常驻调度器到点接着发。
+        //
+        // 为什么不在这里 sleep 重试：限流窗口可能长达数十分钟，占着这一轮
+        // 投递不放会拖垮同批的其他内容；而且进程一重启，等待状态就丢了。
+        // 退回 `scheduled` 是唯一既能跨重启存活、又与既有调度器零冲突的形态
+        // —— 调度器本来就只捞 `scheduled` 且到点的内容。
+        if queued_remaining > 0 {
+            let tried = outcomes
+                .iter()
+                .filter(|o| o.status == OutcomeStatus::Queued)
+                .map(|o| attempts_of.get(o.account_id.as_str()).copied().unwrap_or(0))
+                .max()
+                .unwrap_or(0);
+            let delay = retry_backoff_ms(tried);
+            let _ = self
+                .repo
+                .update_post(UpdatePostParams {
+                    post_id: post_id.to_string(),
+                    title: None,
+                    status: Some(SOCIAL_POST_STATUS_SCHEDULED.to_string()),
+                    scheduled_at: Some(now_ms() + delay),
+                })
+                .await;
+            tracing::info!(
+                post_id = %post_id,
+                queued = queued_remaining,
+                retry_in_ms = delay,
+                "社交引擎：触发限流，已把该内容退回排期队列稍后重试"
+            );
+            return Ok(outcomes);
         }
 
         // 由各目标结果汇总帖级状态（全成功 / 部分成功 / 全失败）。

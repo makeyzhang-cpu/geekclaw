@@ -21,8 +21,14 @@
 //! ## 失败语义
 //!
 //! 单条内容投递失败**只记日志、不中断整轮**：一条坏数据不该拖住其他人的排期。
-//! 且 `SocialEngine::dispatch_post` 会把待发目标落实成 `failed` 并写明原因，
-//! 内容不会静默卡在「投递中」—— HTTP 立即发布端点与这里复用同一份逻辑。
+//!
+//! 三种终局各有归属，不会静默卡在「投递中」：
+//!   * **真失败** → `dispatch_post` 把目标落实成 `failed` 并写明原因；
+//!   * **触发限流** → 目标留在 `queued`，帖子被**退回 `scheduled`** 并推后
+//!     `scheduled_at`，本调度器下一轮自然接着发（跨进程重启依然有效）；
+//!   * **排队超过上限** → 转为 `failed`，并写明试了几次。
+//!
+//! HTTP 立即发布端点与这里复用同一份逻辑，所以手动发也有一致的排队行为。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -105,18 +111,28 @@ async fn dispatch_due(engine: &SocialEngine, batch: i64) {
                     .iter()
                     .filter(|o| o.status == OutcomeStatus::Failed)
                     .count();
-                let skipped = outcomes.len().saturating_sub(ok + failed);
+                let queued = outcomes
+                    .iter()
+                    .filter(|o| o.status == OutcomeStatus::Queued)
+                    .count();
+                let skipped = outcomes.len().saturating_sub(ok + failed + queued);
                 tracing::info!(
                     post_id = %post.post_id,
                     user_id = %post.user_id,
                     success = ok,
                     failed,
+                    queued,
                     skipped,
                     "社交调度器：投递完成"
                 );
             }
-            // 整体性故障（密钥失效等）。引擎已把目标落实成 failed 并写明原因，
-            // 这里只留痕，不让一条内容影响本轮其余排期。
+            // 整体性故障，引擎内部已把目标状态落实完毕，这里只留痕 ——
+            // 不让一条内容影响本轮其余排期：
+            //   * 可重试的（服务商限流 / 网络抖动）→ 目标退回 `queued`、
+            //     帖子退回 `scheduled` 并推后，下一轮 tick 到点接着发；
+            //   * 不可重试的（密钥失效 / 驱动未配置）→ 目标落实成 `failed`
+            //     并写明原因，等用户点「重新发布」。
+            // 两种情况这里都**不能再改状态**，否则会把引擎刚设好的排期覆盖掉。
             Err(e) => {
                 tracing::warn!(
                     post_id = %post.post_id,

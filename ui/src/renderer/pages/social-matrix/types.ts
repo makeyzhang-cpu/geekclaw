@@ -39,8 +39,14 @@ export type SocialPostStatus =
   | 'partial'
   | 'failed';
 
-/** 单目标发布结果（对齐 mixpost post_accounts 中间表）。 */
-export type SocialDeliveryStatus = 'pending' | 'success' | 'failed' | 'skipped';
+/**
+ * 单目标发布结果（对齐 mixpost post_accounts 中间表）。
+ *
+ * `queued` 与 `failed` 必须分开：服务商限流时内容只是**排队稍后自动重试**，
+ * 不是发不出去。两者混为一谈会让用户看到一条假失败、进而手动重发，
+ * 那才会真的造成重复投递。
+ */
+export type SocialDeliveryStatus = 'pending' | 'queued' | 'success' | 'failed' | 'skipped';
 
 /** 某平台下可选中的发布目标（个人号 / 公司主页 / 频道 / 业务主页）。 */
 export interface SocialAccountTarget {

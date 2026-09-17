@@ -89,9 +89,52 @@ pub enum SocialError {
     Parse(String),
     #[error("缺少必要参数：{0}")]
     MissingParam(String),
+    /// 触发服务商限流 / 配额耗尽 —— **可重试**，不是失败。
+    ///
+    /// 与 [`SocialError::Vendor`] 的区别在于「等一会儿再来就能成功」：
+    /// 上层据此把内容留在队列里退避重试，而不是给用户报一条假失败。
+    #[error("触发服务商限流：{0}")]
+    RateLimited(String),
+}
+
+impl SocialError {
+    /// 是否属于「等一会儿重试就可能成功」的临时故障。
+    ///
+    /// 只有限流与网络抖动算 —— 凭据无效、参数缺失、平台未接入这些，
+    /// 重试一万次也是同样结果，必须立刻如实上报而不是无限排队。
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, SocialError::RateLimited(_) | SocialError::Network(_))
+    }
 }
 
 pub type SocialResult<T> = Result<T, SocialError>;
+
+/// 判定本次响应是否为「服务商限流」。
+///
+/// 聚合商在超限时表现不一致：有的给 HTTP 429，有的给成功码但 body 里带
+/// 错误文案。两种都认 —— 把「等一会儿就好」误判成「发不出去」，会让用户
+/// 看到一条假失败并手动重发，那才是真的重复投递到平台上。
+fn is_rate_limited(status: reqwest::StatusCode, body: &Value) -> bool {
+    if status.as_u16() == 429 {
+        return true;
+    }
+    let text = body
+        .get("errorMessage")
+        .or_else(|| body.get("error"))
+        .or_else(|| body.get("message"))
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    const MARKERS: [&str; 6] = [
+        "rate limit",
+        "rate-limit",
+        "ratelimit",
+        "too many requests",
+        "quota exceeded",
+        "throttl",
+    ];
+    MARKERS.iter().any(|k| text.contains(k))
+}
 
 // ---------------------------------------------------------------------------
 // 驱动无关的数据结构
@@ -156,6 +199,11 @@ pub enum OutcomeStatus {
     Success,
     Failed,
     Skipped,
+    /// 服务商限流 / 网络抖动 —— **可稍后重试**，不记为失败。
+    ///
+    /// 与 `Failed` 的区别对整条链路都有意义：`Failed` 会出现在
+    /// 「为什么没发出去」的失败清单里，`Queued` 只是「还没轮到」。
+    Queued,
 }
 
 /// 单个目标的投递结果。
@@ -191,6 +239,20 @@ impl TargetOutcome {
             provider_post_id: None,
             permalink: None,
             error: Some(error.into()),
+        }
+    }
+
+    /// 排队稍后重试（限流 / 网络抖动）—— 既不算成功，也不算失败。
+    ///
+    /// `error` 里存的是**排队原因**（不是失败原因），用户看到的措辞是
+    /// 「已排队稍后重试」而不是「发布失败」。
+    pub fn queued(account_id: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            account_id: account_id.into(),
+            status: OutcomeStatus::Queued,
+            provider_post_id: None,
+            permalink: None,
+            error: Some(reason.into()),
         }
     }
 }
@@ -689,6 +751,22 @@ impl PublishDriver for AggregatorDriver {
                 Ok(r) => {
                     let status = r.status();
                     let parsed: Value = r.json().await.unwrap_or(Value::Null);
+
+                    // 限流**优先**判定：限流响应里通常也带 `message`，
+                    // 若先走 `parse_publish_response` 会把它当成业务错误，
+                    // 于是「等一会儿就能发」被记成永久失败。
+                    if is_rate_limited(status, &parsed) {
+                        outcomes.push(TargetOutcome::queued(
+                            target.account_id.clone(),
+                            format!(
+                                "{} 限流（HTTP {}），已排队稍后重试",
+                                self.spec.label,
+                                status.as_u16()
+                            ),
+                        ));
+                        continue;
+                    }
+
                     let (id, permalink, err) = self.parse_publish_response(&parsed);
                     if status.is_success() && err.is_none() {
                         outcomes.push(TargetOutcome::success(
@@ -704,9 +782,11 @@ impl PublishDriver for AggregatorDriver {
                         ));
                     }
                 }
-                Err(e) => outcomes.push(TargetOutcome::failed(
+                // 网络抖动（超时 / 连接重置）同样排队重试 —— 发不出去不等于
+                // 永久失败。真正的配置类故障在 `is_ready()` 与 HTTP 4xx 上暴露。
+                Err(e) => outcomes.push(TargetOutcome::queued(
                     target.account_id.clone(),
-                    format!("网络请求失败：{e}"),
+                    format!("网络请求异常，已排队稍后重试：{e}"),
                 )),
             }
         }

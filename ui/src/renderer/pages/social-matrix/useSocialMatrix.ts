@@ -195,15 +195,22 @@ export function displayText(post: SocialPost): string {
   return first?.text ?? '';
 }
 
-/** 统计一条内容的投递结果分布，供列表页展示「4 成功 / 2 失败」。 */
+/**
+ * 统计一条内容的投递结果分布，供列表页展示「4 成功 / 2 排队重试」。
+ *
+ * `queued` 单列而不并进 `pending`：排队意味着「已经在重试了」，等待意味着
+ * 「还没开始」—— 对用户下一步该做什么（等着 vs 去排查）完全不同。
+ */
 export function deliverySummary(post: SocialPost) {
   let success = 0;
   let failed = 0;
   let pending = 0;
+  let queued = 0;
   for (const t of post.targets) {
     if (t.status === 'success') success += 1;
     else if (t.status === 'failed') failed += 1;
+    else if (t.status === 'queued') queued += 1;
     else if (t.status === 'pending') pending += 1;
   }
-  return { success, failed, pending, total: post.targets.length };
+  return { success, failed, pending, queued, total: post.targets.length };
 }

@@ -200,8 +200,12 @@ function parsePost(raw: unknown): SocialPost | null {
         const accountId = asString(tr.account_id) ?? asString(tr.accountId);
         if (!accountId || !isPlatform(tr.platform)) return null;
         const st = asString(tr.status);
+        // `queued` 要原样透传：它表示「已进队列、等待重试」，落到 `pending`
+        // 会让界面把已经排过队的内容显示成从未开始投递。
         const status: SocialPostTargetResult['status'] =
-          st === 'success' || st === 'failed' || st === 'skipped' ? st : 'pending';
+          st === 'success' || st === 'failed' || st === 'skipped' || st === 'queued'
+            ? st
+            : 'pending';
         return {
           accountId,
           platform: tr.platform,
