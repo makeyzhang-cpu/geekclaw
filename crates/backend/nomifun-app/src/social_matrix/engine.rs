@@ -511,9 +511,22 @@ impl SocialEngine {
                 // 所以退回排期队列而不是判死。走的是与逐目标排队同一条路径
                 // （目标 → `queued`、`attempts` 自增），确保重试预算只有一套算法
                 // —— 少了自增这一步就会变成无限重试。
-                let next_tried = pending.iter().map(|t| t.attempts).max().unwrap_or(0) + 1;
+                // 只给**本轮真正尝试过**的目标排队。前面已把「账号已解绑」的那几个
+                // 记成 `skipped`，若照搬 `pending` 会把它们重新拉回队列 ——
+                // 下一轮再解绑、再排队，`attempts` 空涨，最后莫名「重试超限」。
+                // `text_of` 的键就是本轮实际投递过的 account_id。
+                let next_tried = pending
+                    .iter()
+                    .filter(|t| text_of.contains_key(t.account_id.as_str()))
+                    .map(|t| t.attempts)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
                 if next_tried < MAX_PUBLISH_ATTEMPTS {
-                    for t in &pending {
+                    for t in pending
+                        .iter()
+                        .filter(|t| text_of.contains_key(t.account_id.as_str()))
+                    {
                         let _ = self
                             .repo
                             .mark_target_result(TargetResultParams {
@@ -643,10 +656,13 @@ impl SocialEngine {
         let Ok(targets) = self.repo.list_targets(post_id).await else {
             return;
         };
-        for t in targets
-            .iter()
-            .filter(|t| t.status == SOCIAL_TARGET_STATUS_PENDING)
-        {
+        // `queued` 一并纳入。可重试故障走到这里时（重试预算用尽），目标正停在
+        // 「排队重试」而不是 `pending`；只处理 `pending` 会让它们永远挂着 ——
+        // 帖子状态汇总时 `queued` 计入未决，于是内容卡在「投递中」：既不再重试，
+        // 也不报错（调度器只捞 `scheduled`）。这是最难排查的一类静默卡死。
+        for t in targets.iter().filter(|t| {
+            t.status == SOCIAL_TARGET_STATUS_PENDING || t.status == SOCIAL_TARGET_STATUS_QUEUED
+        }) {
             let _ = self
                 .repo
                 .mark_target_result(TargetResultParams {
@@ -662,7 +678,8 @@ impl SocialEngine {
         let _ = self.repo.refresh_post_status(post_id).await;
     }
 
-    async fn mark_skipped(&self, target_id: &str, reason: &str) {        let _ = self
+    async fn mark_skipped(&self, target_id: &str, reason: &str) {
+        let _ = self
             .repo
             .mark_target_result(TargetResultParams {
                 target_id: target_id.to_string(),

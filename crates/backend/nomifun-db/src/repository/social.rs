@@ -67,6 +67,8 @@ pub trait ISocialRepository: Send + Sync {
     async fn mark_target_result(&self, params: TargetResultParams) -> Result<bool, DbError>;
     /// 「重新发布」用：把失败/跳过的目标退回 `pending`，成功的保持不动
     /// —— 已发出去的不能重发（会重复投递到平台上）。
+    ///
+    /// 同时把 `attempts` 归零：这是用户主动发起的重发，重试预算重新开始。
     async fn reset_targets_for_retry(&self, post_id: &str) -> Result<u64, DbError>;
 
     // ── 平台差异化文案 ────────────────────────────────────────────
@@ -807,8 +809,11 @@ impl ISocialRepository for SqliteSocialRepository {
     }
 
     async fn reset_targets_for_retry(&self, post_id: &str) -> Result<u64, DbError> {
+        // `attempts` 一并归零 —— 这是用户主动发起的重发，重试预算必须重新开始。
+        // 不归零的话，上一轮已经用满重试预算的目标会在**第一次**再遇限流时立刻
+        // 被判死，还会弹出「已排队重试 6 次仍未成功」这种与事实不符的提示。
         let res = sqlx::query(
-            "UPDATE social_post_targets SET status = ?, error = NULL, updated_at = ? \
+            "UPDATE social_post_targets SET status = ?, error = NULL, attempts = 0, updated_at = ? \
              WHERE post_id = ? AND status IN (?, ?)",
         )
         .bind(SOCIAL_TARGET_STATUS_PENDING)
