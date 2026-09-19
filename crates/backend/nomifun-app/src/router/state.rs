@@ -585,8 +585,11 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
     // 海外社媒矩阵：发布引擎必须常驻 —— 排期帖要能在用户关机时按时投出去。
     // 引擎按数据库里的实例级配置装配发布驱动（默认聚合 API；未配密钥时退回
     // 半自动，即「不会误发」的安全状态），调度器随后按 30s 轮询到期内容。
+    // `user_repo` 是给加装包额度用的（`users.social_groups`，见迁移 047）——
+    // 社媒不进套餐，额度必须在投递前校验。
     let social_engine = crate::social_matrix::SocialEngine::new(
         services.database.pool().clone(),
+        services.user_repo.clone(),
         services.encryption_key,
     )
     .await;

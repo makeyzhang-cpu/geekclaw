@@ -20,7 +20,7 @@ use nomifun_db::models::{
     SOCIAL_TARGET_STATUS_QUEUED, SOCIAL_TARGET_STATUS_SKIPPED, SOCIAL_TARGET_STATUS_SUCCESS,
 };
 use nomifun_db::{
-    CreatePostParams, ISocialRepository, RecordMetricParams, SocialPostRow,
+    CreatePostParams, ISocialRepository, IUserRepository, RecordMetricParams, SocialPostRow,
     SqliteSocialRepository, TargetResultParams, UpdatePostParams, UpsertAccountParams,
     UpsertPublishConfigParams,
 };
@@ -32,11 +32,17 @@ use super::driver::{
     OutcomeStatus, PublishDriver, PublishRequest, PublishTarget, SocialError, TargetOutcome,
     DEFAULT_VENDOR,
 };
+use super::quota::{self, SocialQuotaView};
 
 /// 引擎共享状态。
 pub struct SocialEngine {
     pool: SqlitePool,
     repo: Arc<dyn ISocialRepository>,
+    /// 加装包额度存在 `users` 表上，所以引擎需要用户仓储才能读它。
+    ///
+    /// 刻意走仓储而不是在这里直接写 SQL：额度口径与「谁能改额度」必须在
+    /// 一处定义，否则「履约写一个值、校验读另一个值」这种错会非常难查。
+    user_repo: Arc<dyn IUserRepository>,
     /// 当前生效的驱动。`RwLock` 让配置热切换不必重启服务。
     driver: RwLock<Arc<dyn PublishDriver>>,
     encryption_key: [u8; 32],
@@ -46,6 +52,49 @@ pub struct SocialEngine {
     /// 在服务商后台连完账号、回到工作台刷新就能看到，矩阵快照会顺带拉一次。
     /// 但这会打聚合商接口，所以按用户做节流 —— 否则每次刷新页面都是一次外部调用。
     account_sync_at: std::sync::Mutex<std::collections::HashMap<String, i64>>,
+}
+
+/// 账号同步失败的两类原因。**必须分开**，因为界面语义完全不同：
+/// 额度问题要引导「去购买 / 去续费 / 去断开账号」，网络问题只需一句「稍后重试」。
+#[derive(Debug)]
+pub enum SyncAccountsError {
+    /// 额度不足 / 未购买 / 已到期。带上完整视图，调用方既能记日志也能原样展示。
+    Quota(Box<SocialQuotaView>),
+    /// 其它错误（网络、鉴权、数据库）。
+    Other(AppError),
+}
+
+impl From<AppError> for SyncAccountsError {
+    fn from(e: AppError) -> Self {
+        SyncAccountsError::Other(e)
+    }
+}
+
+/// 仓储层的 `DbError` 也要能 `?` 上来 —— `sync_accounts` 里多处对
+/// `self.repo.*()` 用了 `?`。先经 `AppError`（它已有 `From<DbError>`）
+/// 再包一层，避免在这里重复写一遍错误映射。
+impl From<nomifun_db::DbError> for SyncAccountsError {
+    fn from(e: nomifun_db::DbError) -> Self {
+        SyncAccountsError::Other(AppError::from(e))
+    }
+}
+
+/// [`SocialEngine::maybe_sync_accounts`] 的结果。
+///
+/// 区分四种情况而不是「成功/失败」两态，是因为调用方（矩阵快照）要把
+/// **被额度拦下的真实用量**显示出来：用户已经在聚合商后台连了 3 组、自己只买了
+/// 1 组时，若快照只显示本地那 1 组、还不显示任何原因，用户会以为「连接没生效」
+/// 而反复重连。`Blocked` 携带视图就是为了让界面能说清「你连了 3 组，额度只有 1 组」。
+#[derive(Debug)]
+pub enum AccountSyncOutcome {
+    /// 节流跳过，或驱动尚未就绪。**不是错误**，界面什么都不该显示。
+    Skipped,
+    /// 拉取并落库成功。
+    Synced { accounts: usize },
+    /// 拉取到了，但被额度闸门拦下，没有落库。
+    Blocked(Box<SocialQuotaView>),
+    /// 拉取失败（网络 / 密钥），沿用本地缓存。
+    Failed,
 }
 
 /// 账号自动拉取的最小间隔（同一用户）。
@@ -69,12 +118,20 @@ fn retry_backoff_ms(attempts: i64) -> i64 {
 
 impl SocialEngine {
     /// 建引擎并按数据库配置装配驱动。
-    pub async fn new(pool: SqlitePool, encryption_key: [u8; 32]) -> Arc<Self> {
+    ///
+    /// `user_repo` 只用于读写加装包额度（`users.social_groups` /
+    /// `users.social_expires_at`，见迁移 047）。
+    pub async fn new(
+        pool: SqlitePool,
+        user_repo: Arc<dyn IUserRepository>,
+        encryption_key: [u8; 32],
+    ) -> Arc<Self> {
         let repo: Arc<dyn ISocialRepository> =
             Arc::new(SqliteSocialRepository::new(pool.clone()));
         let engine = Arc::new(Self {
             pool,
             repo,
+            user_repo,
             driver: RwLock::new(Arc::new(ManualDriver)),
             encryption_key,
             account_sync_at: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -85,6 +142,30 @@ impl SocialEngine {
 
     pub fn repo(&self) -> &Arc<dyn ISocialRepository> {
         &self.repo
+    }
+
+    /// 读用户的加装包额度原始行。用户不存在时返回 `None`（按未购买处理）。
+    async fn entitlement(&self, user_id: &str) -> Option<nomifun_db::models::SocialEntitlement> {
+        match self.user_repo.get_social_entitlement(user_id).await {
+            Ok(v) => v,
+            Err(e) => {
+                // 读不到额度不能「当成有额度」放行，也不能让整个页面打不开。
+                // 返回 `None` ⇒ 按未购买处理（最保守的一侧），同时留痕。
+                tracing::error!("社媒引擎：读取加装包额度失败（按未购买处理）：{e}");
+                None
+            }
+        }
+    }
+
+    /// 以**本地已落库的账号**为口径算出额度状态。供快照显示与投递前闸门使用。
+    pub async fn quota_view(&self, user_id: &str) -> Result<SocialQuotaView, AppError> {
+        let accounts = self.repo.list_accounts(user_id).await?;
+        let entitlement = self.entitlement(user_id).await;
+        Ok(quota::view(
+            entitlement.as_ref(),
+            quota::used_from_local(&accounts),
+            now_ms(),
+        ))
     }
 
     pub fn pool(&self) -> &SqlitePool {
@@ -174,11 +255,12 @@ impl SocialEngine {
 
     /// 节流版账号拉取：距上次成功拉取不足 [`ACCOUNT_SYNC_MIN_INTERVAL_MS`] 时跳过。
     ///
-    /// 返回 `None` 表示本轮跳过（未到间隔 / 驱动未就绪）。**任何失败都只记日志**：
-    /// 拉不到远端账号不该让矩阵页面打不开，本地缓存照样能显示。
-    pub async fn maybe_sync_accounts(&self, user_id: &str) -> Option<usize> {
+    /// 返回 [`AccountSyncOutcome`] 而不是 `Option<usize>`：额度被拦下时必须让调用方
+    /// 知道**远端已用了多少组**，否则界面只能显示「没有账号」，用户会以为是自己
+    /// 没连上而反复重连。网络失败仍然只记日志（拉不到不该让矩阵页面打不开）。
+    pub async fn maybe_sync_accounts(&self, user_id: &str) -> AccountSyncOutcome {
         if !self.is_driver_ready().await {
-            return None;
+            return AccountSyncOutcome::Skipped;
         }
         let now = now_ms();
         {
@@ -188,7 +270,7 @@ impl SocialEngine {
             };
             if let Some(prev) = guard.get(user_id) {
                 if now.saturating_sub(*prev) < ACCOUNT_SYNC_MIN_INTERVAL_MS {
-                    return None;
+                    return AccountSyncOutcome::Skipped;
                 }
             }
         }
@@ -201,10 +283,14 @@ impl SocialEngine {
             guard.insert(user_id.to_string(), now);
         }
         match self.sync_accounts(user_id).await {
-            Ok(n) => Some(n),
-            Err(e) => {
+            Ok(accounts) => AccountSyncOutcome::Synced { accounts },
+            Err(SyncAccountsError::Quota(view)) => {
+                tracing::info!("社交引擎：拉取到远端账号但超出加装包额度，未落库");
+                AccountSyncOutcome::Blocked(view)
+            }
+            Err(SyncAccountsError::Other(e)) => {
                 tracing::warn!("社交引擎：拉取远端账号失败（沿用本地缓存）：{e}");
-                None
+                AccountSyncOutcome::Failed
             }
         }
     }
@@ -294,12 +380,27 @@ impl SocialEngine {
     /// **一行 = 一个可投递目标**：聚合商返回的账号若带子账号（FB 主页 /
     /// LinkedIn 组织），按子账号展开成多行 —— 个人号通常不能经 API 发帖，
     /// 必须落到主页上（发布时对应 vendor 的 `pageId`）。
-    pub async fn sync_accounts(&self, user_id: &str) -> Result<usize, AppError> {
+    pub async fn sync_accounts(&self, user_id: &str) -> Result<usize, SyncAccountsError> {
         let driver = self.driver().await;
         let remote = driver.list_accounts().await.map_err(to_app_error)?;
         if remote.is_empty() {
             return Ok(0);
         }
+
+        // 加装包额度闸门。判据用**远端**用量而不是本地：本地只是缓存，用户刚在
+        // 聚合商后台多连了两个主页时本地还看不到，拿本地判等于放行超量。
+        let used = quota::used_from_remote(&remote);
+        if let Err(view) = quota::check(self.entitlement(user_id).await.as_ref(), used, now_ms()) {
+            tracing::info!(
+                "社交引擎：用户 {} 远端已连 {} 组（额度 {} 组 / 状态 {}），本次同步不落库",
+                user_id,
+                used,
+                view.groups,
+                view.status
+            );
+            return Err(SyncAccountsError::Quota(Box::new(view)));
+        }
+
         let driver_id = driver_kind_id(driver.kind()).to_string();
         let vendor = driver.vendor().map(str::to_string);
 
@@ -404,6 +505,30 @@ impl SocialEngine {
         // 但「立即发布」端点可能被用户点了取消之后又点到，这里兜一道。
         if post.status == SOCIAL_POST_STATUS_CANCELED {
             return Err(AppError::BadRequest("该内容已取消，不能再发布".to_string()));
+        }
+
+        // 加装包额度闸门。放在**投递前**而不是建帖前：草稿与排期是无害的，
+        // 真正产生成本（聚合商额度）与合规风险的是「发出去」这一步。
+        //
+        // 额度不可用时**整帖不发**，而不是只挑额度内的目标发 —— 已经投出去的
+        // 帖子在平台上收不回来，「发一半」比「不发」更难向客户解释。
+        {
+            let accounts = self.repo.list_accounts(&post.user_id).await?;
+            if let Err(view) = quota::check(
+                self.entitlement(&post.user_id).await.as_ref(),
+                quota::used_from_local(&accounts),
+                now_ms(),
+            ) {
+                let reason = view
+                    .message
+                    .unwrap_or_else(|| "社媒矩阵加装包额度不可用".to_string());
+                tracing::info!(
+                    "社交引擎：内容 {} 因额度不可用（{}）拒绝投递",
+                    post_id,
+                    view.status
+                );
+                return Err(AppError::BadRequest(reason));
+            }
         }
 
         let targets = self.repo.list_targets(post_id).await?;

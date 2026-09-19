@@ -1,7 +1,7 @@
 {
   "menuEntry": "Plans & Pricing",
   "title": "Choose your GeekClaw office-box plan",
-  "subtitle": "An edge AI box plus a digital workforce. Pick the tier that fits your team — from a general AI workstation to a full trade sales + operations stack. Credits settle on real token usage, so you only pay for what you use.",
+  "subtitle": "1 credit = 1 token. Subscriptions and credit top-ups stack. Local models and user-configured providers do not consume credits — only real token usage is charged.",
   "monthly": "Monthly",
   "yearly": "Yearly",
   "yearlySave": "Save ¥{{amount}} a year",
@@ -12,6 +12,14 @@
     "title": "Pay-as-you-go models (credits / 1K tokens)",
     "empty": "No model pricing yet. Ask an admin to configure it.",
     "per1k": "credits / 1K"
+  },
+  "creditPackage": {
+    "title": "Credit top-up",
+    "subtitle": "1 credit = 1 token. New signups get 100,000 credits, monthly plans 1,000,000, yearly plans 100,000,000. Top-ups are bought separately and never expire.",
+    "creditsUnit": " credits",
+    "tagline": "¥{{yuan}} = {{tokens}} credits (1:1 with tokens)",
+    "cta": "Buy top-up",
+    "note": "Top-ups stack with plans and the social-matrix add-on. Credits land directly in the user balance on fulfilment. Local models and user-configured providers do not consume credits."
   },
   "faq": {
     "title": "Frequently asked questions",
@@ -56,11 +64,32 @@
     }
   },
   "badge": {
-    "allIncluded": "All features"
+    "allIncluded": "All features",
+    "recommended": "Recommended"
   },
   "yearlyPerMonthEq": "≈ ¥{{price}} / mo",
   "cta": {
     "subscribe": "Subscribe"
+  },
+  "addon": {
+    "title": "Social Matrix add-on",
+    "subtitle": "Publish once to LinkedIn / Facebook / Instagram / YouTube / TikTok, on a schedule, and pull back the metrics. This capability is not part of any plan — buy the add-on separately.",
+    "groups_one": "{{count}} brand account group",
+    "groups_other": "{{count}} brand account groups",
+    "cta": "Buy add-on",
+    "note": "\"1 group\" = one brand with one account on each platform above; a second account on the same platform uses a second group. The add-on is billed by groups and is independent of your plan tier. Once it expires you renew it — connected accounts and historical content are kept.",
+    "social-1": {
+      "tagline": "Single-brand start: one brand across all five platforms"
+    },
+    "social-3": {
+      "tagline": "The usual size for multi-brand teams, lower cost per group"
+    },
+    "social-6": {
+      "tagline": "Bulk tier for matrix operations and agencies"
+    },
+    "social-10": {
+      "tagline": "Multi-brand, multi-market matrices at the lowest cost per group"
+    }
   },
   "hardware": {
     "title": "Edge AI Box",

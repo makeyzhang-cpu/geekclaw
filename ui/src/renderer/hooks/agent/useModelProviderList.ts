@@ -1,5 +1,6 @@
 import { ipcBridge } from '@/common';
 import type { IProvider } from '@/common/config/storage';
+import { GEEKCLAW_FREE_MODEL_PLATFORM } from '@/common/types/provider/managedModelService';
 import { useCallback, useMemo } from 'react';
 import useSWR, { type SWRConfiguration } from 'swr';
 import { orderModelSelectorProviders } from './modelSelectorProviderOrdering';
@@ -50,7 +51,15 @@ export const useModelProviderList = (): ModelProviderListResult => {
     // 过滤掉被禁用的 provider（默认为启用）。
     // 注意：不再按「是否有可用模型」过滤 —— 模型级别的可用性由
     // useModelsForTask（后端 catalog resolve）决定，空组不会被渲染。
-    return orderModelSelectorProviders(configuredProviders.filter((p) => p.enabled !== false));
+    //
+    // v5.0.69 (Bug1)：隐藏「免费模型」provider —— 该平台只为内嵌免费能力
+    // 通道存在，不应在 chat / 文 / 图 / 视频 等业务选择器中作为可选服务商
+    // 出现。底层能力由后端 catalog 单独暴露给受信任的调用路径。
+    return orderModelSelectorProviders(
+      configuredProviders.filter(
+        (p) => p.enabled !== false && p.platform !== GEEKCLAW_FREE_MODEL_PLATFORM
+      )
+    );
   }, [configuredProviders]);
 
   const formatModelLabel = useCallback((_provider: { platform?: string } | undefined, modelName?: string) => {

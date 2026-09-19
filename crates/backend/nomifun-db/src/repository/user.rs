@@ -1,5 +1,5 @@
 use crate::error::DbError;
-use crate::models::{HardwareDeposit, HardwareDepositAdminRow, Invitation, User};
+use crate::models::{HardwareDeposit, HardwareDepositAdminRow, Invitation, SocialEntitlement, User};
 use nomifun_common::TimestampMs;
 
 /// User data access abstraction.
@@ -155,6 +155,86 @@ pub trait IUserRepository: Send + Sync {
 
     /// Sets a user's plan tier (`free` / `pro` / `team`).
     async fn set_plan(&self, user_id: &str, plan: &str) -> Result<(), DbError>;
+
+    // ── 社媒矩阵加装包额度（迁移 047，列在 `users` 表上）──────────────────
+    //
+    // 社媒**不进套餐**，所有用户都必须单独买加装包，所以额度是独立于 `plan`
+    // 的一条账。刻意不把这两列加进 `User` 结构体：多处 `SELECT * FROM users`
+    // 会因此牵动列对齐，改动面远超收益。
+
+    /// 读用户当前的社媒额度。用户不存在时返回 `None`（与仓储层其它方法同口径）。
+    async fn get_social_entitlement(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<SocialEntitlement>, DbError>;
+
+    /// 履约：购买成功后**累加**组数，并把到期时间从「原到期日与当前时间的较晚者」
+    /// 顺延 `extend_ms` 毫秒。
+    ///
+    /// 语义刻意如此（而不是「覆盖」）：
+    /// * 组数累加 —— 客户再买一份就是扩容，覆盖会让他白买；
+    /// * 到期取较晚者再顺延 —— 续费不该缩短前一批的剩余时长；未到期就续费时
+    ///   从原到期日往后接，不会凭空吃掉剩余天数。
+    ///
+    /// 返回写入后的新额度。用户不存在时返回 `DbError::NotFound`。
+    async fn grant_social_addon(
+        &self,
+        user_id: &str,
+        groups: i64,
+        extend_ms: i64,
+    ) -> Result<SocialEntitlement, DbError>;
+
+    /// 后台手工核定额度与到期（覆盖式）。用于客服补偿、线下签约开通等
+    /// 不经过支付网关的场景。`expires_at` 为 `None` 表示不设到期。
+    async fn set_social_entitlement(
+        &self,
+        user_id: &str,
+        groups: i64,
+        expires_at: Option<i64>,
+    ) -> Result<(), DbError>;
+
+    // ── 积分加油包（迁移 049）────────────────────────────────────────────────
+    //
+    // 加油包**不污染** `users.plan`，履约只增 `users.credits`（1 积分 = 1 Token）。
+    // 同 `finalize_social_addon_order` 的幂等闸门：在单一事务里 mark_order_paid
+    // + add_credits，回调重放时不会重复发放。
+
+    /// 履约：加油包订单付款成功后**直接累加 credits**到 user 余额（单一事务）。
+    /// `Some(新余额)` 当次首次发；`None` 当回调重放；用户不存在 → `DbError::NotFound`。
+    async fn finalize_credit_addon_order(
+        &self,
+        reqsn: &str,
+        trxid: &str,
+        user_id: &str,
+        credits: i64,
+    ) -> Result<Option<i64>, DbError>;
+
+    /// 读 provider 的 platform 字段（"local" / "ollama" / "lmstudio" 等）。
+    /// 用于会话扣减前分流（v5.0.69 Bug4）：本地/自配 provider 不扣积分。
+    /// `Ok(None)` 表示 provider 不存在；调用方按「保守视为计费」处理。
+    async fn get_provider_platform(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<String>, DbError>;
+
+    /// 社媒加装包**支付回调专用**履约：把订单转成 `paid`，并**在同一个事务里**
+    /// 发放额度（语义同 [`Self::grant_social_addon`]）。
+    ///
+    /// 为什么不在这里复用 `mark_order_paid` + `grant_social_addon` 两步走：
+    /// 第二步失败时订单已经是 `paid`，收银宝重试也会因为「已不再是 `created → paid`」
+    /// 而直接跳过发放 —— 客户付了钱却拿不到额度，且**没有任何人工环节能发现**
+    /// （押金单不同：它失败还有后台发货台兜底）。放进一个事务后，要么两者都成功，
+    /// 要么一起回滚，回调重试可以安全重放。
+    ///
+    /// 返回 `None` 表示订单本就已是 `paid`（幂等重放），此时**不再发放**。
+    async fn finalize_social_addon_order(
+        &self,
+        reqsn: &str,
+        trxid: &str,
+        user_id: &str,
+        groups: i64,
+        extend_ms: i64,
+    ) -> Result<Option<SocialEntitlement>, DbError>;
 
     /// Lists all model pricing rows, ordered by provider then model.
     async fn list_model_pricing(&self) -> Result<Vec<crate::models::ModelPricing>, DbError>;

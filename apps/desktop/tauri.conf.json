@@ -20,7 +20,8 @@
     "createUpdaterArtifacts": true,
     "targets": ["nsis", "app", "dmg", "appimage", "deb", "rpm"],
     "resources": {
-      "../../ui/dist/": "webui-dist/"
+      "../../ui/dist/": "webui-dist/",
+      "resources/video-studio/": "video-studio/"
     },
     "icon": [
       "icons/32x32.png",

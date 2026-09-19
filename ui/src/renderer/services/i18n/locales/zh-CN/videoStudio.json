@@ -1,0 +1,31 @@
+{
+  "nav": {
+    "entry": "AI 短视频工坊",
+    "betaTag": "Beta",
+    "tooltip": "AI 短视频工坊（Beta）"
+  },
+  "page": {
+    "title": "AI 短视频工坊",
+    "desc": "输入一个主题，本地一键生成成品短视频——脚本、素材、配音、字幕与配乐全自动完成。",
+    "statusUp": "引擎在线",
+    "statusDown": "引擎离线——请安装包含引擎的构建版本",
+    "llmNotConfigured": "尚未配置大模型。请先设置 provider 密钥以启用生成。",
+    "configure": "配置大模型"
+  },
+  "form": {
+    "subject": "视频主题",
+    "subjectPlaceholder": "例如：高效晨间 Routine 的 5 个小技巧",
+    "aspect": "画面比例",
+    "voice": "配音音色",
+    "subtitle": "内嵌字幕",
+    "bgm": "背景音乐",
+    "count": "生成数量",
+    "generate": "生成视频",
+    "generating": "生成中…"
+  },
+  "tasks": {
+    "title": "任务",
+    "empty": "暂无任务，先在上方生成你的第一条短视频。",
+    "download": "下载"
+  }
+}

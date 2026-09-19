@@ -12,11 +12,13 @@
 //! 模块划分：
 //!   - [`driver`]    发布驱动抽象（聚合 / 官方 / 半自动三实现同一 trait）
 //!   - [`engine`]    引擎核心：账号同步 / 投递 / 指标回收（路由与调度器共用）
+//!   - [`quota`]     加装包额度口径与闸门（迁移 047）
 //!   - [`routes`]    `/api/social/*` 路由
 //!   - [`scheduler`] 常驻调度器：轮询到期帖并投递
 
 pub mod driver;
 pub mod engine;
+pub mod quota;
 pub mod routes;
 pub mod scheduler;
 

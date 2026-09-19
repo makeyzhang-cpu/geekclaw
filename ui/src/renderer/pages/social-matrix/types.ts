@@ -177,4 +177,36 @@ export interface SocialMatrixSnapshot {
    * 刻意不含 X）。其余平台在 UI 上标记「待接入」；半自动模式下这里是空集。
    */
   configuredPlatforms: SocialPlatform[];
+  /** 加装包额度：决定这一页「能不能用」。见下。 */
+  entitlement: SocialAddonQuota;
+}
+
+/**
+ * 加装包额度状态。
+ *
+ * 海外社媒矩阵**不进套餐** —— 五档套餐一律 0 组，任何用户都必须单独购买加装包。
+ * 所以额度为 0 是**未购买**这一等状态，不是错误、也不是「功能坏了」。
+ *
+ * 四种状态在界面上**必须分开呈现**：未购买要引导购买、已到期要引导续费、
+ * 超量要引导断开账号或升档。合成一句「额度不可用」的话，已经付过钱的客户
+ * 会以为是我们弄丢了他的订单。
+ */
+export type SocialQuotaStatus = 'ok' | 'none' | 'expired' | 'over';
+
+export interface SocialAddonQuota {
+  /** 已购组数（`0` = 未购买）。 */
+  groups: number;
+  /**
+   * 已用组数 = **各平台账号数的最大值**（不是账号总数）。
+   *
+   * 一组 = 1 个品牌 × 各平台各 1 个账号，口径与聚合商按 Profile 计费严格对齐：
+   * 五个平台各连 1 个 = 1 组；同一平台的第 2 个账号才占用第 2 组。
+   * 服务端口径见 `crates/backend/nomifun-app/src/social_matrix/quota.rs`。
+   */
+  used: number;
+  /** 到期时间（毫秒时间戳）。无到期时为 `undefined`。 */
+  expiresAt?: number;
+  status: SocialQuotaStatus;
+  /** 服务端给出的可直接展示的说明；`ok` 时为空。 */
+  message?: string;
 }

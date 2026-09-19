@@ -95,9 +95,9 @@ pub use repository::social::{
     UpsertAccountParams, UpsertPublishConfigParams,
 };
 pub use models::{
-    SocialAccountRow, SocialDuePostRow, SocialMediaRow, SocialMetricLatestRow, SocialMetricRow,
-    SocialPostRow, SocialPostTargetDetail, SocialPostTargetRow, SocialPostVersionRow,
-    SocialPublishConfigRow,
+    SocialAccountRow, SocialDuePostRow, SocialEntitlement, SocialMediaRow, SocialMetricLatestRow,
+    SocialMetricRow, SocialPostRow, SocialPostTargetDetail, SocialPostTargetRow,
+    SocialPostVersionRow, SocialPublishConfigRow,
 };
 pub use models::{ConsensusMessageRow, ConsensusRunRow};
 pub use repository::{

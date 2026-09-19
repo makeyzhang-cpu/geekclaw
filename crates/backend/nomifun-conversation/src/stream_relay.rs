@@ -1899,10 +1899,11 @@ impl StreamRelay {
 
     /// Deduct this turn's token-cost credits from the owning user's wallet.
     ///
-    /// Pricing is looked up by `(provider, model, "Chat")`. Cost = (input +
-    /// output + cache_read) tokens × the per-1k-credits rate, rounded up to an
-    /// integer credit. A negative delta is a debit via `add_credits`. Every
-    /// failure path is non-fatal: billing must never break a completed turn.
+    /// **v5.0.69 (Bug4)** —— 积分与 Token 1:1 兑换。本地模型 / 用户自配 provider
+    /// **不计扣**积分；只有云端同步或商业统一供应的 provider 才按 1 token = 1
+    /// 积分扣减（不再查 `model_pricing` 表 —— 那张表随之废弃，调用路径不再做 per-1k
+    /// 费率计算）。Every failure path is non-fatal: billing must never break a
+    /// completed turn.
     async fn charge_turn_tokens(&self, metrics: &TurnCompletedEventData) {
         let Some(user_repo) = self.billing_user_repo.as_ref() else {
             return;
@@ -1910,36 +1911,27 @@ impl StreamRelay {
         let Some(provider) = self.billing_provider.as_deref() else {
             return;
         };
-        let Some(model) = self.billing_model.as_deref() else {
+        let Some(_model) = self.billing_model.as_deref() else {
             return;
         };
-        let pricing = match user_repo.get_model_pricing(provider, model, "Chat").await {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(
-                    conversation_id = %self.conversation_id,
-                    user_id = %self.user_id,
-                    error = %e,
-                    "billing: failed to read model pricing; skipping deduction"
-                );
+        // 本地 provider / 用户自配 → 跳过扣减。
+        let platform = fetch_provider_platform(user_repo.as_ref(), provider).await;
+        if let Some(ref pf) = platform {
+            if is_local_provider_platform(pf) {
                 return;
             }
-        };
-        let Some(pricing) = pricing else {
-            // No price configured for this model — treat as free, never block.
-            return;
-        };
-        let input_cost = metrics.input_tokens as f64 / 1000.0 * pricing.input_credits_per_1k;
-        let output_cost = metrics.output_tokens as f64 / 1000.0 * pricing.output_credits_per_1k;
-        let cache_read_cost =
-            metrics.cache_read_tokens as f64 / 1000.0 * pricing.cache_read_credits_per_1k;
-        let cost = (input_cost + output_cost + cache_read_cost).ceil() as i64;
+        }
+        // 1:1 兑换：扣 = input + output + cache_read tokens（向上取整到整数积分）
+        let total_tokens = (metrics.input_tokens
+            + metrics.output_tokens
+            + metrics.cache_read_tokens) as i64;
+        let cost = total_tokens.max(0);
         if cost <= 0 {
             return;
         }
         let note = format!(
-            "LLM 用量 {}/{}: in={} out={} cache_read={}",
-            provider, model, metrics.input_tokens, metrics.output_tokens, metrics.cache_read_tokens
+            "LLM 用量 {}/{}: in={} out={} cache_read={} (1 token = 1 积分)",
+            provider, _model, metrics.input_tokens, metrics.output_tokens, metrics.cache_read_tokens
         );
         match user_repo
             .add_credits(
@@ -1957,7 +1949,7 @@ impl StreamRelay {
                 user_id = %self.user_id,
                 cost,
                 balance_after,
-                "billing: deducted turn token cost"
+                "billing: deducted turn token cost (1:1)"
             ),
             Err(e) => warn!(
                 conversation_id = %self.conversation_id,
@@ -11146,6 +11138,40 @@ mod tests {
                 total: 0,
                 has_more: false,
             })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v5.0.69 (Bug4) 计费分流依据 —— module-level helpers for charge_turn_tokens
+// ---------------------------------------------------------------------------
+
+/// 本地平台白名单（保守列举主流本地推理后端）。`provider.platform` 命中本名单
+/// 时 `charge_turn_tokens` 跳过积分扣减（1 积分 = 1 Token，但本地推理不计费）。
+/// 前端 `provider.platform` 来源由 provider 表 schema 直接给出（迁移 001
+/// `providers.platform`）。
+const LOCAL_PROVIDER_PLATFORMS: &[&str] = &["local", "ollama", "llamacpp", "lmstudio"];
+
+fn is_local_provider_platform(platform: &str) -> bool {
+    LOCAL_PROVIDER_PLATFORMS.contains(&platform)
+}
+
+/// 当前会话所用 provider 的 platform —— 优先从 stream_relay 记录；为空时
+/// 视作「按用户配置」一律要扣（保守兜底）。`charge_turn_tokens` 调用，
+/// 失败记 warn、跳过本轮扣减（不阻断会话）。
+async fn fetch_provider_platform(
+    user_repo: &dyn nomifun_db::IUserRepository,
+    provider_id: &str,
+) -> Option<String> {
+    match user_repo.get_provider_platform(provider_id).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                provider_id = %provider_id,
+                error = %e,
+                "billing: failed to read provider platform; treating as chargeable"
+            );
+            None
         }
     }
 }

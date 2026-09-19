@@ -28,6 +28,10 @@ const EMPTY: SocialMatrixSnapshot = {
   posts: [],
   metrics: [],
   configuredPlatforms: [],
+  // 未登录 / 云端不可用时还没资格谈额度 —— 页面这两条分支会先显示登录或部署引导，
+  // 额度横幅不渲染。这里给 `ok`（而不是 `none`）是为了「万一将来渲染了」也不出错：
+  // 说「未购买」会误导，说「正常」最多是不提示。
+  entitlement: { groups: 0, used: 0, status: 'ok' },
 };
 
 /**

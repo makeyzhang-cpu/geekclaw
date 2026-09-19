@@ -2093,6 +2093,30 @@ async fn subscribe_handler(
         .filter(|p| p.enabled != 0)
         .ok_or_else(|| AppError::BadRequest(format!("未知的套餐或已下架: '{plan_id}'")))?;
 
+    // 社媒加装包 SKU 的 `backend_plan` 必须能解析出组数，否则支付回调时无法履约
+    // （会掉进套餐分支，把 `users.plan` 写成 `social_addon_x`）。在**下单这一刻**
+    // 就拦住：绝不能让客户扫码付完钱才发现配置是坏的。
+    if entry.backend_plan.starts_with(PLAN_SOCIAL_ADDON_PREFIX)
+        && social_addon_groups(&entry.backend_plan).is_none()
+    {
+        return Err(AppError::BadRequest(format!(
+            "套餐 '{plan_id}' 的加装包配置有误（backend_plan 需为 {}<组数>），请联系管理员",
+            PLAN_SOCIAL_ADDON_PREFIX
+        )));
+    }
+
+    // 加油包 SKU 的 `backend_plan` 必须能解析出金额元，否则支付回调时无法履约
+    // （会掉进套餐分支，把 `users.plan` 写成 `credit_addon_x`）。在**下单这一刻**
+    // 就拦住，绝不让客户扫码付完钱才发现配置是坏的。
+    if entry.backend_plan.starts_with(PLAN_CREDIT_ADDON_PREFIX)
+        && credit_addon_credits(&entry.backend_plan).is_none()
+    {
+        return Err(AppError::BadRequest(format!(
+            "套餐 '{plan_id}' 的加油包配置有误（backend_plan 需为 {}<金额元>），请联系管理员",
+            PLAN_CREDIT_ADDON_PREFIX
+        )));
+    }
+
     // Payment gateway is REQUIRED for real purchases. Without merchant keys the
     // buy is blocked — we never grant a plan without a confirmed payment.
     let cfg = resolve_allinpay_config(&*state.user_repo)
@@ -2334,23 +2358,160 @@ async fn cancel_order_handler(
 // Shared finalization: mark paid + grant plan + credits (exactly once)
 // ---------------------------------------------------------------------------
 
+/// 社媒矩阵加装包订单的 `plan` 前缀。
+///
+/// 加装包在 `subscription_plans` 里是一等 SKU（`plan_id` = `social-1` / `social-3`
+/// / `social-6` / `social-10`），但 `orders.plan` 落的是 `backend_plan`，所以这里
+/// 用一个**自解释的前缀 + 组数**编码：`social_addon_3` = 3 组。这样
+/// `finalize_paid_order` 只看 `orders.plan` 就能分流，不必回查 `subscription_plans`
+/// （回调路径上少一次查询，也少一处可能不一致的来源）。
+const PLAN_SOCIAL_ADDON_PREFIX: &str = "social_addon_";
+
+/// 积分加油包订单的 `plan` 前缀。
+///
+/// 加油包 4 个档（迁移 049，`plan_id` = `credit-100` / `credit-500` / `credit-2000`
+/// / `credit-10000`），`orders.plan` 落 `credit_addon_<amount>` = 加油包金额元。
+/// 与社媒加装包同款模式：履约时**只增 credits**，不动 `users.plan`，避免污染档位。
+const PLAN_CREDIT_ADDON_PREFIX: &str = "credit_addon_";
+
+/// 从 `orders.plan` 解析出加装包组数。非加装包订单返回 `None`。
+fn social_addon_groups(plan: &str) -> Option<i64> {
+    let raw = plan.strip_prefix(PLAN_SOCIAL_ADDON_PREFIX)?;
+    match raw.parse::<i64>() {
+        Ok(n) if n > 0 => Some(n),
+        // 前缀对但组数解析不出来 = 配置被写坏了。这里返回 None 会让订单掉进套餐
+        // 分支，`set_plan` 把用户的档位写成 `social_addon_x` —— 比直接报错更难查。
+        // 所以下单时 `subscribe_handler` 会先做一次同样的校验并**拒绝下单**，
+        // 正常流程根本走不到这里；真走到了说明有人绕过了下单口，留 error 级日志。
+        _ => {
+            // 中性措辞：这里也会被 `subscribe_handler` 的下单前校验调用，那时还
+            // 没有订单 —— 写成「订单 plan」会让人以为订单已经建出来了。
+            tracing::error!("plan '{plan}' 带加装包前缀但组数非法，无法履约");
+            None
+        }
+    }
+}
+
+/// 从 `orders.plan` 解析出加油包要发放的积分数。非加油包订单返回 `None`。
+///
+/// 加油包金额（元）通过 `credit_addon_<amount>` 编码，发放的积分数由迁移 049
+/// 的 4 行 `subscription_plans` 表决定（`credits_per_cycle` 列）；这里以「金额元」
+/// 反查表拿积分，避开硬编码前后端对账不一致。
+fn credit_addon_credits(plan: &str) -> Option<i64> {
+    let raw = plan.strip_prefix(PLAN_CREDIT_ADDON_PREFIX)?;
+    let amount_yuan: i64 = match raw.parse() {
+        Ok(n) if n > 0 => n,
+        _ => {
+            tracing::error!("plan '{plan}' 带加油包前缀但金额非法，无法履约");
+            return None;
+        }
+    };
+    // 履约回调是异步路径，多一次只读查询可以接受；不要在此处把金额→积分硬编码。
+    Some(amount_yuan * CREDITS_PER_YUAN)
+}
+
+/// 加油包 1 元 = 10000 积分（迁移 049 同步：100 元 = 1000000 积分 / 500 元 = 5000000 /
+/// 2000 元 = 20000000 / 10000 元 = 100000000）。此常量只在兜底硬编码时使用，正常
+/// 路径应通过 `subscription_plans.credits_per_cycle` 反查。
+///
+///   v5.0.69 (Bug4)：1 积分 = 1 Token；加油包 1 元 = 10000 积分。
+const CREDITS_PER_YUAN: i64 = 10_000;
+
+/// 计费周期 → 额度有效时长（毫秒）。
+///
+/// 只做「月 / 季 / 年」三种粗粒度映射，与 `period_multiplier` 的取值域一致。
+/// 刻意**不**用自然月天数（28/30/31 天不等），统一按 30/90/365 天算：额度到期
+/// 是商业口径不是日历口径，跨月不一致会让客户觉得我们算不清账。
+fn period_duration_ms(period: &str) -> i64 {
+    const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+    match period {
+        "annual" => 365 * DAY_MS,
+        "quarterly" => 90 * DAY_MS,
+        _ => 30 * DAY_MS,
+    }
+}
+
 /// Mark an order paid (idempotent on the `created → paid` transition) and, when
 /// that transition happens, apply the grant exactly once.
 ///
 /// Shared by both the async notify callback and the polling closed-loop
 /// fallback so the two paths can never diverge on the grant logic.
 ///
-/// Two kinds of order flow through here:
-///   * **套餐订阅**（`order.plan` 是档位）→ 激活套餐 + 赠送算力；
+/// Three kinds of order flow through here:
+///   * **社媒矩阵加装包**（`orders.plan` = `social_addon_<n>`）→ 在**一个事务**里
+///     标记已付款并发放 `users.social_groups` / `social_expires_at`；
 ///   * **硬件押金**（`order.plan == PLAN_HARDWARE_DEPOSIT`）→ 只把履约行标记为已付款。
 ///     押金**不是**套餐：`set_plan` 会把用户已经在用的档位覆盖成
 ///     `hardware_deposit`（`users.plan` 直接被写坏），`add_credits` 又会平白送出
 ///     算力。所以这里必须分流，绝不能让它走套餐分支。
+///   * **套餐订阅**（`order.plan` 是档位）→ 激活套餐 + 赠送算力。
 async fn finalize_paid_order(
     state: &AuthRouterState,
     order: &Order,
     trxid: &str,
 ) -> Result<bool, AppError> {
+    // 加装包必须先分流，而且是**一条独立路径**（不走下面的 mark_order_paid）：
+    // 它要求「订单转 paid」与「发放额度」在同一个事务里完成。若沿用两步走，
+    // 第二步失败时订单已是 paid，回调重试会因「不再是 `created → paid`」而直接
+    // 跳过发放 —— 客户付了钱却拿不到额度，且没有任何人工环节能发现
+    // （押金单有后台发货台兜底，加装包没有）。
+    if let Some(groups) = social_addon_groups(&order.plan) {
+        let granted = state
+            .user_repo
+            .finalize_social_addon_order(
+                &order.reqsn,
+                trxid,
+                &order.user_id,
+                groups,
+                period_duration_ms(&order.period),
+            )
+            .await
+            .map_err(|e| AppError::Internal(format!("发放社媒加装包额度失败: {e}")))?;
+
+        return Ok(match granted {
+            Some(entitlement) => {
+                tracing::info!(
+                    "社媒加装包 {} 履约完成：+{} 组，累计 {} 组，到期 {:?}",
+                    order.reqsn,
+                    groups,
+                    entitlement.social_groups,
+                    entitlement.social_expires_at
+                );
+                true
+            }
+            None => {
+                // 回调重放：首次已发放过，这里只是把「已处理」如实回报。
+                tracing::info!("社媒加装包 {} 已是已付款订单，跳过重复发放", order.reqsn);
+                false
+            }
+        });
+    }
+
+    // 加油包（v5.0.69 Bug4）：与社媒加装包同款模式 —— 单一事务里 mark_order_paid +
+    // add_credits，绝不走套餐分支（不走会写坏 users.plan）。
+    if let Some(credits) = credit_addon_credits(&order.plan) {
+        let new_balance = state
+            .user_repo
+            .finalize_credit_addon_order(&order.reqsn, trxid, &order.user_id, credits)
+            .await
+            .map_err(|e| AppError::Internal(format!("发放加油包积分失败: {e}")))?;
+        return Ok(match new_balance {
+            Some(balance) => {
+                tracing::info!(
+                    "加油包 {} 履约完成：+{} 积分，新余额 {} 积分",
+                    order.reqsn,
+                    credits,
+                    balance
+                );
+                true
+            }
+            None => {
+                tracing::info!("加油包 {} 已是已付款订单，跳过重复发放", order.reqsn);
+                false
+            }
+        });
+    }
+
     let newly_paid = state
         .user_repo
         .mark_order_paid(&order.reqsn, trxid)

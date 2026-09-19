@@ -264,6 +264,75 @@
   cursor: not-allowed;
 }
 
+/* ---- 海外社媒矩阵加装包（独立商品，4 档）---- */
+.pricing-addons {
+  margin-bottom: 40px;
+}
+
+.pricing-addon-subtitle {
+  margin: -6px 0 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-3, #86909c);
+}
+
+.pricing-addon-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 1180px) {
+  .pricing-addon-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .pricing-addon-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pricing-addon-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-1, #fff);
+  border: 1px solid var(--color-border-2, #e5e6eb);
+  border-radius: 16px;
+  padding: 28px 16px 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  min-width: 0;
+}
+
+.pricing-addon-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 28px rgba(83, 74, 183, 0.16);
+}
+
+.pricing-addon-card-featured {
+  border-width: 2px;
+  box-shadow: 0 6px 28px rgba(83, 74, 183, 0.22);
+}
+
+/* 卡片主标题用「组数」而不是商品名：客户是按组数决策的，商品名只是编号。 */
+.pricing-addon-groups {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--color-text-1, #1f2329);
+  margin-bottom: 6px;
+}
+
+.pricing-addon-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-text-3, #86909c);
+}
+
 /* ---- Cycle switch (月付 / 年付) ---- */
 .pricing-cycle {
   display: flex;

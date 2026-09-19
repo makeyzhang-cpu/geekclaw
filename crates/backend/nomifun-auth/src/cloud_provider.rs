@@ -384,7 +384,42 @@ pub async fn sync_cloud_providers_handler(
     let items = cloud.data.unwrap_or_default();
 
     // 3. Re-encrypt and upsert locally.
+    //    v5.0.69 (Bug2)：当前 GeekClaw 阶段，桌面端仅启用 Anthropic
+    //    claude-opus 系列模型；其他模型一律不下发到本地 providers 表，避免
+    //    「同步云端模型」把上游全量 72 个无关模型都灌到本地。该提前
+    //    过滤是为收敛当前产品形态，后续如需放开再调整 `allowed_models_for`
+    //    白名单即可。
+    let items = filter_cloud_providers_for_sync(items);
     let svc = CloudProviderService::from_state(&state);
     let result = svc.sync_to_local(items).await?;
     Ok(Json(ApiResponse::with_message(result, "云端模型已同步到本地")))
+}
+
+/// 当前桌面端同步策略：仅保留 `provider_key` 命中白名单的 provider，并把
+/// 每个 provider 的 `models` 列表收敛为以 `claude-opus` 开头的子集。
+fn filter_cloud_providers_for_sync(
+    items: Vec<CloudProviderPublicView>,
+) -> Vec<CloudProviderPublicView> {
+    // 白名单：当前 GeekClaw 桌面端对外提供 Anthropic claude-opus 系列。
+    // 调整这里即可放开/收紧候选供应商。
+    const ALLOWED_PROVIDER_KEYS: &[&str] = &["GeekClawAI004"];
+    const ALLOWED_MODEL_PREFIXES: &[&str] = &["claude-opus"];
+
+    items
+        .into_iter()
+        .filter(|item| ALLOWED_PROVIDER_KEYS.contains(&item.provider_key.as_str()))
+        .map(|mut item| {
+            item.models = item
+                .models
+                .into_iter()
+                .filter(|m| {
+                    let lower = m.to_ascii_lowercase();
+                    ALLOWED_MODEL_PREFIXES
+                        .iter()
+                        .any(|prefix| lower.starts_with(prefix))
+                })
+                .collect();
+            item
+        })
+        .collect()
 }

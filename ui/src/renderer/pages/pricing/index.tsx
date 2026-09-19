@@ -7,13 +7,16 @@
  *
  * 页面结构（自上而下）：
  *   1. 端侧算力盒子（所有档位共用的硬件前提 + 押金政策）
- *   2. 五档价格卡（月付 / 年付切换，年价取文档原值，不按折扣公式推算）
- *   3. 功能对比矩阵（保留文档的 √ / 开发中 / — 三态与三级合并单元格）
- *   4. 模型按量计费表 + 常见问题
+ *   2. 计费周期切换 + 五档价格卡（年价取文档原值，不按折扣公式推算）
+ *   3. 海外社媒矩阵加装包（**独立商品**：不包含在任何套餐内，必须单独购买）
+ *   4. 功能对比矩阵（保留文档的 √ / 开发中 / — 三态与三级合并单元格）
+ *   5. 模型按量计费表 + 常见问题
  *
  * 定价真源是 `planCatalog.ts`（前端静态目录，与文档逐项对齐）。云端
  * `GET /api/store/plans` 只用来把档位解析成下单所需的 `plan_id`——**不再**
  * 用云端返回的数据替换档位或价格，否则后台残留的旧档位会把页面顶掉。
+ * 例外：加装包分区会按云端目录**过滤**（下架的档位立即从页面消失），
+ * 但价格仍取 `planCatalog.ts`，见 `availableAddons` 的说明。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -36,13 +39,18 @@ import {
   HARDWARE_DEPOSIT_CNY,
   PLAN_FEATURE_ROWS,
   PLAN_TIERS,
+  SOCIAL_ADDON_SKUS,
+  CREDIT_PACKAGES,
+  addonYearlyPerMonth,
+  addonYearlySaving,
   computeMatrixSpans,
   findTier,
   yearlyPerMonth,
   yearlySaving,
   type FeatureState,
   type PlanId,
-} from './planCatalog';import packageInfo from '../../../../package.json';
+} from './planCatalog';
+import packageInfo from '../../../../package.json';
 import './index.css';
 
 /** A plan row as returned by the cloud storefront (`GET /api/store/plans`). */
@@ -151,11 +159,9 @@ const PricingPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [balance, setBalance] = useState<BillingBalance | null>(null);
-  const [prices, setPrices] = useState<ModelPriceInfo[]>([]);
   const [storePlans, setStorePlans] = useState<StorePlan[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [modelsError, setModelsError] = useState<string | null>(null);
   const [cycle, setCycle] = useState<BillingCycle>('yearly');
   const cloud = useCloudAuth();
 
@@ -213,19 +219,13 @@ const PricingPage: React.FC = () => {
         setLoading(true);
       }
       setError(null);
-      setModelsError(null);
       const billingMePath = cloud.state.authenticated ? '/api/store/me' : '/api/billing/me';
       try {
-        const [me, pricingRes] = await Promise.all([
-          httpRequest<BillingBalance>('GET', billingMePath),
-          httpRequest<ModelPriceListResponse>('GET', '/api/billing/pricing'),
-        ]);
+        const me = await httpRequest<BillingBalance>('GET', billingMePath);
         setBalance(me);
-        setPrices(pricingRes.prices ?? []);
       } catch (e) {
         console.error('[pricing] load failed', e);
         setError(t('pricing.errors.loadFailed'));
-        setModelsError(t('pricing.errors.modelsFailed'));
       }
       // 云端档位：只作为「下单用的 plan_id」来源，不参与展示。
       try {
@@ -288,6 +288,20 @@ const PricingPage: React.FC = () => {
   }, [storePlans]);
 
   const matrixSpans = useMemo(() => computeMatrixSpans(PLAN_FEATURE_ROWS), []);
+
+  /**
+   * 可售的社媒加装包：以云端目录（`GET /api/store/plans`）为准过滤。
+   *
+   * 目录**拉到了**时只展示其中真实上架的 SKU —— 后台把某档下架后页面应立即消失，
+   * 而不是等用户点了才报「未知的套餐或已下架」。
+   * 目录**没拉到**时（`storePlans === null`）不过滤：此时无法区分「后台没配」与
+   * 「网络拿不到」，整块消失比全量展示更让人困惑，下单失败也会拿到明确报错。
+   */
+  const availableAddons = useMemo(() => {
+    if (!storePlans) return SOCIAL_ADDON_SKUS;
+    const listed = new Set(storePlans.map((p) => p.plan_id));
+    return SOCIAL_ADDON_SKUS.filter((sku) => listed.has(sku.id));
+  }, [storePlans]);
 
   /**
    * 功能对比表在窄窗口下会横向溢出（5 个档位列放不下）。
@@ -418,16 +432,24 @@ const PricingPage: React.FC = () => {
     }
   }, [qrOrder, queryOrderOnce, pollOrderStatus, stopPolling]);
 
-  const handleSubscribe = useCallback(
-    async (tierId: PlanId) => {
+  /**
+   * 发起下单（套餐 / 社媒加装包共用同一条链路）。
+   *
+   * 两者在云端走的是**同一个** `POST /api/store/subscribe`，区别只在 `plan_id`：
+   * 套餐用档位解析出来的 id，加装包直接用 SKU 的 id。履约分流在云端
+   * `finalize_paid_order` 里按 `orders.plan` 前缀完成（加装包走
+   * `social_addon_<组数>` 分支，写 `users.social_groups` + 到期日）。
+   *
+   * `busyKey` 只用于标记「哪张卡的按钮在转圈」，与订单本身无关。
+   */
+  const startSubscribe = useCallback(
+    async (planId: string, busyKey: string) => {
       if (!cloud.state.authenticated) {
         await cloud.login();
         return;
       }
-      // 云端配了对应档位就用云端的 plan_id，否则退回档位 id 让后端明确报错。
-      const planId = cloudPlanIdByTier.get(tierId) ?? tierId;
       qrOrderKindRef.current = 'plan';
-      setSubscribingPlanId(tierId);
+      setSubscribingPlanId(busyKey);
       setQrStatus('pending');
       setQrStatusText('正在创建订单…');
       try {
@@ -461,7 +483,18 @@ const PricingPage: React.FC = () => {
         setSubscribingPlanId(null);
       }
     },
-    [cloud.state.authenticated, cloud.login, pollOrderStatus, cycle, cloudPlanIdByTier]
+    [cloud.state.authenticated, cloud.login, pollOrderStatus, cycle]
+  );
+
+  /**
+   * 套餐卡下单：把档位 id 解析成云端 `plan_id`。
+   *
+   * 云端配了对应档位就用云端的 plan_id，否则退回档位 id 让后端明确报错
+   * （明确报错比静默失败好：至少能看出是后台没配档位）。
+   */
+  const handleSubscribe = useCallback(
+    (tierId: PlanId) => startSubscribe(cloudPlanIdByTier.get(tierId) ?? tierId, tierId),
+    [startSubscribe, cloudPlanIdByTier]
   );
 
   /**
@@ -844,7 +877,124 @@ const PricingPage: React.FC = () => {
           })}
         </section>
 
-        {/* ---- 4. 功能对比矩阵 ---- */}
+        {/* ---- 5. 积分加油包（独立商品，与套餐/社媒加装包完全互斥）---- */}
+        <section className='pricing-credit-packages'>
+          <h2 className='pricing-section-title'>{t('pricing.creditPackage.title')}</h2>
+          <p className='pricing-credit-package-subtitle'>{t('pricing.creditPackage.subtitle')}</p>
+          <div className='pricing-credit-package-grid'>
+            {CREDIT_PACKAGES.map((pkg) => {
+              const isAnySubscribing = subscribingPlanId !== null;
+              const isSubscribingThis = subscribingPlanId === pkg.id;
+              // 加油包发放积分 = 套餐购买流程走「月度」一次结清，无年付概念
+              return (
+                <div
+                  key={pkg.id}
+                  className={`pricing-credit-package-card${
+                    pkg.featured ? ' pricing-credit-package-card-featured' : ''
+                  }`}
+                  style={pkg.featured ? { borderColor: BRAND.primary } : undefined}
+                >
+                  {pkg.featured && (
+                    <span className='pricing-recommended'>{t('pricing.badge.recommended')}</span>
+                  )}
+                  <div className='pricing-credit-package-credits'>
+                    {pkg.credits.toLocaleString('zh-CN')}
+                    <span className='pricing-credit-package-unit'>
+                      {t('pricing.creditPackage.creditsUnit')}
+                    </span>
+                  </div>
+                  <p className='pricing-credit-package-tagline'>
+                    {t('pricing.creditPackage.tagline', {
+                      yuan: pkg.priceYuan.toLocaleString('zh-CN'),
+                      tokens: pkg.credits.toLocaleString('zh-CN'),
+                    })}
+                  </p>
+                  <div className='pricing-price-row'>
+                    <span className='pricing-currency'>¥</span>
+                    <span className='pricing-price'>{pkg.priceYuan.toLocaleString('zh-CN')}</span>
+                  </div>
+                  <button
+                    type='button'
+                    className={`pricing-cta${pkg.featured ? ' pricing-cta-primary' : ''}`}
+                    disabled={isAnySubscribing}
+                    onClick={() => void startSubscribe(pkg.id, pkg.id)}
+                  >
+                    {isSubscribingThis
+                      ? t('common.processing')
+                      : t('pricing.creditPackage.cta')}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className='pricing-credit-package-note'>{t('pricing.creditPackage.note')}</p>
+        </section>
+
+        {/* ---- 4. 海外社媒矩阵加装包（独立商品，不包含在任何套餐内）---- */}
+        <section className='pricing-addons'>
+          <h2 className='pricing-section-title'>{t('pricing.addon.title')}</h2>
+          <p className='pricing-addon-subtitle'>{t('pricing.addon.subtitle')}</p>
+          <div className='pricing-addon-grid'>
+            {availableAddons.map((sku) => {
+              const isAnySubscribing = subscribingPlanId !== null;
+              const isSubscribingThis = subscribingPlanId === sku.id;
+              const showYearly = cycle === 'yearly';
+              const price = showYearly ? sku.priceYearly : sku.priceMonthly;
+              const periodSuffix = showYearly ? t('pricing.perYear') : t('pricing.perMonth');
+              const saving = addonYearlySaving(sku);
+              const perMonthEq = addonYearlyPerMonth(sku);
+
+              return (
+                <div
+                  key={sku.id}
+                  className={`pricing-addon-card${
+                    sku.featured ? ' pricing-addon-card-featured' : ''
+                  }`}
+                  style={sku.featured ? { borderColor: BRAND.primary } : undefined}
+                >
+                  {sku.featured && (
+                    <span className='pricing-recommended'>{t('pricing.badge.recommended')}</span>
+                  )}
+                  <div className='pricing-addon-groups'>
+                    {t('pricing.addon.groups', { count: sku.groups })}
+                  </div>
+                  <p className='pricing-tier-tagline'>{t(`pricing.addon.${sku.id}.tagline`)}</p>
+                  <div className='pricing-price-row'>
+                    <span className='pricing-currency'>¥</span>
+                    <span className='pricing-price'>{price.toLocaleString('zh-CN')}</span>
+                    <span className='pricing-period'>{periodSuffix}</span>
+                  </div>
+                  {showYearly ? (
+                    <div className='pricing-yearly-note'>
+                      {t('pricing.yearlyPerMonthEq', {
+                        price: perMonthEq.toLocaleString('zh-CN'),
+                      })}
+                      <span className='pricing-yearly-save'>
+                        {t('pricing.yearlySave', { amount: saving.toLocaleString('zh-CN') })}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className='pricing-yearly-note pricing-yearly-note-muted'>
+                      {t('pricing.perYear')} ¥{sku.priceYearly.toLocaleString('zh-CN')} ·{' '}
+                      {t('pricing.yearlySave', { amount: saving.toLocaleString('zh-CN') })}
+                    </div>
+                  )}
+                  <button
+                    type='button'
+                    className={`pricing-cta${sku.featured ? ' pricing-cta-primary' : ''}`}
+                    disabled={isAnySubscribing}
+                    onClick={() => void startSubscribe(sku.id, sku.id)}
+                  >
+                    {isSubscribingThis ? t('common.processing') : t('pricing.addon.cta')}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className='pricing-addon-note'>{t('pricing.addon.note')}</p>
+        </section>
+
+        {/* ---- 5. 功能对比矩阵 ---- */}
         <section className='pricing-matrix'>
           <h2 className='pricing-section-title'>{t('pricing.matrix.title')}</h2>
           <div className='pricing-matrix-table-wrap' ref={matrixWrapRef}>
@@ -914,51 +1064,8 @@ const PricingPage: React.FC = () => {
           <p className='pricing-matrix-note'>{t('pricing.matrix.note')}</p>
         </section>
 
-        {/* ---- 5. 模型按量计费 ---- */}
-        <section className='pricing-models'>
-          <h2 className='pricing-section-title'>{t('pricing.models.title')}</h2>
-          {modelsError && <div className='pricing-error'>{modelsError}</div>}
-          {!modelsError && prices.length === 0 && (
-            <div className='pricing-empty'>{t('pricing.models.empty')}</div>
-          )}
-          {!modelsError && prices.length > 0 && (
-            <div className='pricing-models-table-wrap'>
-              <table className='pricing-models-table'>
-                <thead>
-                  <tr>
-                    <th>{t('billing.admin.provider')}</th>
-                    <th>{t('billing.admin.model')}</th>
-                    <th>{t('billing.admin.task')}</th>
-                    <th>
-                      {t('billing.admin.inputPer1k')}
-                      <span className='pricing-unit'>{t('pricing.models.per1k')}</span>
-                    </th>
-                    <th>
-                      {t('billing.admin.outputPer1k')}
-                      <span className='pricing-unit'>{t('pricing.models.per1k')}</span>
-                    </th>
-                    <th>
-                      {t('billing.admin.cacheReadPer1k')}
-                      <span className='pricing-unit'>{t('pricing.models.per1k')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {prices.map((p) => (
-                    <tr key={p.id}>
-                      <td>{p.provider}</td>
-                      <td>{p.model}</td>
-                      <td>{p.task}</td>
-                      <td>{p.input_credits_per_1k}</td>
-                      <td>{p.output_credits_per_1k}</td>
-                      <td>{p.cache_read_credits_per_1k}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        {/* v5.0.69 (Bug3)：删除"模型按量计费（积分 / 1K tokens）"区块。
+            改用统一加油包：1 积分 = 1 Token；模型按需扣减无需在前台展示逐条价格。 */}
 
         <section className='pricing-faq'>
           <h2 className='pricing-section-title'>{t('pricing.faq.title')}</h2>

@@ -1,0 +1,31 @@
+{
+  "nav": {
+    "entry": "AI Short-Video Studio",
+    "betaTag": "Beta",
+    "tooltip": "AI Short-Video Studio (Beta)"
+  },
+  "page": {
+    "title": "AI Short-Video Studio",
+    "desc": "Turn a topic into a finished short video — script, footage, voiceover, subtitles and music, all generated locally.",
+    "statusUp": "Engine online",
+    "statusDown": "Engine offline — install a build that bundles the engine",
+    "llmNotConfigured": "LLM not configured. Set a provider key to enable generation.",
+    "configure": "Configure LLM"
+  },
+  "form": {
+    "subject": "Video topic",
+    "subjectPlaceholder": "e.g. 5 tips for a productive morning routine",
+    "aspect": "Aspect ratio",
+    "voice": "Narrator voice",
+    "subtitle": "Burn-in subtitles",
+    "bgm": "Background music",
+    "count": "Number of videos",
+    "generate": "Generate video",
+    "generating": "Generating…"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "empty": "No tasks yet. Generate your first short video above.",
+    "download": "Download"
+  }
+}

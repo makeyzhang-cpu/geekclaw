@@ -84,6 +84,19 @@ pub async fn run_server(env: ServerEnvironment, services: AppServices) -> Result
     // exceeds the default 5-minute idle threshold. The watch channel
     // propagates graceful-shutdown so the scanner exits on SIGINT/SIGTERM.
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Best-effort launch of the embedded "AI 短视频工坊" engine (MoneyPrinterTurbo,
+    // MIT). If the engine isn't bundled the proxy degrades to HTTP 502 and the
+    // feature stays dormant until a build that ships the engine is installed.
+    if let Err(e) = crate::video_studio::launcher::spawn_video_studio(
+        &env.config.data_dir,
+        shutdown_rx.clone(),
+    )
+    .await
+    {
+        warn!(target: "video_studio", error = %e, "engine supervisor init failed");
+    }
+
     let idle_scanner_handle =
         nomifun_ai_agent::start_idle_scanner(services.agent_runtime_registry.clone(), shutdown_rx, None, None);
 

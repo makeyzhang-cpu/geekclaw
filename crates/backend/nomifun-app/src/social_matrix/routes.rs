@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use axum::extract::{Extension, Path, State};
 use axum::response::Json;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +45,11 @@ use nomifun_db::models::{
 };
 use nomifun_db::CreatePostParams;
 
-use super::engine::{initial_post_status, DriverBrief, PublishConfigView, SocialEngine};
+use super::engine::{
+    initial_post_status, AccountSyncOutcome, DriverBrief, PublishConfigView, SocialEngine,
+    SyncAccountsError,
+};
+use super::quota::SocialQuotaView;
 
 /// 路由状态：只需要引擎（引擎自带仓储与驱动）。
 #[derive(Clone)]
@@ -93,6 +97,10 @@ pub struct MatrixSnapshot {
     pub configured_platforms: Vec<String>,
     /// 当前驱动（聚合 / 官方 / 半自动 + 厂商），供界面显示模式说明。
     pub driver: DriverBrief,
+    /// 加装包额度状态。社媒**不进套餐**，所有用户都要单独买加装包，因此
+    /// 界面必须能区分「未购买 / 已到期 / 超出额度 / 正常」四种情形 ——
+    /// 少一个，用户就会把「没买」误读成「功能坏了」。
+    pub entitlement: SocialQuotaView,
 }
 
 #[derive(Debug, Serialize)]
@@ -291,8 +299,9 @@ async fn matrix_snapshot(
     let repo = engine.repo();
 
     // 顺带按 60s 节流拉一次远端账号：用户在聚合商后台连完账号、回工作台刷新
-    // 就能看到。失败不影响快照（本地缓存照样显示），所以这里的返回值直接丢弃。
-    let _ = engine.maybe_sync_accounts(user_id).await;
+    // 就能看到。拉取失败不影响快照（本地缓存照样显示），但**被额度拦下**要
+    // 保留结果 —— 那是唯一能拿到「远端真实用量」的地方。
+    let sync = engine.maybe_sync_accounts(user_id).await;
 
     let accounts = repo.list_accounts(user_id).await?;
     let posts = repo.list_posts(user_id, SNAPSHOT_POST_LIMIT).await?;
@@ -359,12 +368,22 @@ async fn matrix_snapshot(
         })
         .collect();
 
+    // 额度状态：默认按**本地已落库账号**算。若本轮同步因额度被拦下，则用那一次的
+    // 视图覆盖 —— 里面的 `used` 是**远端真实用量**，比本地准（用户可能刚在聚合商
+    // 后台多连了几个主页，本地还没同步到）。不覆盖的话，界面会显示「额度正常、
+    // 但一个账号都没有」，用户只会以为是自己没连上而反复重连。
+    let entitlement = match sync {
+        AccountSyncOutcome::Blocked(view) => *view,
+        _ => engine.quota_view(user_id).await?,
+    };
+
     Ok(Json(ApiResponse::ok(MatrixSnapshot {
         accounts: accounts.iter().map(AccountView::from_row).collect(),
         posts: post_views,
         metrics: metrics.iter().map(MetricView::from_row).collect(),
         configured_platforms: engine.configured_platforms().await,
         driver: engine.driver_brief().await,
+        entitlement,
     })))
 }
 
@@ -381,7 +400,19 @@ async fn sync_accounts(
             "发布驱动尚未配置（缺少聚合商 API Key），暂时无法拉取账号".to_string(),
         ));
     }
-    let count = state.engine.sync_accounts(user.id.as_str()).await?;
+    let count = match state.engine.sync_accounts(user.id.as_str()).await {
+        Ok(count) => count,
+        // 额度问题要把**原始文案**透出去：它已经写清了「已用 N 组 / 额度 M 组 /
+        // 该去买还是该断开」，再包一层「同步失败」只会把关键信息冲淡。
+        Err(SyncAccountsError::Quota(view)) => {
+            let view = *view;
+            let reason = view
+                .message
+                .unwrap_or_else(|| "社媒矩阵加装包额度不可用".to_string());
+            return Err(AppError::BadRequest(reason));
+        }
+        Err(SyncAccountsError::Other(e)) => return Err(e),
+    };
     Ok(Json(ApiResponse::ok(serde_json::json!({
         "accounts": count,
     }))))

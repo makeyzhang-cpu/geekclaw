@@ -6,6 +6,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Button, Message, Spin, Tabs, Tag, Tooltip } from '@arco-design/web-react';
 import { Broadcast, ChartHistogram, Export, FileEditingOne, Link, ListView } from '@icon-park/react';
 import classNames from 'classnames';
@@ -39,6 +40,7 @@ type TabKey = 'accounts' | 'compose' | 'schedule' | 'delivery' | 'analytics';
  */
 const SocialMatrixPage: React.FC = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const matrix = useSocialMatrix();
   const [tab, setTab] = useState<TabKey>('accounts');
   const [demo, setDemo] = useState(isDemoMode());
@@ -52,6 +54,23 @@ const SocialMatrixPage: React.FC = () => {
   };
 
   const accountCount = matrix.snapshot.accounts.length;
+
+  /**
+   * 加装包额度。社媒**不进套餐**，所以这一项才是「能不能用」的判据，
+   * 而不是套餐档位。额度为 0 是「未购买」这一等状态，界面必须说清下一步
+   * 该做什么（去买 / 去续费 / 去断开账号），不能只说「不可用」。
+   */
+  const quota = matrix.snapshot.entitlement;
+  const quotaBlocked = matrix.status === 'ready' && quota.status !== 'ok';
+  const quotaOver = quota.status === 'over';
+  const quotaTitle =
+    quota.status === 'none'
+      ? '尚未购买「海外社媒矩阵」加装包'
+      : quota.status === 'expired'
+        ? '社媒矩阵加装包已到期'
+        : '已超出加装包额度';
+  const quotaCta =
+    quota.status === 'none' ? '去购买加装包' : quota.status === 'expired' ? '去续费' : '去升级加装包';
 
   const tabItems = useMemo(
     () => [
@@ -216,6 +235,16 @@ const SocialMatrixPage: React.FC = () => {
           <div className='flex-1' />
 
           <div className='flex items-center gap-8px shrink-0'>
+            {matrix.status === 'ready' && quota.groups > 0 && (
+              <Tooltip
+                position='bottom'
+                content={`已购 ${quota.groups} 组 · 已连接 ${quota.used} 组。「1 组」= 1 个品牌在各平台各 1 个账号，同一平台的第 2 个账号占用第 2 组。`}
+              >
+                <span className='text-11px px-8px py-3px rounded-4px cursor-default bg-[var(--color-fill-1)] text-t-tertiary'>
+                  社媒额度 {quota.used}/{quota.groups} 组
+                </span>
+              </Tooltip>
+            )}
             <Tooltip
               position='bottom'
               content={`已连接 ${accountCount} 个账号 · 服务端已配置 ${configuredCount}/6 个平台`}
@@ -236,6 +265,35 @@ const SocialMatrixPage: React.FC = () => {
             </Button>
           </div>
         </div>
+
+        {/* 加装包额度横幅：社媒不进套餐，未购买 / 已到期 / 超量都必须给出下一步动作。
+            这三种情况的处置完全不同（去买 / 去续费 / 去断开账号），所以标题与
+            按钮文案分状态给，不合并成一句「额度不可用」。 */}
+        {quotaBlocked && (
+          <div
+            className={classNames(
+              'mb-12px box-border rounded-8px border border-solid px-16px py-12px text-13px leading-22px text-t-secondary',
+              quotaOver
+                ? 'border-[#ffd8a8] bg-[#fff7e8]'
+                : 'border-[var(--color-border-2)] bg-[var(--color-bg-2)]'
+            )}
+          >
+            <div className='mb-4px flex items-center gap-8px'>
+              <span className='text-14px font-[600] text-t-primary'>{quotaTitle}</span>
+              {quota.groups > 0 && (
+                <Tag size='small' color={quotaOver ? 'orange' : 'gray'}>
+                  已用 {quota.used} / 已购 {quota.groups} 组
+                </Tag>
+              )}
+            </div>
+            {quota.message ?? '额度不可用，暂时无法连接账号或发布内容。'}
+            <div className='mt-10px'>
+              <Button size='small' type='primary' onClick={() => navigate('/pricing')}>
+                {quotaCta}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* 主体 */}
         <div className='box-border rounded-10px border border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)]'>

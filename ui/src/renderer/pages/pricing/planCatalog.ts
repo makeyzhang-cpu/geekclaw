@@ -268,3 +268,96 @@ export const BRAND = {
   primary: '#534AB7',
   secondary: '#7583b2',
 };
+
+/* ------------------------------------------------------------------------- */
+/* 海外社媒矩阵加装包（Social Matrix add-on）                                  */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * 加装包 SKU —— **独立于套餐**的一档商品。
+ *
+ * 关键业务约束（定价 v2，2026-09-17 定）：
+ *   - 海外社媒矩阵 **完全不进套餐**：basic → trade-flagship 五档一律 0 组。
+ *     任何用户想用都必须单独购买加装包，所以它在定价页是**独立分区**，
+ *     不是套餐卡里的一行功能项。
+ *   - 计价单位是「品牌账号组」：1 组 = 1 个品牌 × 各平台（LinkedIn / Facebook /
+ *     Instagram / YouTube / TikTok）各 1 个账号。**同一个平台的第 2 个账号才占用
+ *     第 2 组** —— 这个口径刻意与聚合商（Ayrshare）按 Profile 计费的方式对齐，
+ *     服务端实现与推导见 `crates/backend/nomifun-app/src/social_matrix/quota.rs`。
+ *     用户问「我连了 5 个平台为什么算 3 组」时，答案就在这里。
+ *   - 单组包 ¥1,299 是**保本线**（聚合商 Premium 档 ≈ ¥1,073/月，低于它每卖一单
+ *     就亏一单）。**单组包绝不参与任何折扣。**
+ *   - 年价逐档写死，不走折扣公式：1 组 / 3 组 = 11 个月价，6 组 / 10 组 = 10 个月价。
+ *
+ * `id` 必须与云端 `subscription_plans.plan_id`（迁移 048）**逐字一致**：
+ * 下单时直接把 `id` 当 `plan_id` 发出去，对不上后端会报「未知的套餐或已下架」。
+ *
+ * ⚠️ **待办：套餐客户阶梯折扣尚未实现**（trade-biz 9.5 折 / trade-ops 9 折 /
+ * trade-flagship 8.5 折，且仅 ≥3 组）。暂缓的原因：折扣必须由**服务端**裁定 ——
+ * 只在前端打折会出现「页面显示折后价、扫码却是原价」这种严重的信任问题，
+ * 而当前没有任何「按用户返回有效价」的接口。补齐路径：服务端加
+ * `GET /api/store/social/quote`（返回该用户的组数额度、到期日与各档有效价），
+ * 页面改读它。**不要把折扣规则复制到前端**：两处各算一次，早晚算出两个价。
+ */
+export type SocialAddonSkuId = 'social-1' | 'social-3' | 'social-6' | 'social-10';
+
+export interface SocialAddonSku {
+  /** 云端 `subscription_plans.plan_id`，下单时原样使用。 */
+  id: SocialAddonSkuId;
+  /** 可连接的品牌账号组数。 */
+  groups: number;
+  /** 月价（CNY，列表价）。 */
+  priceMonthly: number;
+  /** 年价（CNY，逐档写死 —— 见上方说明）。 */
+  priceYearly: number;
+  /** 主推档位（3 组）：卡片上加「推荐」标记。 */
+  featured: boolean;
+}
+
+export const SOCIAL_ADDON_SKUS: SocialAddonSku[] = [
+  { id: 'social-1', groups: 1, priceMonthly: 1299, priceYearly: 14289, featured: false },
+  { id: 'social-3', groups: 3, priceMonthly: 2999, priceYearly: 32989, featured: true },
+  { id: 'social-6', groups: 6, priceMonthly: 4999, priceYearly: 49990, featured: false },
+  { id: 'social-10', groups: 10, priceMonthly: 6999, priceYearly: 69990, featured: false },
+];
+
+/** 加装包年付折算成月均（用于与月付对比展示）。 */
+export function addonYearlyPerMonth(sku: SocialAddonSku): number {
+  return Math.round(sku.priceYearly / 12);
+}
+
+/** 加装包年付相比按月付满一年省下的金额。 */
+export function addonYearlySaving(sku: SocialAddonSku): number {
+  return sku.priceMonthly * 12 - sku.priceYearly;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 积分加油包（v5.0.69 Bug4）
+//
+// 1 积分 = 1 Token；1 元 = 10000 积分。4 个档位与云端迁移 049 的
+// `subscription_plans.plan_id = credit-100 / 500 / 2000 / 10000` 一一对应。
+//
+// 加油包不进任何套餐：用户单独购买，金额累加，履约只增 `users.credits`，
+// 不污染 `users.plan`。月度档 = 100万积分（= 100万 Token），年度档 = 1 亿积分。
+// ────────────────────────────────────────────────────────────────────
+export type CreditPackageId = 'credit-100' | 'credit-500' | 'credit-2000' | 'credit-10000';
+
+export interface CreditPackage {
+  /** 云端 `subscription_plans.plan_id`，下单时原样使用。 */
+  id: CreditPackageId;
+  /** 售价 CNY。 */
+  priceYuan: number;
+  /** 发放积分数（= Token 数，1:1）。 */
+  credits: number;
+  /** 主推档位（500 元）：卡片上加「推荐」标记。 */
+  featured: boolean;
+  /** 单价：1 元买多少积分（用于展示 "1 元 = 10000 积分"）。 */
+  creditsPerYuan: number;
+}
+
+export const CREDIT_PACKAGES: CreditPackage[] = [
+  { id: 'credit-100',  priceYuan: 100,  credits: 1000000,   creditsPerYuan: 10000, featured: false },
+  { id: 'credit-500',  priceYuan: 500,  credits: 5000000,   creditsPerYuan: 10000, featured: true  },
+  { id: 'credit-2000', priceYuan: 2000, credits: 20000000,  creditsPerYuan: 10000, featured: false },
+  { id: 'credit-10000', priceYuan: 10000, credits: 100000000, creditsPerYuan: 10000, featured: false },
+];

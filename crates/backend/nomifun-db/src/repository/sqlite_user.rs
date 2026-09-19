@@ -9,7 +9,7 @@ use crate::error::DbError;
 use crate::models::{
     CreditTransaction, HARDWARE_DEPOSIT_STATUS_CREATED, HARDWARE_DEPOSIT_STATUS_PAID,
     HARDWARE_DEPOSIT_STATUS_SHIPPED, HardwareDeposit, HardwareDepositAdminRow, Invitation,
-    ModelPricing, Order, SubscriptionPlan, User,
+    ModelPricing, Order, SocialEntitlement, SubscriptionPlan, User,
 };
 use crate::repository::IUserRepository;
 
@@ -678,6 +678,238 @@ impl IUserRepository for SqliteUserRepository {
             return Err(DbError::NotFound(format!("User '{user_id}' not found")));
         }
         Ok(())
+    }
+
+    // ── 社媒矩阵加装包额度（迁移 047）─────────────────────────────────────
+
+    async fn get_social_entitlement(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<SocialEntitlement>, DbError> {
+        let row = sqlx::query_as::<_, SocialEntitlement>(
+            "SELECT social_groups, social_expires_at FROM users WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        Ok(row)
+    }
+
+    async fn grant_social_addon(
+        &self,
+        user_id: &str,
+        groups: i64,
+        extend_ms: i64,
+    ) -> Result<SocialEntitlement, DbError> {
+        let now = now_ms();
+
+        // 读旧值 + 写新值必须在**同一个事务**里：两次购买并发时若各自「读-算-写」，
+        // 后写的那一次会盖掉前一次的组数，等于客户白买一份。
+        let mut tx = self.pool.begin().await.map_err(DbError::Query)?;
+
+        let prev = sqlx::query_as::<_, SocialEntitlement>(
+            "SELECT social_groups, social_expires_at FROM users WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(DbError::Query)?
+        .ok_or_else(|| DbError::NotFound(format!("User '{user_id}' not found")))?;
+
+        // 组数累加（再买一份 = 扩容，不是覆盖）。
+        let next_groups = prev.social_groups.saturating_add(groups.max(0));
+        // 到期顺延：未到期就从原到期日往后接（不吃掉剩余天数），已过期或首次购买
+        // 则从当前时间起算。`extend_ms <= 0` 时保持原值 —— 否则原本「无到期」的
+        // 账号会被写成一个立刻到期的时刻。
+        let next_expires = if extend_ms > 0 {
+            let base = prev.social_expires_at.unwrap_or(now).max(now);
+            Some(base.saturating_add(extend_ms))
+        } else {
+            prev.social_expires_at
+        };
+
+        sqlx::query(
+            "UPDATE users SET social_groups = ?, social_expires_at = ?, updated_at = ? \
+             WHERE user_id = ?",
+        )
+        .bind(next_groups)
+        .bind(next_expires)
+        .bind(now)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        tx.commit().await.map_err(DbError::Query)?;
+
+        Ok(SocialEntitlement {
+            social_groups: next_groups,
+            social_expires_at: next_expires,
+        })
+    }
+
+    async fn set_social_entitlement(
+        &self,
+        user_id: &str,
+        groups: i64,
+        expires_at: Option<i64>,
+    ) -> Result<(), DbError> {
+        let now = now_ms();
+        let result = sqlx::query(
+            "UPDATE users SET social_groups = ?, social_expires_at = ?, updated_at = ? \
+             WHERE user_id = ?",
+        )
+        .bind(groups.max(0))
+        .bind(expires_at)
+        .bind(now)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+        Ok(())
+    }
+
+    async fn finalize_social_addon_order(
+        &self,
+        reqsn: &str,
+        trxid: &str,
+        user_id: &str,
+        groups: i64,
+        extend_ms: i64,
+    ) -> Result<Option<SocialEntitlement>, DbError> {
+        let now = now_ms();
+        let mut tx = self.pool.begin().await.map_err(DbError::Query)?;
+
+        // 幂等闸门：只有真正完成「非 paid → paid」的那一次才发放。放在事务内，
+        // 与下面的发放在一起提交，中途任何失败都会整体回滚。
+        let transitioned = sqlx::query(
+            "UPDATE orders SET status = 'paid', trxid = ?, paid_at = ? \
+             WHERE reqsn = ? AND status != 'paid'",
+        )
+        .bind(trxid)
+        .bind(now)
+        .bind(reqsn)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        if transitioned.rows_affected() == 0 {
+            // 回调重放：订单早已 paid，额度在首次那轮已经发过，直接返回。
+            tx.commit().await.map_err(DbError::Query)?;
+            return Ok(None);
+        }
+
+        let prev = sqlx::query_as::<_, SocialEntitlement>(
+            "SELECT social_groups, social_expires_at FROM users WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(DbError::Query)?
+        .ok_or_else(|| DbError::NotFound(format!("User '{user_id}' not found")))?;
+
+        let next_groups = prev.social_groups.saturating_add(groups.max(0));
+        let next_expires = if extend_ms > 0 {
+            let base = prev.social_expires_at.unwrap_or(now).max(now);
+            Some(base.saturating_add(extend_ms))
+        } else {
+            prev.social_expires_at
+        };
+
+        sqlx::query(
+            "UPDATE users SET social_groups = ?, social_expires_at = ?, updated_at = ? \
+             WHERE user_id = ?",
+        )
+        .bind(next_groups)
+        .bind(next_expires)
+        .bind(now)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        tx.commit().await.map_err(DbError::Query)?;
+
+        Ok(Some(SocialEntitlement {
+            social_groups: next_groups,
+            social_expires_at: next_expires,
+        }))
+    }
+
+    /// 加油包履约：单一事务 mark_order_paid + `users.credits += credits`，
+    /// 与 social_addon 同款幂等闸门（仅 `status != 'paid'` 行进 rows_affected），
+    /// 回调重放时直接返回 `None`，不重复发放。
+    async fn finalize_credit_addon_order(
+        &self,
+        reqsn: &str,
+        trxid: &str,
+        user_id: &str,
+        credits: i64,
+    ) -> Result<Option<i64>, DbError> {
+        let now = now_ms();
+        let mut tx = self.pool.begin().await.map_err(DbError::Query)?;
+
+        // 1) 幂等闸门：仅首次「非 paid → paid」返回 rows_affected=1。
+        let transitioned = sqlx::query(
+            "UPDATE orders SET status = 'paid', trxid = ?, paid_at = ? \
+             WHERE reqsn = ? AND status != 'paid'",
+        )
+        .bind(trxid)
+        .bind(now)
+        .bind(reqsn)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        if transitioned.rows_affected() == 0 {
+            // 回调重放：首次已发放过，返回 None 让调用方打 info 日志。
+            tx.commit().await.map_err(DbError::Query)?;
+            return Ok(None);
+        }
+
+        // 2) 一次性事务里直接累加 credits，避免走 add_credits 单独事务
+        //    （避免两段提交时其中一段失败的潜在脏状态）。
+        let updated = sqlx::query(
+            "UPDATE users SET credits = credits + ?, updated_at = ? WHERE user_id = ?",
+        )
+        .bind(credits.max(0))
+        .bind(now)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?;
+
+        if updated.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User '{user_id}' not found")));
+        }
+
+        let new_balance: i64 = sqlx::query_scalar("SELECT credits FROM users WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(DbError::Query)?;
+
+        tx.commit().await.map_err(DbError::Query)?;
+        Ok(Some(new_balance))
+    }
+
+    /// 读 provider 的 platform 字段（v5.0.69 Bug4 计费分流依据）。
+    /// `Ok(None)` = provider 不存在；调用方按"保守视为计费"处理。
+    async fn get_provider_platform(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<String>, DbError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT platform FROM providers WHERE id = ?")
+                .bind(provider_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(DbError::Query)?;
+        Ok(row.map(|r| r.0))
     }
 
     async fn create_order(&self, order: &Order) -> Result<Order, DbError> {
@@ -1604,5 +1836,154 @@ mod tests {
         assert!(!repo.mark_hardware_deposit_shipped(reqsn).await.unwrap());
         let row = repo.get_hardware_deposit_by_reqsn(reqsn).await.unwrap().unwrap();
         assert_eq!(row.status, HARDWARE_DEPOSIT_STATUS_CREATED);
+    }
+
+    // ── 社媒矩阵加装包额度（迁移 047 / 048）────────────────────────────────
+    //
+    // 这一段覆盖的是**收钱路径**：组数怎么算、到期怎么顺延、回调重放会不会重复
+    // 发放、发放失败时订单状态会不会被留在 `paid`。最后一条是重点 —— 一旦订单
+    // 先落 `paid`、发放再失败，收银宝重放会因为「已 paid」被幂等闸门跳过，
+    // 客户付了钱拿不到额度，而且没有任何人工环节会发现。
+
+    const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+    async fn seed_addon_order(repo: &SqliteUserRepository, user_id: &str, plan: &str, reqsn: &str) {
+        sqlx::query(
+            "INSERT INTO orders \
+             (user_id, plan, period, amount_fen, credits, status, reqsn, created_at) \
+             VALUES (?, ?, 'annual', 299900, 0, 'created', ?, ?)",
+        )
+        .bind(user_id)
+        .bind(plan)
+        .bind(reqsn)
+        .bind(now_ms())
+        .execute(&repo.pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn social_entitlement_starts_unpurchased() {
+        let (repo, _db) = setup().await;
+        let u = repo.create_user("social_a", "h").await.unwrap();
+
+        let ent = repo
+            .get_social_entitlement(&u.user_id)
+            .await
+            .unwrap()
+            .expect("用户行应存在");
+        assert_eq!(ent.social_groups, 0);
+        assert_eq!(ent.social_expires_at, None);
+        assert!(!ent.is_purchased());
+        assert!(!ent.is_active_at(now_ms()));
+    }
+
+    /// 再买一份 = 扩容（累加），且到期从**原到期日**往后接，不吃掉剩余天数。
+    #[tokio::test]
+    async fn social_addon_repeat_purchase_accumulates_and_stacks_expiry() {
+        let (repo, _db) = setup().await;
+        let u = repo.create_user("social_b", "h").await.unwrap();
+
+        let first = repo
+            .grant_social_addon(&u.user_id, 3, 30 * DAY_MS)
+            .await
+            .unwrap();
+        assert_eq!(first.social_groups, 3);
+        let first_expiry = first.social_expires_at.expect("首次购买应写入到期时间");
+
+        let second = repo
+            .grant_social_addon(&u.user_id, 1, 30 * DAY_MS)
+            .await
+            .unwrap();
+        assert_eq!(second.social_groups, 4, "重复购买必须累加，覆盖等于让客户白买");
+        assert_eq!(
+            second.social_expires_at,
+            Some(first_expiry + 30 * DAY_MS),
+            "续费应从原到期日顺延，而不是从现在重新起算"
+        );
+    }
+
+    /// 已过期的账号续费：新的有效期必须落在未来（否则续了费仍然是过期态）。
+    #[tokio::test]
+    async fn social_addon_expired_baseline_restarts_from_now() {
+        let (repo, _db) = setup().await;
+        let u = repo.create_user("social_c", "h").await.unwrap();
+        repo.set_social_entitlement(&u.user_id, 2, Some(now_ms() - 10 * DAY_MS))
+            .await
+            .unwrap();
+
+        let ent = repo
+            .grant_social_addon(&u.user_id, 1, 30 * DAY_MS)
+            .await
+            .unwrap();
+        assert_eq!(ent.social_groups, 3);
+        assert!(ent.social_expires_at.unwrap() > now_ms());
+    }
+
+    /// `extend_ms = 0` 表示「不设到期」。不能被写成「立刻过期」的时刻，否则
+    /// 刚发的额度下一毫秒就失效。
+    #[tokio::test]
+    async fn social_addon_zero_extension_keeps_no_expiry() {
+        let (repo, _db) = setup().await;
+        let u = repo.create_user("social_d", "h").await.unwrap();
+
+        let ent = repo.grant_social_addon(&u.user_id, 2, 0).await.unwrap();
+        assert_eq!(ent.social_groups, 2);
+        assert_eq!(ent.social_expires_at, None);
+        assert!(ent.is_active_at(now_ms()), "无到期时间视为长期有效");
+    }
+
+    /// 首次履约发放 + 回调重放必须只发一次。
+    #[tokio::test]
+    async fn finalize_social_addon_grants_once_then_ignores_replay() {
+        let (repo, _db) = setup().await;
+        let u = repo.create_user("social_e", "h").await.unwrap();
+        seed_addon_order(&repo, &u.user_id, "social_addon_3", "REQ-1").await;
+
+        let granted = repo
+            .finalize_social_addon_order("REQ-1", "TRX-1", &u.user_id, 3, 30 * DAY_MS)
+            .await
+            .unwrap();
+        assert_eq!(granted.expect("首次履约应发放额度").social_groups, 3);
+
+        let order = repo.get_order_by_reqsn("REQ-1").await.unwrap().unwrap();
+        assert_eq!(order.status, "paid");
+        assert_eq!(order.trxid.as_deref(), Some("TRX-1"));
+
+        // 收银宝回调会重放同一个 reqsn：不得第二次发放。
+        let replay = repo
+            .finalize_social_addon_order("REQ-1", "TRX-1", &u.user_id, 3, 30 * DAY_MS)
+            .await
+            .unwrap();
+        assert!(replay.is_none(), "重放必须被幂等闸门拦下");
+        assert_eq!(
+            repo.get_social_entitlement(&u.user_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .social_groups,
+            3,
+            "重放不得把组数再加一遍"
+        );
+    }
+
+    /// 🔴 发放失败时，订单状态必须**一起回滚** —— 这是「订单转 paid」与「发放额度」
+    /// 必须同事务的根因。留在 `paid` 就等于静默丢单。
+    #[tokio::test]
+    async fn finalize_social_addon_rolls_back_order_when_grant_fails() {
+        let (repo, _db) = setup().await;
+        seed_addon_order(&repo, "no-such-user", "social_addon_1", "REQ-2").await;
+
+        let err = repo
+            .finalize_social_addon_order("REQ-2", "TRX-2", "no-such-user", 1, 30 * DAY_MS)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DbError::NotFound(_)), "拿不到用户行应报 NotFound");
+
+        let order = repo.get_order_by_reqsn("REQ-2").await.unwrap().unwrap();
+        assert_eq!(
+            order.status, "created",
+            "发放失败必须整体回滚，订单不得停在 paid（否则重试会被幂等闸门跳过）"
+        );
     }
 }

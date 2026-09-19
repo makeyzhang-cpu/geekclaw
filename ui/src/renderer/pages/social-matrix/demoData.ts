@@ -25,6 +25,9 @@ const now = Date.now();
 export const DEMO_SNAPSHOT: SocialMatrixSnapshot = {
   // 只连了两个平台，其余四个在界面上呈现「待接入」——这正是真实起步状态。
   configuredPlatforms: ['linkedin', 'facebook'],
+  // 演示数据要展示**功能可用**的形态，所以额度给正常态（3 组里用了 1 组）。
+  // 演示模式下把额度设成 `none` 会让整页被「去购买」横幅占满，看不到工作台本身。
+  entitlement: { groups: 3, used: 1, status: 'ok', expiresAt: now + 90 * DAY },
   accounts: [
     {
       id: 'demo-li-person',

@@ -26,12 +26,14 @@
 import { httpRequest } from '@/common/adapter/httpBridge';
 import type {
   SocialAccount,
+  SocialAddonQuota,
   SocialMatrixSnapshot,
   SocialMetricPoint,
   SocialPlatform,
   SocialPost,
   SocialPostTargetResult,
   SocialPostVersion,
+  SocialQuotaStatus,
   SocialCloudState,
 } from './types';
 import { ALL_PLATFORMS } from './platforms';
@@ -65,6 +67,8 @@ interface CloudMatrixResponse {
   posts?: unknown[];
   metrics?: unknown[];
   configured_platforms?: unknown[];
+  /** 加装包额度（迁移 047）。社媒不进套餐，这一项决定整页能不能用。 */
+  entitlement?: unknown;
 }
 
 interface CloudConnectResponse {
@@ -288,6 +292,32 @@ export async function fetchMatrixSnapshot(): Promise<SocialMatrixSnapshot> {
       .map(parseMetric)
       .filter((m): m is SocialMetricPoint => m !== null),
     configuredPlatforms: configured,
+    entitlement: parseEntitlement(resp?.entitlement),
+  };
+}
+
+const QUOTA_STATUSES: readonly SocialQuotaStatus[] = ['ok', 'none', 'expired', 'over'];
+
+/**
+ * 解析加装包额度。
+ *
+ * 缺字段 / 认不出的状态一律**按未购买**（`none`）处理：那是最保守的一侧，
+ * 界面会引导去购买而不是假装可用。反过来（认不出就当 `ok`）会让用户以为
+ * 自己能发帖，点了才失败 —— 更糟。
+ */
+function parseEntitlement(raw: unknown): SocialAddonQuota {
+  const r = asRecord(raw);
+  const status = asString(r?.status);
+  return {
+    groups: asNumber(r?.groups) ?? 0,
+    used: asNumber(r?.used) ?? 0,
+    // 云端字段是 snake_case（`expires_at`），其余字段恰好同名。
+    expiresAt: asNumber(r?.expires_at),
+    status:
+      status && (QUOTA_STATUSES as readonly string[]).includes(status)
+        ? (status as SocialQuotaStatus)
+        : 'none',
+    message: asString(r?.message),
   };
 }
 

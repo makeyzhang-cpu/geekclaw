@@ -1,7 +1,7 @@
 {
   "menuEntry": "套餐与定价",
   "title": "选择适合你的办公盒子方案",
-  "subtitle": "端侧算力盒子 + AI 数字员工。从通用 AI 工作站到外贸业务 / 运营双系统，按团队规模选档；积分按 token 实际消耗结算，用多少扣多少。",
+  "subtitle": "1 积分 = 1 Token；订阅与加油包均可叠加使用；本地模型与用户自配模型免扣积分，按 token 实际消耗结算。",
   "monthly": "月付",
   "yearly": "年付",
   "yearlySave": "年付省 ¥{{amount}}",
@@ -12,6 +12,14 @@
     "title": "模型按需计费（积分 / 1K tokens）",
     "empty": "暂无模型价格，请联系管理员配置。",
     "per1k": "积分 / 1K"
+  },
+  "creditPackage": {
+    "title": "加油包",
+    "subtitle": "1 积分 = 1 Token；注册即送 10 万积分，月度订阅送 100 万积分，年度订阅送 1 亿积分。加油包单独购买，永久有效（积分不过期）。",
+    "creditsUnit": " 积分",
+    "tagline": "¥{{yuan}} = {{tokens}} 积分（1:1 当 Token 用）",
+    "cta": "立即购买",
+    "note": "加油包与套餐 / 社媒加装包完全独立，可叠加购买；履约后积分直接进入用户余额，本地模型与用户自配模型不计扣。"
   },
   "faq": {
     "title": "常见问题",
@@ -56,11 +64,31 @@
     }
   },
   "badge": {
-    "allIncluded": "全功能"
+    "allIncluded": "全功能",
+    "recommended": "推荐"
   },
   "yearlyPerMonthEq": "折合 ¥{{price}} / 月",
   "cta": {
     "subscribe": "订阅"
+  },
+  "addon": {
+    "title": "海外社媒矩阵加装包",
+    "subtitle": "LinkedIn / Facebook / Instagram / YouTube / TikTok 一稿多投、定时发布、指标回收。该能力不包含在任何套餐内，需单独购买加装包。",
+    "groups_other": "{{count}} 个品牌账号组",
+    "cta": "购买加装包",
+    "note": "「1 组」= 1 个品牌在以上各平台各 1 个账号；同一平台的第 2 个账号才占用第 2 组。加装包按组数计费，与套餐档位无关；有效期到期后需续费，已连接的账号与历史内容会保留。",
+    "social-1": {
+      "tagline": "单品牌起步：一个品牌铺满五个平台"
+    },
+    "social-3": {
+      "tagline": "多品牌团队的常用规模，单组成本更低"
+    },
+    "social-6": {
+      "tagline": "矩阵化运营与代运营团队的批量档位"
+    },
+    "social-10": {
+      "tagline": "多品牌、多市场矩阵，单组成本最低"
+    }
   },
   "hardware": {
     "title": "端侧算力盒子",

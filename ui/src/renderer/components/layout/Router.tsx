@@ -34,6 +34,7 @@ const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTa
 const ComingSoon = React.lazy(() => import('@renderer/components/ComingSoon'));
 const WorkshopHomePage = React.lazy(() => import('@renderer/pages/workshop/WorkshopHomePage'));
 const WorkshopListPage = React.lazy(() => import('@renderer/pages/workshop'));
+const VideoStudioPage = React.lazy(() => import('@renderer/pages/video-studio/VideoStudioPage'));
 const ReferralPage = React.lazy(() => import('@renderer/pages/referral'));
 const LobsterPage = React.lazy(() => import('@renderer/pages/lobster'));
 const TerminalSessionPage = React.lazy(() => import('@renderer/pages/terminal/TerminalSessionPage'));
@@ -326,6 +327,8 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
               /workshop/:id → 保留原 WorkshopListPage（深链接兼容）。 */}
           <Route path='/workshop' element={withRouteFallback(WorkshopHomePage)} />
           <Route path='/workshop/:id/*' element={withRouteFallback(WorkshopListPage)} />
+          {/* AI 创艺工作台 — embedded MoneyPrinterTurbo engine (MIT) front-end. */}
+          <Route path='/video-studio' element={withRouteFallback(VideoStudioPage)} />
           {/* 分享邀约有奖分销 (Referral / affiliate) */}
           <Route path='/referral' element={withRouteFallback(ReferralPage)} />
           {/* 端侧智能体盒子 (Edge Agent Box) */}

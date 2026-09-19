@@ -28,6 +28,7 @@ import {
   SiderSectionHeader,
   SiderSettingsEntry,
   SiderWorkshopEntry,
+  SiderVideoStudioEntry,
   SiderUserManagementEntry,
   SiderWorkCommunityEntry,
   SiderForeignTradeEntry,
@@ -119,6 +120,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const handleAssetLibraryClick = () => navTo('/assets');
   const handleNomiClick = () => navTo('/geekclaw');
   const handleWorkshopClick = () => navTo('/workshop');
+  const handleVideoStudioClick = () => navTo('/video-studio');
   const handleCustomerServiceClick = () => navTo('/customer-service');
   const handleSettingsClick = () => navTo('/settings/system');
   const handleSkillsClick = () => navTo('/skills');
@@ -287,6 +289,14 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleWorkshopClick}
+            />
+            {/* AI 创艺工作台 — embedded MoneyPrinterTurbo engine (MIT) */}
+            <SiderVideoStudioEntry
+              isMobile={isMobile}
+              isActive={isRouteActive('/video-studio')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleVideoStudioClick}
             />
             {/* AI营销智能体 — GEO 营销矩阵的独立板块 */}
             <SiderSectionHeader label={t('common.siderSection.marketing')} collapsed={collapsed} />

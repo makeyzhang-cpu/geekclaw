@@ -336,3 +336,32 @@ pub struct SocialDuePostRow {
     pub user_id: String,
     pub scheduled_at: Option<i64>,
 }
+
+// ── 8. 加装包额度（迁移 047，列落在 `users` 表上） ─────────────────────────
+
+/// 社媒矩阵加装包额度。社媒**不进套餐**，所有用户都必须单独买加装包，
+/// 因此「额度为 0」是**未购买**这一等状态，不是异常。
+///
+/// 单位是「品牌账号组」：1 组 = 1 个品牌 × 各平台 1 个账号。额度口径（各平台
+/// 账号数的**最大值**，不是账号总数）与聚合商的 Profile 计费方式对齐，
+/// 推导过程见迁移 047 的文件头 —— 改动前务必先读。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
+pub struct SocialEntitlement {
+    /// 已购买的组数。`0` = 未购买。
+    pub social_groups: i64,
+    /// 到期时间（epoch millis）。`None` = 无到期（后台手工开通）。
+    pub social_expires_at: Option<i64>,
+}
+
+impl SocialEntitlement {
+    /// 是否已购买（组数 > 0）。**不含到期判断** —— 到期由调用方按当前时间判定，
+    /// 因为本结构体刻意不带时钟依赖，便于单测。
+    pub fn is_purchased(&self) -> bool {
+        self.social_groups > 0
+    }
+
+    /// 在给定时刻是否仍然有效（已购买且未过期）。
+    pub fn is_active_at(&self, now_ms: i64) -> bool {
+        self.is_purchased() && self.social_expires_at.map(|t| t > now_ms).unwrap_or(true)
+    }
+}

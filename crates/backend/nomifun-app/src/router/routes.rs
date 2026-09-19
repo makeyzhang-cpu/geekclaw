@@ -28,6 +28,8 @@ use crate::social_matrix::social_matrix_routes;
 use nomifun_customer_service::{cs_widget_public_routes, customer_service_routes};
 use nomifun_workshop::{workshop_public_routes, workshop_routes};
 use nomifun_creation::creation_routes;
+use crate::video_studio::proxy::{video_studio_public_routes, video_studio_routes};
+use crate::video_studio::state::VideoStudioState;
 use nomifun_conversation::{conversation_ops_routes, conversation_routes};
 use nomifun_cron::cron_routes;
 use nomifun_extension::{extension_routes, hub_routes, skill_routes};
@@ -1052,6 +1054,23 @@ pub fn create_router_with_all_state(
     let ws_routes = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .with_state(ws_state.clone());
+
+    // ── AI 短视频工坊 (embedded MoneyPrinterTurbo engine, MIT) ─────────────────
+    // Authenticated proxy of the engine's REST API; public GET routes below serve
+    // media subresources (<video>/<img>) the same way workshop_public does.
+    let video_studio_state = VideoStudioState::new(services.data_dir.clone());
+    let video_studio_authenticated = protect_instance_owner(
+        Router::new().nest(
+            "/api/video-studio",
+            video_studio_routes(video_studio_state.clone()),
+        ),
+        &auth_mw_state,
+        &instance_owner_state,
+    );
+    let video_studio_public = Router::new().nest(
+        "/video-studio-public",
+        video_studio_public_routes(video_studio_state.clone()),
+    );
     tracing::info!(
         elapsed_ms = boot.elapsed().as_millis(),
         "startup: route groups built"
@@ -1157,7 +1176,8 @@ pub fn create_router_with_all_state(
         .merge(expert_market_authenticated)
         .merge(social_authenticated)
         .merge(co_agent_authenticated)
-        .merge(capability_authenticated);
+        .merge(capability_authenticated)
+        .merge(video_studio_authenticated);
 
     // Phase 2b: mount the login-browser routes (browser-use builds only).
     #[cfg(feature = "browser-use")]
@@ -1184,6 +1204,7 @@ pub fn create_router_with_all_state(
     .merge(public_assets)
     .merge(companion_public)
     .merge(workshop_public)
+    .merge(video_studio_public)
     .merge(cs_widget_public)
     .layer(middleware::from_fn(security_headers_middleware));
 
